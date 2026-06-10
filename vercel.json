@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "functions": {
+    "api/chat.js": {
+      "maxDuration": 90
+    },
+    "api/session/start.js": {
+      "maxDuration": 15
+    },
+    "api/session/end.js": {
+      "maxDuration": 15
+    },
+    "api/session/manager.js": {
+      "maxDuration": 30
+    },
+    "api/dashboard/sessions.js": {
+      "maxDuration": 15
+    }
+  },
+  "routes": [
+    {
+      "src": "/dashboard",
+      "dest": "/dashboard/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/widget/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Cache-Control", "value": "public, max-age=3600" },
+        { "key": "Content-Type", "value": "application/javascript" }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
+    }
+  ]
+}
