@@ -1,14 +1,14 @@
-# Mosaic AI Recommendation Chat Agent
+# Car Parts AI Recommendation Chat Agent
 
-Custom Claude-powered chat widget and analytics dashboard for Новая Мозаика.
-Replaces Voiceflow. Powered by Claude Haiku via a Vercel serverless proxy.
+Custom Claude-powered chat widget and analytics dashboard for car parts e-commerce.
+Powered by Claude Haiku via a Vercel serverless proxy.
 
 ---
 
 ## Project structure
 
 ```
-mosaic-recom/
+Car-Parts-Ai-Recommendation/
 ├── api/
 │   ├── dashboard/
 │   │   └── sessions.js        ← Sessions data endpoint for dashboard
@@ -19,7 +19,7 @@ mosaic-recom/
 │   ├── chat.js                ← Vercel serverless function (Claude proxy)
 │   └── image.js               ← Image handling endpoint
 ├── dashboard/
-│   └── index.html             ← Admin analytics dashboard (ИИ Аналитика)
+│   └── index.html             ← Admin analytics dashboard
 ├── widget/
 │   └── chat-widget.js         ← Chat UI loaded by your landing page
 ├── apple-touch-icon.png       ← PWA / bookmark icon
@@ -31,29 +31,26 @@ mosaic-recom/
 
 ---
 
-## Step 1 — Create GitHub repo
+## Step 1 — GitHub repo
 
-1. Go to https://github.com/new
-2. Repository name: `mosaic-recom`
-3. Private ✅
-4. Click **Create repository**
-5. In VS Code terminal:
-   ```bash
-   cd path\to\mosaic-recom
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/mosaic-recom.git
-   git push -u origin main
-   ```
+Repository is already created at:
+```
+https://github.com/Aris1672/Car-Parts-Ai-Recommendation.git
+```
+
+To push changes from VS Code terminal:
+```bash
+git add .
+git commit -m "describe what you changed"
+git push
+```
 
 ---
 
 ## Step 2 — Deploy to Vercel
 
 1. Go to https://vercel.com/new
-2. Click **Import Git Repository** → select `mosaic-recom`
+2. Click **Import Git Repository** → select `Car-Parts-Ai-Recommendation`
 3. Framework Preset: **Other**
 4. Click **Deploy**
 
@@ -71,63 +68,64 @@ mosaic-recom/
 
 ---
 
-## Step 4 — Update the widget URL
+## Step 4 — Fill in the TODO placeholders
+
+Before deploying, open `api/chat.js` and `widget/chat-widget.js` and replace every `TODO` with real values:
+
+| Placeholder | What to put |
+|---|---|
+| `TODO_COMPANY_NAME` | Your client's company name |
+| `TODO_SITE.ru` | Their website domain |
+| `TODO_PHONE` | Contact phone (display format) |
+| `TODO_PHONE_DIGITS_ONLY` | Same phone, digits only e.g. `+79991234567` |
+| `TODO_EMAIL` | Contact email |
+| `TODO_ADDRESS` | Company address |
+| `TODO_HOURS` | Working hours e.g. `Пн-Пт 09:00–18:00` |
+| `TODO-YOUR-CATALOG-PROXY.vercel.app` | Catalog API endpoint URL |
+| `TODO-YOUR-PROJECT.vercel.app` | This project's Vercel URL (set after deploy) |
+
+---
+
+## Step 5 — Update the widget URL
 
 After deployment, Vercel gives you a URL like:
-`https://mosaic-recom.vercel.app`
+`https://car-parts-ai-recommendation.vercel.app`
 
 1. Open `widget/chat-widget.js`
 2. Find this line near the top:
    ```js
-   const AGENT_URL = (window.MOSAIC_AGENT_URL || 'https://mosaic-recom.vercel.app') + '/api/chat';
+   const BASE_URL = window.AGENT_URL || 'https://TODO-YOUR-PROJECT.vercel.app';
    ```
-3. Replace `mosaic-recom.vercel.app` with your actual Vercel URL if different
+3. Replace the TODO with your actual Vercel URL
 4. Commit and push — Vercel auto-redeploys
 
 ---
 
-## Step 5 — Update your landing page (index.html)
+## Step 6 — Add the widget to the client's landing page
 
-### Remove the Voiceflow block:
-```html
-<!-- DELETE THIS ENTIRE BLOCK -->
-<script>
-  window.addEventListener('load', function() {
-    setTimeout(function() {
-      (function(d, t) {
-        ...voiceflow code...
-      })(document, 'script');
-    }, 2000);
-  });
-</script>
-```
-
-### Add the new widget (before `</body>`):
+Add before `</body>`:
 ```html
 <!-- AI Chat Widget -->
 <script>
-  window.MOSAIC_AGENT_URL = 'https://mosaic-recom.vercel.app';
+  window.AGENT_URL = 'https://car-parts-ai-recommendation.vercel.app';
 </script>
-<script src="https://mosaic-recom.vercel.app/widget/chat-widget.js" defer></script>
+<script src="https://car-parts-ai-recommendation.vercel.app/widget/chat-widget.js" defer></script>
 ```
 
-### Wire up the "Начать диалог с ИИ" button:
-Find:
+Wire up any existing chat button:
 ```html
-<button class="ai-start-btn" onclick="window.voiceflow && window.voiceflow.chat && window.voiceflow.chat.open()">
-```
-Replace with:
-```html
-<button class="ai-start-btn" onclick="window.MosaicChat && window.MosaicChat.open()">
+<button onclick="window.AutoChat && window.AutoChat.open()">
+  Подобрать запчасть
+</button>
 ```
 
 ---
 
-## Step 6 — Access the Analytics Dashboard
+## Step 7 — Access the Analytics Dashboard
 
 The admin dashboard is available at:
 ```
-https://mosaic-recom.vercel.app/dashboard
+https://car-parts-ai-recommendation.vercel.app/dashboard
 ```
 
 It shows:
@@ -139,18 +137,14 @@ It shows:
 
 ---
 
-## Step 7 — Test locally
-
-Open `index.html` directly in Chrome (`file://`).
-The widget appears bottom-right. Click it — proactive messages appear.
-Type a message or click a quick button.
+## Step 8 — Test locally
 
 To test the API locally with Vercel CLI:
 ```bash
 npm i -g vercel
 vercel dev
 ```
-Then set `window.MOSAIC_AGENT_URL = 'http://localhost:3000'` temporarily.
+Then set `window.AGENT_URL = 'http://localhost:3000'` temporarily in the widget.
 
 ---
 
@@ -159,11 +153,31 @@ Then set `window.MOSAIC_AGENT_URL = 'http://localhost:3000'` temporarily.
 1. User opens the chat widget on the landing page
 2. Widget sends `POST /api/chat` with the conversation history
 3. `api/session/start.js` creates a session and logs it via `api/session/manager.js`
-4. Vercel function fetches the live catalog and injects it into Claude's system prompt
+4. Vercel function fetches the live parts catalog and injects it into Claude's system prompt
 5. Claude returns a response with optional `<<<PRODUCTS>>>` and `<<<BUTTONS>>>` blocks
 6. Widget parses and renders product carousels + quick-action buttons
 7. When the user requests a manager, `api/session/end.js` closes the session
 8. Dashboard reads session data from `api/dashboard/sessions.js` and renders analytics
+
+---
+
+## Catalog API field mapping
+
+The catalog endpoint must return a `products` array. Each product should have:
+
+| Field | Description |
+|---|---|
+| `article` | Part number / SKU |
+| `name` | Part name |
+| `brand` | Manufacturer brand |
+| `category` | Part category (e.g. тормоза, подвеска) |
+| `compatibility` | Compatible car makes/models |
+| `price` | Price in RUB |
+| `stock` | Units in stock |
+| `url` | Product page URL |
+| `picture` | Product image URL |
+
+If your catalog uses different field names, update the mapping in `api/chat.js` inside `fetchCatalog()`.
 
 ---
 
