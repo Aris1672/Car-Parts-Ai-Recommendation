@@ -40,9 +40,21 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 
 ### 🕓 Currently blocked on two replies (as of 2026-07-02)
 1. **Client** — warehouse/brand scope, pricing profile, stock exclusions, exact-quantity need (question sent).
-2. **ABCP support** — whether TecDoc Aftermarket (or the pricier Каталог ТО) actually exposes an API method for compatibility data, vs. front-end-only (question sent).
+2. ~~**ABCP support** — whether TecDoc Aftermarket (or the pricier Каталог ТО) actually exposes an API method for compatibility data, vs. front-end-only~~ **✅ ANSWERED (see below) — only #1 (client) remains open.**
 
-Nothing else should be built or purchased until at least the ABCP support reply comes back — it determines whether `compatibility` is buildable at all right now, and if so, which of the two paid tiers is worth recommending to the client.
+### ✅ ABCP support's answer — compatibility data question RESOLVED
+
+**Received 2026-07-02.** Direct quote/summary of their reply:
+1. **TecDoc/Aftermarket catalog has NO API access at all** — front-end/display only. Cross this off entirely as an option.
+2. **"Каталог для ТО по API" (the 48,000₽ option) is actually Carbase catalog data via API — completely different service from TecDoc.** This resolves a naming confusion: what we'd been calling "Каталог ТО" is Carbase, ABCP's own compatibility database, not a TecDoc-derived one.
+3. **TecDoc has exited the Russian market**, so its data (the 1,200₽/мес Aftermarket option) **cannot be updated going forward** — permanently frozen. Confirms it's a dead end regardless of API access.
+4. **Carbase catalog is already active by default for this account (id2319) — no purchase needed for the data itself.** This explains the "Характеристики" popup and "Из справочника АВСР" we found earlier — that's Carbase, already live on the front-end. **The 48,000₽ fee is solely to unlock API access** to data the client already has and is already using on-site.
+
+**Net result:** the only viable, real path for programmatic compatibility data is **Carbase API access, 48,000₽ one-time**, covering ~10 maintenance product groups (filters, brakes, spark plugs, etc.). No cheaper/free alternative exists via API. TecDoc/Aftermarket is not worth pursuing in any form.
+
+**Follow-up sent to same ticket (#0737086), 2026-07-02 17:55** — asked ABCP support for: (1) Carbase API documentation — endpoint structure, auth method, rate limits; (2) whether "Каталог для ТО через API" is *already* enabled on id2319, and if so, exact scope (which endpoints, limits, response format); (3) confirmation that id2319 is technically ready to use the API immediately after payment (i.e. no separate setup/activation delay). **Awaiting reply — support office is outside working hours (Пн–Пт 08:00–19:00 MSK) at time of sending, so expect delay until their next business window.**
+
+**Next action once this reply arrives:** present the full picture (cost + real endpoint/scope details) to the client as a clear yes/no purchase decision.
 
 ### Key architecture decision
 **One combined YML export, not separate exports per brand.** Brand filtering (BMW vs Mercedes vs Jaguar etc.) should happen at the code level (filter by `<vendor>` field in the proxy or in `chat.js`'s `fetchCatalog()`), not as multiple separate ABCP export configs. Reasons: avoids maintaining N scheduled jobs/URLs/proxies, and every offer already carries a `<vendor>` field to filter on.
@@ -72,7 +84,7 @@ The field names below (`article`, `brand`, `compatibility`, `stock`) were an ini
 | `name` | `name` | matches |
 | `brand` | `vendor` | |
 | `category` | `categoryId` | numeric ID only — needs a lookup against the `<categories>` block (id → readable name) in the same feed, similar to how pixmosaic flattened `<param>` tags |
-| `compatibility` | **not in the YML feed — but a dedicated API exists.** Two related things confirmed: (1) "Каталог ТО" in `API.ABCP.Client` docs, ~40k modifications, 10 product groups only. (2) A fuller TecDoc-style REST API with official NodaSoft PHP client (`getAdaptability($articleId)` = direct part→vehicle fitment lookup) — **but requires separate `userKey` auth, likely a paid add-on, not yet confirmed for this client's account.** | Not yet implemented. Pending ABCP support's answer on cost/access for the TecDoc-style API specifically. |
+| `compatibility` | **RESOLVED: real option is Carbase API, 48 000₽ one-time.** TecDoc/Aftermarket confirmed to have no API access and is permanently frozen (TecDoc exited Russia). Carbase catalog is already active by default on this account — the fee only unlocks API access, not the data itself. Covers ~10 maintenance product groups. | Pending client's decision on whether to pay for API access (question not yet sent). Until then, agent falls back to name/vendor keyword matching only. |
 | `price` | `price` | matches |
 | `stock` | **not present as a quantity — only `available="true/false"` boolean** | If client needs real quantities, the export's "Наличие товара" setting and/or a different data source will need revisiting. |
 | `url` | `url` | matches. **This is also the product card's button target** — confirmed it's a direct link to a fully working product page (live stock, price, analogs, working add-to-cart on the site itself). Open in a new tab from the widget. |
