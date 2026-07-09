@@ -1,29 +1,50 @@
 /**
  * api/session/manager.js — Vercel Serverless Function
- * Triggered when user presses "Connect with manager" button.
+ * Triggered when: (1) the user explicitly asks for a manager/human,
+ * (2) the agent has no compatibility/fitment data for a requested part,
+ * or (3) the agent can't find any matching product at all. Also triggered
+ * by the widget's "Connect with manager" button.
  *
- * 1. Asks Claude to produce a concise lead summary from the conversation
- * 2. Saves summary + manager_requested=true to Supabase
- * 3. POSTs the summary to Bitrix24 webhook
+ * 1. Asks Claude to produce a structured lead summary (contact info +
+ *    context) from the conversation
+ * 2. Creates a real CRM Lead in Bitrix24 (crm.lead.add) — not just a chat
+ *    notification — so it's trackable/assignable to a specialist
+ * 3. Optionally logs to Supabase if configured (best-effort, non-blocking —
+ *    same pattern as start.js/end.js; the escalation still works fully
+ *    even if Supabase isn't set up)
  */
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_KEY;
-const BITRIX_WEBHOOK    = process.env.BITRIX24_WEBHOOK_URL; // e.g. https://yourcompany.bitrix24.ru/rest/1/xxxxx/
 
-const SUMMARY_PROMPT = `You are a concise sales assistant. Based on the conversation below, write a SHORT lead summary in Russian for the sales manager.
+// REQUIRED — no hardcoded fallback. The previous version of this file had a
+// real, working webhook URL hardcoded as a "fallback" (leftover from a
+// different client's Bitrix24 account, copied over from the mosaic-tile
+// project this repo was templated from). That's dangerous: if this env var
+// were ever unset, leads would silently go to the WRONG COMPANY's Bitrix24
+// instead of failing loudly. Removed entirely — this must be set in
+// Vercel's environment variables once the client provides their own
+// Bitrix24 webhook (incoming webhook from Настройки → Разработчикам →
+// Другое → Входящий вебхук, with crm scope enabled).
+const BITRIX_WEBHOOK = process.env.BITRIX24_WEBHOOK_URL;
 
-Format:
-🧩 Интерес: [what mosaic type/material the client is looking for]
-📐 Площадь: [area/quantity if mentioned, otherwise "не указана"]
-💰 Бюджет: [if mentioned, otherwise "не указан"]
-❓ Вопросы: [key open questions or concerns the client raised]
-📝 Заметки: [anything else relevant — location, timeline, special requirements]
+// Ask Claude for a machine-parseable header (PHONE/EMAIL/REASON) followed
+// by a short freeform summary, so we can reliably split contact info out
+// for the CRM lead's structured fields rather than regex-guessing it out
+// of freeform Russian text.
+const SUMMARY_PROMPT = `Ты — ассистент отдела продаж. На основе диалога ниже составь структурированную сводку для менеджера по продаже автозапчастей.
 
-Be brief. Max 5 lines total. No extra commentary.
+ФОРМАТ ОТВЕТА (строго придерживайся, каждое поле на новой строке):
+PHONE: [телефон клиента, если указан в диалоге, иначе "не указан"]
+EMAIL: [email клиента, если указан в диалоге, иначе "не указан"]
+NAME: [имя клиента, если указано, иначе "не указано"]
+REASON: [одно из: "запрос менеджера" / "нет данных о совместимости" / "товар не найден" / "другое"]
+CAR: [марка, модель, год, если упоминались, иначе "не указано"]
+PART: [какая запчасть/артикул интересует клиента, если упоминалось, иначе "не указано"]
+SUMMARY: [краткое описание ситуации и что нужно клиенту, макс. 3 предложения]
 
-Conversation:
+Диалог:
 `;
 
 function corsHeaders() {
@@ -35,9 +56,10 @@ function corsHeaders() {
 }
 
 async function generateSummary(messages) {
-  if (!ANTHROPIC_API_KEY) return 'API key not configured — summary unavailable.';
+  if (!ANTHROPIC_API_KEY) {
+    return { raw: 'API key not configured — summary unavailable.', fields: {} };
+  }
 
-  // Build a readable transcript
   const transcript = messages
     .map(m => `${m.role === 'user' ? 'Клиент' : 'ИИ'}: ${m.content}`)
     .join('\n');
@@ -51,7 +73,7 @@ async function generateSummary(messages) {
     },
     body: JSON.stringify({
       model:      'claude-haiku-4-5-20251001',
-      max_tokens: 300,
+      max_tokens: 400,
       messages: [
         { role: 'user', content: SUMMARY_PROMPT + transcript }
       ],
@@ -59,12 +81,29 @@ async function generateSummary(messages) {
     signal: AbortSignal.timeout(20000),
   });
 
-  if (!response.ok) return 'Summary generation failed.';
+  if (!response.ok) {
+    return { raw: 'Summary generation failed.', fields: {} };
+  }
+
   const data = await response.json();
-  return data.content?.[0]?.text?.trim() ?? 'No summary.';
+  const raw = data.content?.[0]?.text?.trim() ?? 'No summary.';
+
+  // Parse the structured header fields out of Claude's response. Falls
+  // back gracefully to empty values if the format drifts slightly — this
+  // is best-effort extraction, not something that should ever throw.
+  const fields = {};
+  for (const line of raw.split('\n')) {
+    const match = line.match(/^(PHONE|EMAIL|NAME|REASON|CAR|PART|SUMMARY):\s*(.*)$/);
+    if (match) fields[match[1].toLowerCase()] = match[2].trim();
+  }
+
+  return { raw, fields };
 }
 
-async function saveToSupabase(sessionId, summary) {
+async function saveToSupabase(sessionId, raw) {
+  // Best-effort only. If Supabase isn't configured for this project, this
+  // silently does nothing — the escalation/lead-creation flow below does
+  // NOT depend on this succeeding.
   if (!SUPABASE_URL || !SUPABASE_KEY) return;
 
   await fetch(
@@ -79,25 +118,69 @@ async function saveToSupabase(sessionId, summary) {
       },
       body: JSON.stringify({
         manager_requested: true,
-        summary:           summary,
+        summary:           raw,
       }),
     }
   ).catch(e => console.error('Supabase manager update error:', e));
 }
 
-async function sendToBitrix(summary, sessionId) {
-  // Uses im.notify.system.add — same method as your Voiceflow integration
-  // Webhook base URL from env var; falls back to your known URL
-  const webhookBase = BITRIX_WEBHOOK
-    ? BITRIX_WEBHOOK.replace(/\/?$/, '/')
-    : 'https://b24-q8506c.bitrix24.ru/rest/1/jahblh75ol4bqll1/';
+const REASON_LABELS = {
+  'запрос менеджера':              'Запрос на связь с менеджером',
+  'нет данных о совместимости':    'Нет данных о совместимости детали',
+  'товар не найден':               'Товар не найден в каталоге',
+  'другое':                        'Обращение из ИИ-чата',
+};
 
-  const message = `📬 Новый запрос на связь с менеджером\n\nСессия: ${sessionId}\n\n${summary}`;
+async function createBitrixLead(sessionId, fields, raw) {
+  if (!BITRIX_WEBHOOK) {
+    console.error('BITRIX24_WEBHOOK_URL not configured — cannot create lead.');
+    return { ok: false, error: 'bitrix_not_configured' };
+  }
 
-  const url = `${webhookBase}im.notify.system.add?USER_ID=1&MESSAGE=${encodeURIComponent(message)}`;
+  const webhookBase = BITRIX_WEBHOOK.replace(/\/?$/, '/');
+  const reasonLabel = REASON_LABELS[fields.reason] || 'Обращение из ИИ-чата';
 
-  await fetch(url, { signal: AbortSignal.timeout(10000) })
-    .catch(e => console.error('Bitrix24 webhook error:', e));
+  const title = `${reasonLabel}${fields.car && fields.car !== 'не указано' ? ' — ' + fields.car : ''}`;
+
+  const comments = [
+    fields.part && fields.part !== 'не указано' ? `Запчасть: ${fields.part}` : null,
+    fields.car && fields.car !== 'не указано' ? `Автомобиль: ${fields.car}` : null,
+    fields.summary ? `Сводка: ${fields.summary}` : null,
+    `Сессия чата: ${sessionId}`,
+  ].filter(Boolean).join('\n');
+
+  const leadFields = {
+    TITLE: title,
+    NAME: fields.name && fields.name !== 'не указано' ? fields.name : 'Клиент из чата',
+    COMMENTS: comments,
+    SOURCE_ID: 'WEBFORM', // "CRM form" — closest built-in source for a chat-widget lead
+    ...(fields.phone && fields.phone !== 'не указан'
+      ? { PHONE: [{ VALUE: fields.phone, VALUE_TYPE: 'WORK' }] }
+      : {}),
+    ...(fields.email && fields.email !== 'не указан'
+      ? { EMAIL: [{ VALUE: fields.email, VALUE_TYPE: 'WORK' }] }
+      : {}),
+  };
+
+  const url = `${webhookBase}crm.lead.add.json`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: leadFields }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    if (data.error) {
+      console.error('Bitrix24 lead creation error:', data.error_description || data.error);
+      return { ok: false, error: data.error_description || data.error };
+    }
+    return { ok: true, leadId: data.result };
+  } catch (err) {
+    console.error('Bitrix24 webhook request failed:', err);
+    return { ok: false, error: err.message };
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -114,15 +197,21 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'session_id and messages required' });
     }
 
-    // Run all three tasks in parallel for speed
-    const summary = await generateSummary(messages);
+    const { raw, fields } = await generateSummary(messages);
 
-    await Promise.allSettled([
-      saveToSupabase(session_id, summary),
-      sendToBitrix(summary, session_id),
+    const [leadResult] = await Promise.allSettled([
+      createBitrixLead(session_id, fields, raw),
+      saveToSupabase(session_id, raw),
     ]);
 
-    return res.status(200).json({ ok: true, summary });
+    const bitrixOutcome = leadResult.status === 'fulfilled' ? leadResult.value : { ok: false, error: 'unexpected_failure' };
+
+    return res.status(200).json({
+      ok: bitrixOutcome.ok,
+      leadId: bitrixOutcome.leadId ?? null,
+      error: bitrixOutcome.error ?? null,
+      summary: raw,
+    });
 
   } catch (err) {
     console.error('session/manager error:', err);

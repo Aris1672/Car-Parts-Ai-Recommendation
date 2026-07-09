@@ -2,13 +2,18 @@
  * api/chat.js — Vercel Serverless Function
  * Proxies requests from the chat widget to the Anthropic Claude API.
  * Keeps the API key secret on the server side.
- *
- * ── ADAPTED FOR CAR PARTS CLIENT ──
- * TODO: Replace all TODO placeholders before deploying.
  */
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const CATALOG_API       = 'https://TODO-YOUR-CATALOG-PROXY.vercel.app/api/catalog'; // TODO: set your catalog endpoint
+const CATALOG_API       = process.env.CATALOG_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/catalog';
+
+// Compatibility data (vendorCode -> compatible vehicles). Sourced from the
+// manually-built compatibility table (see abcp-catalog-proxy repo /
+// Car_model_list.xml), hosted as a static JSON file once complete. Not yet
+// set — fetchCompatibility() degrades gracefully to an empty object if
+// this isn't configured yet, so chat.js works fine before the compatibility
+// table is finished/hosted.
+const COMPATIBILITY_API = process.env.COMPATIBILITY_API_URL || null;
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консультант по автозапчастям компании TODO_COMPANY_NAME (TODO_SITE.ru).
@@ -51,8 +56,9 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ## СОВМЕСТИМОСТЬ (Compatibility)
 Если пользователь спрашивает «подойдёт ли эта деталь на мою машину»:
 - Уточни марку, модель, год выпуска, объём двигателя.
-- Сверь с полем "compatibility" в карточке товара.
-- Дай чёткий ответ: подходит / не подходит / требует уточнения у менеджера.
+- Сверь запрошенный артикул с данными в разделе "ДАННЫЕ О СОВМЕСТИМОСТИ" ниже (ключ — артикул/vendorCode).
+- **Если для артикула ЕСТЬ данные о совместимости** — дай чёткий ответ: подходит / не подходит, указав конкретную модель и год из данных.
+- **Если для артикула НЕТ данных о совместимости** (это нормально — у платформы нет данных о применимости для многих категорий, например корпуса, датчики, генерики) — честно скажи, что не можешь подтвердить совместимость по этому артикулу, и запусти сценарий ЭСКАЛАЦИИ (см. ниже). НЕ угадывай и не выдумывай совместимость.
 
 ## КОНСУЛЬТАЦИЯ ПО УСТАНОВКЕ (Technical)
 Отвечай на вопросы по замене и установке запчастей.
@@ -74,13 +80,28 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 Вопросы о доставке, гарантии, оплате, возврате → направляй к менеджерам с контактами.
 
 ═══════════════════════════════════════════
+СЦЕНАРИЙ ЭСКАЛАЦИИ (передача менеджеру):
+═══════════════════════════════════════════
+
+Запускай эскалацию в ЛЮБОМ из следующих случаев:
+1. Пользователь явно просит связаться с менеджером / живым человеком / оператором.
+2. Нет данных о совместимости для запрошенного артикула (см. навык СОВМЕСТИМОСТЬ выше).
+3. Не удалось найти ни одного подходящего товара в каталоге по запросу пользователя.
+
+Порядок действий при эскалации:
+1. Кратко и честно объясни, почему нужен специалист (например: "У меня нет данных о совместимости этой детали с вашим автомобилем" или "Я не нашёл точного совпадения в каталоге").
+2. Попроси пользователя оставить номер телефона ИЛИ email, чтобы специалист связался с ним в ближайшее время. Спрашивай прямо в тексте ответа, например: "Оставьте, пожалуйста, номер телефона или email — наш специалист свяжется с вами и уточнит детали."
+3. Добавь в конец ответа блок <<<MANAGER_BUTTON>>> (см. ниже), чтобы пользователь мог передать диалог менеджеру одним нажатием, даже если ещё не оставил контакт текстом.
+
+НЕ придумывай данные о совместимости и НЕ придумывай товары, которых нет в каталоге — эскалация в этих случаях лучше, чем неверная информация.
+
+═══════════════════════════════════════════
 КНОПКА МЕНЕДЖЕРА:
 ═══════════════════════════════════════════
 
 Показывай кнопку связи с менеджером (<<<MANAGER_BUTTON>>>) в следующих случаях:
-- Пользователь явно просит связаться с менеджером / живым человеком / оператором
+- Любой из случаев эскалации выше (явный запрос менеджера, нет данных о совместимости, товар не найден)
 - Пользователь готов оформить заказ или спрашивает про оплату / доставку конкретного заказа
-- Вопрос о совместимости не может быть решён по каталогу однозначно
 - Пользователь спрашивает про скидки, оптовые цены или корпоративные условия
 - Разговор зашёл в тупик и ИИ не может помочь дальше
 
@@ -101,7 +122,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
     "name": "<название запчасти>",
     "brand": "<производитель / бренд>",
     "category": "<категория: тормоза / двигатель / подвеска / …>",
-    "compatibility": "<для каких авто подходит>",
+    "compatibility": "<для каких авто подходит, ТОЛЬКО если есть в данных о совместимости, иначе null>",
     "price": 0,
     "stock": 0,
     "url": "<url из каталога>",
@@ -132,6 +153,11 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 КАТАЛОГ ТОВАРОВ (актуальные данные):
 ═══════════════════════════════════════════
 {{CATALOG}}
+
+═══════════════════════════════════════════
+ДАННЫЕ О СОВМЕСТИМОСТИ (артикул → автомобили, если есть):
+═══════════════════════════════════════════
+{{COMPATIBILITY}}
 `;
 
 // ─── CATALOG CACHE (module-level, survives warm Vercel instances) ──────────────
@@ -149,19 +175,15 @@ async function fetchCatalog() {
     const data = await res.json();
     if (!data.products) return catalogCache || '[]';
 
-    // ── Map your catalog fields here ──────────────────────────────────────────
-    // TODO: Adjust field names to match your catalog API response shape.
-    // The fields below must match what the system prompt JSON template expects.
     const compact = data.products.map(p => ({
-      article:       p.article,
-      name:          p.name,
-      brand:         p.brand,
-      category:      p.category,
-      compatibility: p.compatibility,
-      price:         p.price,
-      stock:         p.stock,
-      url:           p.url     ? p.url.replace('http://', 'https://')     : null,
-      picture:       p.picture ? p.picture.replace('http://', 'https://') : null,
+      article:  p.vendorCode,
+      name:     p.name,
+      brand:    p.vendor,
+      category: p.category,
+      price:    p.price,
+      stock:    p.available,
+      url:      p.url     ? p.url.replace('http://', 'https://')     : null,
+      picture:  p.picture ? p.picture.replace('http://', 'https://') : null,
     }));
     catalogCache    = JSON.stringify(compact);
     catalogCachedAt = now;
@@ -171,8 +193,37 @@ async function fetchCatalog() {
   }
 }
 
-// Pre-warm catalog on cold start
+// ─── COMPATIBILITY CACHE ────────────────────────────────────────────────────
+// Refreshes much less often than the catalog — vehicle fitment data barely
+// changes, unlike price/stock. Degrades gracefully to '{}' if
+// COMPATIBILITY_API_URL isn't configured yet (e.g. manual table still in
+// progress) — the agent will just always treat compatibility as unknown
+// and correctly trigger escalation per the system prompt's instructions.
+let compatibilityCache    = null;
+let compatibilityCachedAt = 0;
+const COMPATIBILITY_TTL_MS = 6 * 60 * 60 * 1000; // refresh every 6 hours
+
+async function fetchCompatibility() {
+  if (!COMPATIBILITY_API) return '{}';
+
+  const now = Date.now();
+  if (compatibilityCache && (now - compatibilityCachedAt) < COMPATIBILITY_TTL_MS) {
+    return compatibilityCache;
+  }
+  try {
+    const res = await fetch(COMPATIBILITY_API, { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    compatibilityCache    = JSON.stringify(data);
+    compatibilityCachedAt = now;
+    return compatibilityCache;
+  } catch {
+    return compatibilityCache || '{}';
+  }
+}
+
+// Pre-warm caches on cold start
 fetchCatalog().catch(() => {});
+fetchCompatibility().catch(() => {});
 
 // ─── CORS HEADERS ──────────────────────────────────────────────────────────────
 function corsHeaders() {
@@ -215,8 +266,14 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'messages array required' });
     }
 
-    const catalog = await fetchCatalog();
-    const systemWithCatalog = SYSTEM_PROMPT.replace('{{CATALOG}}', catalog);
+    const [catalog, compatibility] = await Promise.all([
+      fetchCatalog(),
+      fetchCompatibility(),
+    ]);
+
+    const systemWithData = SYSTEM_PROMPT
+      .replace('{{CATALOG}}', catalog)
+      .replace('{{COMPATIBILITY}}', compatibility);
 
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -228,7 +285,7 @@ module.exports = async function handler(req, res) {
       body: JSON.stringify({
         model:      'claude-haiku-4-5-20251001',
         max_tokens: 2048,
-        system:     systemWithCatalog,
+        system:     systemWithData,
         messages:   messages,
       }),
       signal: AbortSignal.timeout(75000),

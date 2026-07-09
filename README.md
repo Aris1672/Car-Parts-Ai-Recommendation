@@ -9,15 +9,46 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-07-07 — automated crawler approach SUSPENDED INDEFINITELY after triggering a site-wide anti-bot block that locked the operator out of their own site login (real-world harm, not just a script failure). Pivoted to a manually-built compatibility table (validated: 100% vendorCode match rate against the catalog on the first batch). Next actionable step: continue building the manual table (~5-7 days estimated), then wire it into `chat.js` same as the crawler output would have been.
+**Last updated:** 2026-07-08 — finalized the compatibility-data architecture: `Compatability_catalog.json` (agent's data source) + `Crawled_modificationIds.json` (client-relevant scope/tracking list) via the hybrid crawl workflow. `Car_model_list.xml` (hand-typed table) retired, no longer used. Next actionable step: build a merge script for accumulating batches, then host the file and wire it into `chat.js`.
+
+### 🔄 Resuming in a fresh chat? This README explains *why* things are the way they are — it does NOT contain live file contents. Upload these before continuing:
+
+- **From `abcp-catalog-proxy` repo:** `api/catalog.js`, `scripts/crawl-compatibility.js`, `vercel.json`, `package.json`
+- **From `Car-Parts-Ai-Recommendation` repo:** `api/chat.js`, `api/session/manager.js`, `widget/chat-widget.js`, `vercel.json`
+- **Latest compatibility data (✅ FINAL DECIDED FORMAT, 2026-07-08):** two accumulating files, NOT `Car_model_list.xml` (retired — see below): `Compatability_catalog.json` (vendorCode → compatible vehicles, what the agent actually queries) + `Crawled_modificationIds.json` (tracks which car models/modificationIds have been crawled — this is the client-relevant scope list, not the full ABCP range)
+- **Do NOT re-paste real secrets into chat or this file** — `ABCP_EXPORT_URL` and `BITRIX24_WEBHOOK_URL` live only in Vercel's environment variables. This README was previously found to contain the live ABCP token in plain text (now redacted, 2026-07-08) — if it's ever pushed to git, treat that token as compromised/rotate it, since it would sit in git history regardless of later edits.
+
+### ✅ DONE
+- [x] Decided data access path: ABCP's YML price export (no API credentials needed)
+- [x] Found ABCP's built-in image filter → 21,899 offers, 100% picture coverage, 12.8MB (was 1.18GB)
+- [x] Built & deployed `catalog.js` (`abcp-catalog-proxy` repo) — tested working in production, secret moved to Vercel env var
+- [x] Client confirmed warehouse/pricing scope, signed contract
+- [x] Investigated paid Carbase/TecDoc compatibility API — rejected, too expensive (250k₽+ setup + monthly)
+- [x] Built & debugged compatibility crawler (session cookies, IPv4 fix, retry/circuit breaker, metadata extraction) — validated twice, 100% catalog match rate (Mercedes, then Audi/VAG)
+- [x] Found safer hybrid crawl workflow (manual browse + small batches) after full-scale crawl caused a site lockout
+- [x] Designed + built escalation/lead-capture feature: `chat.js` (compatibility fetch + escalation triggers), `manager.js` (real Bitrix24 CRM lead, removed dangerous hardcoded webhook, fixed summary prompt), `chat-widget.js` (confirmed wiring + added confirmation message)
+- [x] Decided product card button = link to `product.url`, new tab
+- [x] Scrubbed exposed secret from README, added resume checklist
+
+### ⬜ TO DO
+- [ ] Establish a process to merge hybrid-crawl batch outputs into one accumulating compatibility file (not yet defined)
+- [ ] Build a clean merge process for `Compatability_catalog.json` + `Crawled_modificationIds.json` so each new hybrid-crawl batch appends/dedupes rather than requiring manual copy-paste
+- [ ] Host the accumulated compatibility JSON somewhere reachable, then set `COMPATIBILITY_API_URL` in `chat.js`'s Vercel env vars
+- [ ] Set `BITRIX24_WEBHOOK_URL` once client's Bitrix24 account + webhook exist
+- [ ] Fill remaining `TODO_COMPANY_NAME` / `TODO_PHONE` / `TODO_EMAIL` / `TODO_ADDRESS` / `TODO_HOURS` placeholders in `chat.js` / `chat-widget.js`
+- [ ] Set a **Расписание** (refresh schedule) on the production YML export config (currently manual/test only)
+- [ ] **Security:** regenerate/rotate the ABCP export token — it was exposed in README git history before the 2026-07-08 scrub
+- [ ] Confirm whether Supabase is actually configured for this project (optional/non-blocking either way)
+- [ ] Push all rewritten files to their repos if not already done: `catalog.js`, `crawl-compatibility.js`, `chat.js`, `manager.js`, `chat-widget.js`, `vercel.json` changes
+- [ ] End-to-end test of the full agent once the above are in place
 
 ### Where we are
 - Catalog source confirmed: client's site runs on **ABCP** (auto parts distribution platform, not a simple CMS).
 - Data access path decided: **ABCP's built-in "Экспорт прайсов" (price export) feature, type = YML** — NOT the raw ABCP REST API. This avoids needing API-admin credentials/auth entirely.
 - Test export created in ABCP admin panel (`cp.abcp.ru → Экспорт прайсов`), config name **"Aris Test"**, format = YML, sub-format = "Яндекс.Вебмастер 'Поиск по товарам'" (required Профиль = "Гость (Опт)").
-- Test run scoped to **1 warehouse only** ("LandRover Rolf") to keep the file small: **4,324 offers**, confirmed working persistent URL:
+- Test run scoped to **1 warehouse only** ("LandRover Rolf") to keep the file small: **4,324 offers**, confirmed working persistent URL (format only — actual token redacted, see `ABCP_EXPORT_URL` in Vercel env vars for the real value, never commit it here):
   ```
-  https://bmwclub77.ru/get_price?p=bc9c683f7cf1457d829f1b223b796eba&FranchiseeId=426390
+  https://bmwclub77.ru/get_price?p=<REDACTED_TOKEN>&FranchiseeId=<REDACTED_ID>
   ```
   This URL always serves the latest generated file (not a one-time download — confirmed via PowerShell `Invoke-WebRequest`, browser "download" behavior is just a `Content-Disposition` header, irrelevant to server-side `fetch()`).
 - **Image coverage confirmed: only ~21% of offers have a `<picture>` tag** (917 of 4,324 in the test file). Images come from ABCP's own CDN (`pubimg.nodacdn.net` / `f.nodacdn.net` — "Noda" = ABCP's parent company, NodaSoft). The other ~79% have no picture — not a bug, aftermarket parts often lack ABCP-hosted photos.
@@ -174,12 +205,61 @@ Open question once client responds: full combined catalog across all their wareh
 - **Estimated 5-7 days to complete** all 8 brands — many models share identical common-service part codes (oil filter, brake pads, etc.), so coverage should accelerate as a reusable part-code library builds up across similar models/engines.
 - **This manual table becomes the actual `compatibility-map.json` equivalent** once complete — same consumption pattern in `chat.js` (vendorCode → array of compatible vehicles), just sourced by hand instead of by crawler. No difference to `chat.js`'s integration logic.
 - **Revisit automated crawling only if/when a safer access method exists** — not as a default next step.
-7. **⏭️ Continue building the manual compatibility table** (`Car_model_list.xml` or equivalent) — currently at Audi A1/A3 (41 variants), ~5-7 days estimated to cover all 8 brands (Audi, BMW, Land Rover, Mercedes-Benz, Nissan, Porsche, VW, Volvo).
-8. Convert the completed manual table into the same `vendorCode → [{brand, model, ...}]` JSON shape the crawler would have produced, so it's a drop-in replacement — no changes needed to how `chat.js` consumes it.
-9. Update `api/chat.js`'s `fetchCatalog()` + system prompt for car parts (see field mapping below). Things now finalized and ready to implement:
-   - Product card button = simple link to `product.url`, opened in a new tab — no cart API integration needed.
-   - Compatibility lookup: ask user for car make/model/year → look up in the manually-built compatibility mapping → cross-reference candidate vendorCodes against the catalog → fall back to text matching only if no mapping match is found.
+
+### ✅ UPDATE (2026-07-08): a safer hybrid workflow found — automated crawling resumed, carefully
+
+**Not a reversal of the suspension decision above — a genuinely different, much gentler method**, found independently: instead of blind sequential iteration through the full 1-42,099 ID range (what caused the site-wide block), the project owner now **browses the live site normally** (as a real user, opening car-generation pages by hand) to discover which `modificationId`s are actually relevant, then feeds small batches (**max ~20 IDs at a time**) into the existing crawler script, with **30-40 minute cooldowns between batches**. This has run successfully multiple times with no repeat of the lockout.
+
+**Why this works where the full crawl didn't:** the volume and pacing are now indistinguishable from a human occasionally refreshing pages — nothing like the sustained thousands-of-requests-per-hour pattern that triggered the anti-bot escalation before. The crawler script itself (session cookies, retry logic, metadata extraction — all built and validated earlier) didn't need any changes; it's the *usage pattern* that changed.
+
+**Validated results, first real batch (2026-07-08):**
+- 119 unique `modificationId`s crawled (502 total page loads including overlaps from browsing multiple related models).
+- **183 unique vendorCodes** captured with full compatibility metadata (brand, model, modificationName, engineCode, fuel, engineVolumeCc, powerHp, bodyType, years).
+- Cross-referenced against the real product catalog: **100% match rate** (all 183 vendorCodes exist in the catalog) — same clean result as the earlier Mercedes test batch, now confirmed working for a completely different brand family (Audi/VAG) too, proving the extraction logic generalizes correctly.
+
+**Practical implications:**
+- This is a better path than either extreme: safer than the full automated crawl, faster and less error-prone than a fully hand-typed table.
+- **Still fundamentally a manual-pace process** — bounded by the person's own browsing time plus the 30-40 min cooldowns — but each batch produces clean, structured, typo-free data rather than hand-transcribed entries.
+
+### ✅ FINAL DECISION (2026-07-08): two-file compatibility system, `Car_model_list.xml` retired
+
+**`Car_model_list.xml` (the hand-typed table) is no longer used.** Superseded entirely by the hybrid crawl workflow's output, now formalized as two accumulating files:
+
+- **`Compatability_catalog.json`** — the actual data source (`vendorCode → [{brand, model, modificationName, engineCode, fuel, years, ...}]`). This is what `chat.js`'s `fetchCompatibility()` will read from once hosted (see `COMPATIBILITY_API_URL` TODO).
+- **`Crawled_modificationIds.json`** — a scope/tracking list of which `modificationId`s have been crawled so far. Its purpose is deliberately narrow: it defines **which car models are actually relevant to this client** (not the full 1-42,099 ABCP range) and prevents wasted re-crawling of IDs already captured. New batches should check against this list before crawling, and append newly-crawled IDs to it afterward.
+
+**Not yet built:** an actual merge script. Right now, combining a new hybrid-crawl batch into these two accumulating files is manual. Needs: (1) dedupe `modificationId`s against the existing `Crawled_modificationIds.json` list, (2) merge new `vendorCode` entries into `Compatability_catalog.json` (concatenating vehicle-fitment arrays for vendorCodes that already exist, adding new keys for ones that don't) — same merge logic the crawler script's `retry` mode already does internally, likely adaptable into a standalone `merge-batch.js` script.
+
+### ✅ Escalation & Bitrix24 lead capture — built (2026-07-07), waiting on client's Bitrix24 webhook
+
+**Why this exists:** discovered that ABCP's applicability/fitment database (Carbase/`справочник АВСР`) only covers a specific subset of categories — maintenance items (filters, brakes, spark plugs, batteries, etc.) — not the whole catalog. Confirmed concretely: a BMW thermostat housing (`11517572859`, `categoryId=3`, generic "Запчасти" bucket) has **no fitment data anywhere on the site** — not in the car-model dropdown, not in the part's own "Характеристики" popup ("Нет информации о применимости"). This is a real, permanent gap in the source data, not something the manual table or any crawler could fix. **Decision: turn this gap into a lead-capture opportunity** — when the agent can't confirm something, ask the user for phone/email and hand off to a human via Bitrix24, instead of guessing or dead-ending.
+
+**Trigger conditions (confirmed with the project owner):**
+1. No compatibility/fitment data found for a requested part.
+2. Agent can't find any matching product in the catalog at all.
+3. User explicitly asks for a manager/human.
+
+**What was built, across three files in `Car-Parts-Ai-Recommendation`:**
+
+- **`api/chat.js`** — system prompt now explicitly instructs Claude to (a) recognize the three trigger conditions above, (b) honestly explain why it can't fully help, (c) ask the user in plain chat text to leave a phone number or email, and (d) show the existing `<<<MANAGER_BUTTON>>>` marker so the handoff can fire. Reuses the widget's existing button mechanism rather than inventing a new one.
+
+- **`api/session/manager.js`** — **fully rewritten**, two real problems found and fixed:
+  - The summary prompt was still the **literal mosaic-tile template** (asking for "🧩 Интерес: [тип мозаики]", "📐 Площадь") — never adapted for car parts. Replaced with a structured, machine-parseable format (`PHONE:`/`EMAIL:`/`NAME:`/`REASON:`/`CAR:`/`PART:`/`SUMMARY:`) that Claude fills in from the transcript, parsed reliably via line-matching rather than fuzzy regex over freeform text.
+  - **A real, working Bitrix24 webhook URL was hardcoded as a "fallback"** (`b24-q8506c.bitrix24.ru/...`) — leftover from the mosaic client's actual Bitrix24 account, copied over via the template. This was dangerous: if `BITRIX24_WEBHOOK_URL` were ever unset, leads would have silently gone to the **wrong company's** Bitrix24 instead of failing loudly. **Removed entirely** — the endpoint now returns `bitrix_not_configured` and logs an error if the env var is missing, rather than falling back to anything.
+  - Changed from `im.notify.system.add` (a transient internal chat ping) to **`crm.lead.add`** — creates a real, trackable CRM Lead with structured `PHONE`/`EMAIL` fields, `TITLE` (reason + car model), and `COMMENTS` (part, car, summary, session ID) — assignable/trackable by staff, not just a message that scrolls away.
+  - Supabase logging (`SUPABASE_URL`/`SUPABASE_SERVICE_KEY`) kept exactly as-is — best-effort, non-blocking, degrades silently if unconfigured. **Not confirmed whether Supabase is actually set up for this project** (owner wasn't sure) — doesn't matter, the Bitrix24 lead creation is the real required path and doesn't depend on it.
+
+- **`widget/chat-widget.js`** — confirmed the existing wiring already matches: `triggerManagerHandoff()` posts `{session_id, messages}` to `/api/session/manager`, exactly what the rewritten `manager.js` expects — **no widget changes needed for the core pipeline**. One small additive fix: the manager button was previously a silent background action framed purely as "call us" (`tel:` link, zero visible confirmation). Added a visible confirmation message after the handoff completes, checking the actual API response (`data.ok`) rather than assuming success.
+
+**Still pending before this is live:**
+- `BITRIX24_WEBHOOK_URL` — needs the client's Bitrix24 incoming webhook (with `crm` scope enabled), expected once their account is created (~2026-07-08).
+- `TODO_COMPANY_NAME`/`TODO_PHONE`/`TODO_EMAIL`/`TODO_ADDRESS`/`TODO_HOURS` in `chat.js`/`chat-widget.js` — still genuinely unknown, need real values from the client.
+- End-to-end test once both the webhook and the compatibility table (or at least a usable chunk of it) are ready.
+7. **⏭️ Continue the hybrid crawl workflow** (browse client-relevant car models manually → batch-crawl ≤20 modificationIds at a time with 30-40 min cooldowns) to grow `Compatability_catalog.json` / `Crawled_modificationIds.json` — covering the 8 relevant brands (Audi, BMW, Land Rover, Mercedes-Benz, Nissan, Porsche, VW, Volvo). `Car_model_list.xml` is retired, not used going forward.
+8. Build a merge script/process so each new batch's output cleanly dedupes against `Crawled_modificationIds.json` and merges into `Compatability_catalog.json`, instead of manual copy-paste. Then host the accumulated file and wire `COMPATIBILITY_API_URL` into `chat.js` — no other changes needed, `fetchCompatibility()` already expects exactly this shape.
+9. **✅ `api/chat.js` rewritten** — correct catalog field mapping (`vendorCode`→`article`, `vendor`→`brand`, matching the real `abcp-catalog-proxy` output), added `fetchCompatibility()` (degrades gracefully to empty if not yet configured), and escalation logic built into the system prompt (see new section below).
 10. Fill remaining `TODO` placeholders in this repo (see table further down).
+11. **✅ Escalation / lead-capture feature built** (2026-07-07) — see "Escalation & Bitrix24 lead capture" section below for full details. `api/session/manager.js` and `widget/chat-widget.js` both updated; waiting on client's Bitrix24 webhook (account being created, expected 2026-07-08) before this goes live.
 
 ---
 

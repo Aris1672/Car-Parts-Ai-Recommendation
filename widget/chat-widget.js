@@ -483,7 +483,7 @@
   async function triggerManagerHandoff() {
     if (!sessionId) return;
     try {
-      await fetch(`${SESSION_URL}/manager`, {
+      const res = await fetch(`${SESSION_URL}/manager`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -491,8 +491,15 @@
           messages:   messages.slice(-20),
         }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        addBotBubble('Спасибо! Ваша заявка передана специалисту — он свяжется с вами в ближайшее время.');
+      } else {
+        addBotBubble('Заявка принята. Если срочно — позвоните нам напрямую по кнопке выше.');
+      }
     } catch (e) {
       console.warn('Manager handoff error:', e);
+      addBotBubble('Заявка принята. Если срочно — позвоните нам напрямую по кнопке выше.');
     }
   }
 
