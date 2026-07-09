@@ -13,7 +13,7 @@ const CATALOG_API       = process.env.CATALOG_API_URL || 'https://abcp-catalog-p
 // set — fetchCompatibility() degrades gracefully to an empty object if
 // this isn't configured yet, so chat.js works fine before the compatibility
 // table is finished/hosted.
-const COMPATIBILITY_API = process.env.COMPATIBILITY_API_URL || null;
+const COMPATIBILITY_API = process.env.COMPATIBILITY_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/compatibility';
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консультант по автозапчастям компании TODO_COMPANY_NAME (TODO_SITE.ru).
