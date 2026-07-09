@@ -160,38 +160,85 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 {{COMPATIBILITY}}
 `;
 
+// ─── COMPATIBILITY CACHE ────────────────────────────────────────────────────
+// Refreshes much less often than the catalog — vehicle fitment data barely
+// changes, unlike price/stock. Degrades gracefully to '{}' if
+// COMPATIBILITY_API_URL isn't configured yet (e.g. manual table still in
+// progress) — the agent will just always treat compatibility as unknown
+// and correctly trigger escalation per the system prompt's instructions.
+//
+// IMPORTANT: this is fetched BEFORE the catalog (see fetchCatalog below)
+// because the catalog is filtered down to only vendorCodes present here.
+// Without that filter, the full ~22k-product catalog blows past Claude's
+// 200k-token context limit by more than 10x (observed: 2.75M tokens) --
+// see the "prompt is too long" incident this fixes.
+let compatibilityCache      = null; // parsed object
+let compatibilityCacheStr   = '{}'; // stringified, for the prompt
+let compatibilityCachedAt   = 0;
+const COMPATIBILITY_TTL_MS  = 6 * 60 * 60 * 1000; // refresh every 6 hours
+
+async function fetchCompatibility() {
+  if (!COMPATIBILITY_API) return { data: {}, str: '{}' };
+
+  const now = Date.now();
+  if (compatibilityCache && (now - compatibilityCachedAt) < COMPATIBILITY_TTL_MS) {
+    return { data: compatibilityCache, str: compatibilityCacheStr };
+  }
+  try {
+    const res = await fetch(COMPATIBILITY_API, { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    compatibilityCache    = data;
+    compatibilityCacheStr = JSON.stringify(data);
+    compatibilityCachedAt = now;
+    return { data, str: compatibilityCacheStr };
+  } catch {
+    return { data: compatibilityCache || {}, str: compatibilityCacheStr };
+  }
+}
+
 // ─── CATALOG CACHE (module-level, survives warm Vercel instances) ──────────────
+// Filtered down to only vendorCodes that appear in the compatibility data --
+// there is no reason to send Claude pricing/description info for a part we
+// have no confirmed vehicle fitment for, since the agent can't safely
+// recommend it anyway. This is what keeps the prompt size bounded as the
+// catalog grows (currently ~22k products; only ~a few hundred have
+// confirmed compatibility so far).
 let catalogCache     = null;
 let catalogCachedAt  = 0;
 const CATALOG_TTL_MS = 30 * 60 * 1000; // refresh every 30 minutes
 
-async function fetchCatalog() {
+async function fetchCatalog(compatibilityKeys) {
   const now = Date.now();
   if (catalogCache && (now - catalogCachedAt) < CATALOG_TTL_MS) {
     return catalogCache;
   }
+
+  // No known compatible vendorCodes yet (compatibility API not configured,
+  // or fetch failed with nothing cached) -- return empty rather than
+  // falling back to the full unfiltered catalog, which would re-trigger
+  // the token-limit crash. Safe default: agent treats everything as
+  // unconfirmed and escalates, per its existing instructions.
+  if (!compatibilityKeys || compatibilityKeys.size === 0) {
+    return catalogCache || '[]';
+  }
+
   try {
-    // 25s, not 8s: catalog.js can take 15-20s on an uncached hit (full XML
-    // fetch + parse). 8s was aborting before data ever arrived, silently
-    // falling back to an empty catalog — which is why compatibility data
-    // showed up in responses but price/image/description never did.
-    // catalog.js now caches its own results too (15 min TTL), so this
-    // longer timeout mainly only gets exercised on the first hit after
-    // a cache expiry, not on every request.
     const res = await fetch(CATALOG_API, { signal: AbortSignal.timeout(25000) });
     const data = await res.json();
     if (!data.products) return catalogCache || '[]';
 
-    const compact = data.products.map(p => ({
-      article:  p.vendorCode,
-      name:     p.name,
-      brand:    p.vendor,
-      category: p.category,
-      price:    p.price,
-      stock:    p.available,
-      url:      p.url     ? p.url.replace('http://', 'https://')     : null,
-      picture:  p.picture ? p.picture.replace('http://', 'https://') : null,
-    }));
+    const compact = data.products
+      .filter(p => compatibilityKeys.has(p.vendorCode))
+      .map(p => ({
+        article:  p.vendorCode,
+        name:     p.name,
+        brand:    p.vendor,
+        category: p.category,
+        price:    p.price,
+        stock:    p.available,
+        url:      p.url     ? p.url.replace('http://', 'https://')     : null,
+        picture:  p.picture ? p.picture.replace('http://', 'https://') : null,
+      }));
     catalogCache    = JSON.stringify(compact);
     catalogCachedAt = now;
     return catalogCache;
@@ -200,37 +247,11 @@ async function fetchCatalog() {
   }
 }
 
-// ─── COMPATIBILITY CACHE ────────────────────────────────────────────────────
-// Refreshes much less often than the catalog — vehicle fitment data barely
-// changes, unlike price/stock. Degrades gracefully to '{}' if
-// COMPATIBILITY_API_URL isn't configured yet (e.g. manual table still in
-// progress) — the agent will just always treat compatibility as unknown
-// and correctly trigger escalation per the system prompt's instructions.
-let compatibilityCache    = null;
-let compatibilityCachedAt = 0;
-const COMPATIBILITY_TTL_MS = 6 * 60 * 60 * 1000; // refresh every 6 hours
-
-async function fetchCompatibility() {
-  if (!COMPATIBILITY_API) return '{}';
-
-  const now = Date.now();
-  if (compatibilityCache && (now - compatibilityCachedAt) < COMPATIBILITY_TTL_MS) {
-    return compatibilityCache;
-  }
-  try {
-    const res = await fetch(COMPATIBILITY_API, { signal: AbortSignal.timeout(8000) });
-    const data = await res.json();
-    compatibilityCache    = JSON.stringify(data);
-    compatibilityCachedAt = now;
-    return compatibilityCache;
-  } catch {
-    return compatibilityCache || '{}';
-  }
-}
-
-// Pre-warm caches on cold start
-fetchCatalog().catch(() => {});
-fetchCompatibility().catch(() => {});
+// Pre-warm caches on cold start -- compatibility first, since catalog
+// filtering depends on it.
+fetchCompatibility()
+  .then(({ data }) => fetchCatalog(new Set(Object.keys(data))))
+  .catch(() => {});
 
 // ─── CORS HEADERS ──────────────────────────────────────────────────────────────
 function corsHeaders() {
@@ -273,10 +294,10 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'messages array required' });
     }
 
-    const [catalog, compatibility] = await Promise.all([
-      fetchCatalog(),
-      fetchCompatibility(),
-    ]);
+    // Compatibility must be fetched first -- catalog filtering depends on
+    // knowing which vendorCodes we actually have fitment data for.
+    const { data: compatibilityData, str: compatibility } = await fetchCompatibility();
+    const catalog = await fetchCatalog(new Set(Object.keys(compatibilityData)));
 
     const systemWithData = SYSTEM_PROMPT
       .replace('{{CATALOG}}', catalog)
