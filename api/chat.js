@@ -171,7 +171,14 @@ async function fetchCatalog() {
     return catalogCache;
   }
   try {
-    const res = await fetch(CATALOG_API, { signal: AbortSignal.timeout(8000) });
+    // 25s, not 8s: catalog.js can take 15-20s on an uncached hit (full XML
+    // fetch + parse). 8s was aborting before data ever arrived, silently
+    // falling back to an empty catalog — which is why compatibility data
+    // showed up in responses but price/image/description never did.
+    // catalog.js now caches its own results too (15 min TTL), so this
+    // longer timeout mainly only gets exercised on the first hit after
+    // a cache expiry, not on every request.
+    const res = await fetch(CATALOG_API, { signal: AbortSignal.timeout(25000) });
     const data = await res.json();
     if (!data.products) return catalogCache || '[]';
 
