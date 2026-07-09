@@ -55,6 +55,26 @@
       --pc-panel-w:    440px;
       --pc-panel-w-xl: 720px;
       --pc-shadow:     -8px 0 48px rgba(0,0,0,0.18);
+      --pc-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    }
+
+    /* Explicit font reset — without this the widget silently inherits
+       whatever font-family/font-size the host site (bmwclub77.ru) happens
+       to set on <body>, which varies site to site and is often small/
+       generic. Setting it here, at the widget's root containers, means
+       every element inside (including ones that already say
+       font-family: inherit, like inputs/buttons) gets this stack instead
+       of whatever the host page defines. */
+    #pc-launcher, #pc-panel, #pc-backdrop {
+      font-family: var(--pc-font);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+    #pc-launcher *, #pc-panel *, #pc-backdrop * {
+      font-family: inherit;
+      box-sizing: border-box;
     }
 
     /* ── Launcher button (fixed bottom-right) ── */
@@ -229,8 +249,8 @@
     }
 
     .pc-bubble {
-      max-width: 78%; padding: 11px 15px; border-radius: 16px;
-      font-size: 14px; line-height: 1.6; color: var(--pc-dark);
+      max-width: 78%; padding: 12px 16px; border-radius: 16px;
+      font-size: 15px; line-height: 1.65; color: var(--pc-dark);
     }
     .pc-msg-bot .pc-bubble {
       background: #fff; border-top-left-radius: 4px;
@@ -349,8 +369,8 @@
     }
     #pc-input {
       flex: 1; border: 1.5px solid #e5e5e5; border-radius: 22px;
-      padding: 10px 18px; font-size: 14px; resize: none; outline: none;
-      max-height: 120px; overflow-y: auto; line-height: 1.5; font-family: inherit;
+      padding: 10px 18px; font-size: 15px; resize: none; outline: none;
+      max-height: 120px; overflow-y: auto; line-height: 1.55; font-family: inherit;
       background: #fafafa; color: var(--pc-dark); transition: border-color 0.2s, background 0.2s;
     }
     #pc-input:focus { border-color: var(--pc-red); background: #fff; }
