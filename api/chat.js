@@ -292,8 +292,8 @@ async function extractVehicleInfo(messages) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:       'claude-haiku-4-5-20251001', // fast + cheap -- pure extraction, no need for a bigger model here
-        max_tokens:  200,
+        model:       'claude-sonnet-5', // fast + cheap -- pure extraction, no need for a bigger model here
+        max_tokens:  1000,
         temperature: 0, // deterministic extraction
         messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }],
       }),
