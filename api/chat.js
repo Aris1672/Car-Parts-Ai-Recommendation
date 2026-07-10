@@ -343,14 +343,11 @@ module.exports = async function handler(req, res) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:       'claude-haiku-4-5-20251001',
+        model:       'claude-sonnet-5', // TEMPORARY: testing whether this is a Haiku capability
+                                         // limit vs a prompt issue. Sonnet 5 REJECTS non-default
+                                         // temperature/top_p/top_k with a 400 error, so temperature
+                                         // is intentionally omitted here (was 0.2 for Haiku).
         max_tokens:  2048,
-        temperature: 0.2, // low, not zero -- keeps replies natural but reduces variance;
-                          // NOTE: this is a secondary safeguard. The actual fix for
-                          // cross-model compatibility mixups is the explicit
-                          // verification instructions added to the compatibility
-                          // skill above -- temperature alone won't reliably prevent
-                          // a factual mismatch like citing A6 data for an A4.
         system:      systemWithData,
         messages:    messages,
       }),
