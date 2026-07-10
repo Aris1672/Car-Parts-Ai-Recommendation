@@ -452,7 +452,7 @@ module.exports = async function handler(req, res) {
                                          // limit vs a prompt issue. Sonnet 5 REJECTS non-default
                                          // temperature/top_p/top_k with a 400 error, so temperature
                                          // is intentionally omitted here (was 0.2 for Haiku).
-        max_tokens:  2048,
+        max_tokens:  4000,
         system:      systemWithData,
         messages:    messages,
       }),
