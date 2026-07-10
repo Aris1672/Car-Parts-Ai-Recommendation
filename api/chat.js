@@ -259,6 +259,107 @@ async function fetchCatalog(compatibilityKeys) {
   }
 }
 
+// ─── DETERMINISTIC VEHICLE MATCHING ─────────────────────────────────────────
+// Two models (Haiku AND Sonnet 5) both failed to correctly match
+// "AUDI A4 Allroad" against a compatibility record literally containing
+// "A4 Allroad (8KH, B8)" when reading through a 214-entry JSON blob in the
+// prompt. That's a search/fuzzy-matching task, not a reasoning task -- LLMs
+// are unreliable at exact retrieval over multi-KB embedded data regardless
+// of model size. So: extract the vehicle fields with a cheap, small call,
+// then do the actual matching in plain JS (fast, deterministic, testable),
+// and only ever hand the main conversational call the ALREADY-MATCHED
+// result -- a handful of records instead of the full ~214-key blob. This
+// also cuts token cost substantially since the big data dump no longer
+// goes into the expensive conversational call on every turn.
+
+const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
+{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null"}
+
+Диалог:
+`;
+
+async function extractVehicleInfo(messages) {
+  const transcript = messages
+    .map(m => `${m.role === 'user' ? 'Клиент' : 'Ассистент'}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
+    .join('\n');
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'x-api-key':         ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model:       'claude-haiku-4-5-20251001', // fast + cheap -- pure extraction, no need for a bigger model here
+        max_tokens:  200,
+        temperature: 0, // deterministic extraction
+        messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }],
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return {};
+
+    const data = await res.json();
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    const raw = textBlock?.text ?? '{}';
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch {
+    return {}; // safe fallback -- matching below just yields nothing, agent keeps asking clarifying questions
+  }
+}
+
+function normalizeModel(s) {
+  if (!s) return '';
+  return s
+    .toUpperCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^A-ZА-Я0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function engineCodesOverlap(userCode, recordCode) {
+  if (!userCode || !recordCode) return true;
+  const userSet = new Set(userCode.toUpperCase().split(/[,\s]+/).filter(Boolean));
+  const recordSet = recordCode.toUpperCase().split(/[,\s]+/).filter(Boolean);
+  return recordSet.some(code => userSet.has(code));
+}
+
+function matchCompatibility(compatibilityData, extracted) {
+  const matched = {};
+
+  if (extracted.vendorCode && compatibilityData[extracted.vendorCode]) {
+    matched[extracted.vendorCode] = compatibilityData[extracted.vendorCode];
+    return matched;
+  }
+
+  if (!extracted.brand && !extracted.model) return matched;
+
+  const userBrand = (extracted.brand || '').toUpperCase().trim();
+  const userModelNorm = normalizeModel(extracted.model);
+  const userModelTokens = userModelNorm.split(' ').filter(Boolean);
+
+  for (const [vendorCode, records] of Object.entries(compatibilityData)) {
+    const hits = records.filter(r => {
+      if (userBrand && r.brand?.toUpperCase().trim() !== userBrand) return false;
+      if (userModelTokens.length) {
+        const recordModelNorm = normalizeModel(r.model);
+        if (!userModelTokens.every(tok => recordModelNorm.includes(tok))) return false;
+      }
+      if (extracted.engineCode && !engineCodesOverlap(extracted.engineCode, r.engineCode)) {
+        return false;
+      }
+      return true;
+    });
+    if (hits.length) matched[vendorCode] = hits;
+  }
+
+  return matched;
+}
+
 // Pre-warm caches on cold start -- compatibility first, since catalog
 // filtering depends on it.
 fetchCompatibility()
@@ -308,31 +409,35 @@ module.exports = async function handler(req, res) {
 
     // Compatibility must be fetched first -- catalog filtering depends on
     // knowing which vendorCodes we actually have fitment data for.
-    const { data: compatibilityData, str: compatibility } = await fetchCompatibility();
+    const { data: compatibilityData } = await fetchCompatibility();
     const catalog = await fetchCatalog(new Set(Object.keys(compatibilityData)));
+    const catalogParsed = JSON.parse(catalog);
 
-    // TEMPORARY DIAGNOSTIC LOGGING — remove once the vendorCode-mismatch
-    // bug is found. Prints counts + a spot-check for a specific test
-    // vendorCode, without dumping the full (large) payloads into logs.
-    try {
-      const compatKeyCount = Object.keys(compatibilityData).length;
-      const catalogParsed = JSON.parse(catalog);
-      const testVendorCode = '03L115562';
-      console.log(JSON.stringify({
-        diag: 'catalog-compat-check',
-        compatKeyCount,
-        catalogProductCount: catalogParsed.length,
-        testVendorCodeInCompat: Object.prototype.hasOwnProperty.call(compatibilityData, testVendorCode),
-        testVendorCodeInCatalog: catalogParsed.some(p => p.article === testVendorCode),
-        catalogCacheAgeMs: Date.now() - catalogCachedAt,
-        compatCacheAgeMs: Date.now() - compatibilityCachedAt,
-      }));
-    } catch (diagErr) {
-      console.log('diag logging failed:', diagErr.message);
-    }
+    // Deterministic matching layer (see functions above) -- extract vehicle
+    // fields cheaply, match them in plain JS, and only send Claude the
+    // already-matched result instead of all ~214 compatibility records.
+    const extracted = await extractVehicleInfo(messages);
+    const matchedCompatibility = matchCompatibility(compatibilityData, extracted);
+    const matchedVendorCodes = new Set(Object.keys(matchedCompatibility));
+    const matchedCatalog = catalogParsed.filter(p => matchedVendorCodes.has(p.article));
+
+    const compatibility = JSON.stringify(matchedCompatibility);
+    const catalogForPrompt = JSON.stringify(matchedCatalog);
+
+    // TEMPORARY DIAGNOSTIC LOGGING — shows what the matching layer actually
+    // found, plus payload size for cost comparison against the old
+    // full-blob approach.
+    console.log(JSON.stringify({
+      diag: 'match-check',
+      extracted,
+      matchedVendorCodeCount: matchedVendorCodes.size,
+      matchedCatalogCount: matchedCatalog.length,
+      compatibilityPromptChars: compatibility.length,
+      catalogPromptChars: catalogForPrompt.length,
+    }));
 
     const systemWithData = SYSTEM_PROMPT
-      .replace('{{CATALOG}}', catalog)
+      .replace('{{CATALOG}}', catalogForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility);
 
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
