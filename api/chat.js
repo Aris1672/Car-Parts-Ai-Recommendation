@@ -69,6 +69,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 - **Если для одной модели/года есть НЕСКОЛЬКО записей с разными engineCode или powerHp** — это разные двигатели. Для двигателеспецифичных деталей НЕ давай окончательный ответ "подходит", пока не уточнишь код двигателя или мощность у пользователя — иначе есть риск порекомендовать деталь для другого двигателя той же модели.
 - **Если для артикула НЕТ данных о совместимости** (это нормально — у платформы нет данных о применимости для многих категорий, например корпуса, датчики, генерики) — честно скажи, что не можешь подтвердить совместимость по этому артикулу, и запусти сценарий ЭСКАЛАЦИИ (см. ниже). НЕ угадывай и не выдумывай совместимость.
 - Перед тем как вставить текст в поле "compatibility" карточки товара (см. ФОРМАТ ОТВЕТА С ТОВАРАМИ) — проверь ещё раз, что это ИМЕННО та запись, которая совпадает с автомобилем пользователя, а не случайная запись из массива для этого артикула.
+- **Текст ответа должен совпадать с полем "compatibility" по каждому товару.** Если в карточке товара поле "compatibility" показывает ДРУГОЙ автомобиль (не тот, что назвал пользователь) — значит для этого конкретного товара совпадение НЕ подтверждено. В этом случае нельзя писать в тексте фразы вроде "вот подходящие товары для вашего автомобиля" или "оба варианта подходят" применительно к такому товару. Вместо этого либо не включай этот товар в подборку, либо явно предупреди: "Для этого артикула у меня есть данные о совместимости с {модель из compatibility}, но не с вашим автомобилем — уточню у специалиста, подходит ли он и для вашей модели" и добавь <<<MANAGER_BUTTON>>>.
 
 ## КОНСУЛЬТАЦИЯ ПО УСТАНОВКЕ (Technical)
 Отвечай на вопросы по замене и установке запчастей.
@@ -309,6 +310,26 @@ module.exports = async function handler(req, res) {
     // knowing which vendorCodes we actually have fitment data for.
     const { data: compatibilityData, str: compatibility } = await fetchCompatibility();
     const catalog = await fetchCatalog(new Set(Object.keys(compatibilityData)));
+
+    // TEMPORARY DIAGNOSTIC LOGGING — remove once the vendorCode-mismatch
+    // bug is found. Prints counts + a spot-check for a specific test
+    // vendorCode, without dumping the full (large) payloads into logs.
+    try {
+      const compatKeyCount = Object.keys(compatibilityData).length;
+      const catalogParsed = JSON.parse(catalog);
+      const testVendorCode = '03L115562';
+      console.log(JSON.stringify({
+        diag: 'catalog-compat-check',
+        compatKeyCount,
+        catalogProductCount: catalogParsed.length,
+        testVendorCodeInCompat: Object.prototype.hasOwnProperty.call(compatibilityData, testVendorCode),
+        testVendorCodeInCatalog: catalogParsed.some(p => p.article === testVendorCode),
+        catalogCacheAgeMs: Date.now() - catalogCachedAt,
+        compatCacheAgeMs: Date.now() - compatibilityCachedAt,
+      }));
+    } catch (diagErr) {
+      console.log('diag logging failed:', diagErr.message);
+    }
 
     const systemWithData = SYSTEM_PROMPT
       .replace('{{CATALOG}}', catalog)
