@@ -86,7 +86,11 @@ async function generateSummary(messages) {
   }
 
   const data = await response.json();
-  const raw = data.content?.[0]?.text?.trim() ?? 'No summary.';
+  // Find by TYPE, not array position -- same latent bug as chat.js: a
+  // thinking block (if this model ever gets adaptive thinking enabled)
+  // would occupy position 0 and silently break this with an empty summary.
+  const textBlock = (data.content || []).find(block => block.type === 'text');
+  const raw = textBlock?.text?.trim() ?? 'No summary.';
 
   // Parse the structured header fields out of Claude's response. Falls
   // back gracefully to empty values if the format drifts slightly — this

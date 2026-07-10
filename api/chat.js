@@ -362,7 +362,14 @@ module.exports = async function handler(req, res) {
     }
 
     const data = await claudeRes.json();
-    const text = data.content?.[0]?.text ?? '';
+    // Find the actual text block by TYPE, not by array position. Sonnet 5
+    // (and any model with thinking/adaptive-thinking enabled) can return a
+    // {type: "thinking", ...} block BEFORE the text block, so content[0]
+    // is not reliably the reply -- that was silently returning an empty
+    // string here (tokens billed, nothing rendered) once we switched off
+    // Haiku, which never produced thinking blocks so this bug was latent.
+    const textBlock = (data.content || []).find(block => block.type === 'text');
+    const text = textBlock?.text ?? '';
 
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
     res.setHeader('Content-Type', 'application/json');
