@@ -6,6 +6,8 @@
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const CATALOG_API       = process.env.CATALOG_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/catalog';
+const SUPABASE_URL         = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 // Compatibility data (vendorCode -> compatible vehicles). Sourced from the
 // manually-built compatibility table (see abcp-catalog-proxy repo /
@@ -59,6 +61,17 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ## КАТАЛОГ ПО КАТЕГОРИИ (Browse)
 Когда пользователь называет категорию запчастей — сразу верни до 6 товаров этой категории из каталога.
 Основные категории: двигатель, тормозная система, подвеска и рулевое, фильтры, электрика, кузов, трансмиссия, выхлопная система, охлаждение, расходники.
+
+## ПОДБОР МАСЛА И ЖИДКОСТЕЙ (Oil & Fluids)
+Масла и технические жидкости (моторное масло, тормозная жидкость, антифриз и т.д.) НЕ имеют данных о совместимости с конкретным автомобилем (в отличие от запчастей) — производитель платформы не связывает эти товары с конкретной моделью/двигателем. Поэтому подбор идёт иначе, в два этапа:
+
+**Этап 1 — точный допуск производителя (приоритет, самый надёжный способ):**
+Спроси у пользователя, знает ли он требуемый допуск производителя для своего двигателя (например, VW 507.00, BMW Longlife-01, MB 229.5 — обычно указан в руководстве по эксплуатации автомобиля или можно узнать у дилера).
+- Если пользователь называет допуск — он уже сверен по коду (см. раздел "МАСЛА И ЖИДКОСТИ" выше, который содержит уже отфильтрованные по этому допуску товары). ВАЖНО: подходящее масло necessarily не обязательно от бренда производителя автомобиля — универсальные бренды (LUKOIL, GENERAL MOTORS и т.д.) часто имеют тот же допуск и полностью подходят. Если в разделе есть товары — уверенно предложи их, указав, что они имеют нужный допуск.
+- Если раздел "МАСЛА И ЖИДКОСТИ" пуст, а допуск был назван — честно скажи, что среди доступных товаров нет масла с этим допуском, и предложи связаться с менеджером.
+
+**Этап 2 — если пользователь НЕ знает допуск производителя:**
+В текущей версии агента общий (запасной) подбор по типу топлива/наддуву/пробегу ещё не реализован. Если пользователь не знает допуск — вежливо объясни, что для точного подбора масла нужен допуск производителя (можно посмотреть в руководстве по эксплуатации или на крышке маслозаливной горловины), и предложи связаться с менеджером для помощи с подбором, используя сценарий ЭСКАЛАЦИИ (см. ниже). НЕ угадывай подходящее масло по типу топлива/наддуву самостоятельно — это будет добавлено отдельно.
 
 ## СОВМЕСТИМОСТЬ (Compatibility)
 Если пользователь спрашивает «подойдёт ли эта деталь на мою машину»:
@@ -170,6 +183,11 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ДАННЫЕ О СОВМЕСТИМОСТИ (артикул → автомобили, если есть):
 ═══════════════════════════════════════════
 {{COMPATIBILITY}}
+
+═══════════════════════════════════════════
+МАСЛА И ЖИДКОСТИ (уже подобранные по допуску производителя, если применимо):
+═══════════════════════════════════════════
+{{OIL_PRODUCTS}}
 `;
 
 // ─── COMPATIBILITY CACHE ────────────────────────────────────────────────────
@@ -273,7 +291,7 @@ async function fetchCatalog(compatibilityKeys) {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null"}
+{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null"}
 
 Диалог:
 `;
@@ -293,7 +311,7 @@ async function extractVehicleInfo(messages) {
       },
       body: JSON.stringify({
         model:       'claude-haiku-4-5-20251001', // fast + cheap -- pure extraction, no need for a bigger model here
-        max_tokens:  400,
+        max_tokens:  200,
         temperature: 0, // deterministic extraction
         messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }],
       }),
@@ -360,6 +378,70 @@ function matchCompatibility(compatibilityData, extracted) {
   return matched;
 }
 
+// ─── MANUAL PRODUCTS (oils/fluids, client-curated) ─────────────────────────
+// See README's "Compatibility matching architecture" section for why this
+// follows the same deterministic-matching pattern as vehicle compatibility
+// rather than dumping the whole table into the prompt: searching a large
+// embedded list for one matching approval code is a retrieval task, which
+// both Haiku and Sonnet 5 were unreliable at for the vehicle-fitment case.
+// Same fix applies here -- match in plain JS, hand Claude only the result.
+
+let oilProductsCache    = null;
+let oilProductsCachedAt = 0;
+const OIL_PRODUCTS_TTL_MS = 15 * 60 * 1000; // 15 min -- client adds products manually, doesn't change often
+
+async function fetchOilProducts() {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return [];
+
+  const now = Date.now();
+  if (oilProductsCache && (now - oilProductsCachedAt) < OIL_PRODUCTS_TTL_MS) {
+    return oilProductsCache;
+  }
+  try {
+    const url = `${SUPABASE_URL.replace(/\/?$/, '/')}rest/v1/manual_products?select=*`;
+    const res = await fetch(url, {
+      headers: {
+        'apikey':        SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return oilProductsCache || [];
+    const data = await res.json();
+    oilProductsCache    = data;
+    oilProductsCachedAt = now;
+    return data;
+  } catch {
+    return oilProductsCache || [];
+  }
+}
+
+// Normalizes an approval code for comparison: uppercase, strip all
+// punctuation/whitespace. "VW 502.00", "VW 502 00", and "vw50200" all
+// become "VW50200" -- this handles the inconsistent formatting seen across
+// different products' "Допуски производителей" field.
+function normalizeApprovalCode(code) {
+  if (!code) return '';
+  return code.toUpperCase().replace(/[^A-Z0-9А-Я]/g, '');
+}
+
+// Given the full manual_products list and a customer-stated approval code,
+// return only the products whose "Допуски производителей" field contains
+// that code -- brand-agnostic, exactly how real oil-compatibility works
+// (a generic-brand oil carrying the right approval is just as valid as an
+// OEM-branded one).
+function matchOilByApproval(products, approvalCode) {
+  const target = normalizeApprovalCode(approvalCode);
+  if (!target) return [];
+
+  return products.filter(p => {
+    const approvalsField = p.specs?.['Допуски производителей'];
+    if (!approvalsField) return false;
+    const codes = approvalsField.split(',').map(c => normalizeApprovalCode(c));
+    return codes.some(c => c === target || c.includes(target) || target.includes(c));
+  });
+}
+
 // Pre-warm caches on cold start -- compatibility first, since catalog
 // filtering depends on it.
 fetchCompatibility()
@@ -424,6 +506,17 @@ module.exports = async function handler(req, res) {
     const compatibility = JSON.stringify(matchedCompatibility);
     const catalogForPrompt = JSON.stringify(matchedCatalog);
 
+    // Oil/fluid cross-sell matching (Tier 1: exact approval code match).
+    // Tier 2 (general fuel/turbo/mileage fallback when the customer
+    // doesn't know their required approval) is not yet implemented --
+    // matchedOilProducts stays empty in that case, and the prompt
+    // instructs the agent accordingly (see ПОДБОР МАСЛА skill below).
+    const oilProducts = await fetchOilProducts();
+    const matchedOilProducts = extracted.oilApprovalCode
+      ? matchOilByApproval(oilProducts, extracted.oilApprovalCode)
+      : [];
+    const oilProductsForPrompt = JSON.stringify(matchedOilProducts);
+
     // TEMPORARY DIAGNOSTIC LOGGING — shows what the matching layer actually
     // found, plus payload size for cost comparison against the old
     // full-blob approach.
@@ -434,11 +527,14 @@ module.exports = async function handler(req, res) {
       matchedCatalogCount: matchedCatalog.length,
       compatibilityPromptChars: compatibility.length,
       catalogPromptChars: catalogForPrompt.length,
+      totalOilProducts: oilProducts.length,
+      matchedOilProductCount: matchedOilProducts.length,
     }));
 
     const systemWithData = SYSTEM_PROMPT
       .replace('{{CATALOG}}', catalogForPrompt)
-      .replace('{{COMPATIBILITY}}', compatibility);
+      .replace('{{COMPATIBILITY}}', compatibility)
+      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt);
 
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -452,7 +548,7 @@ module.exports = async function handler(req, res) {
                                          // limit vs a prompt issue. Sonnet 5 REJECTS non-default
                                          // temperature/top_p/top_k with a 400 error, so temperature
                                          // is intentionally omitted here (was 0.2 for Haiku).
-        max_tokens:  4000,
+        max_tokens:  2048,
         system:      systemWithData,
         messages:    messages,
       }),
