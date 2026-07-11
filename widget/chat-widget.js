@@ -444,6 +444,60 @@
   let userMessageCount    = 0;
   let sessionEnded        = false;
 
+  // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
+  // Fixes: clicking a product's "Подробнее" link navigates the same tab to
+  // another page on the site (e.g. bmwclub77.ru/parts/...), which reloads
+  // this whole script from scratch -- previously wiping the conversation
+  // entirely since everything lived only in JS variables. sessionStorage
+  // survives same-tab navigation but is cleared when the tab actually
+  // closes, which is exactly the right lifetime for "resume where the
+  // customer left off, but start fresh in a new visit."
+  //
+  // displayLog mirrors what's rendered on screen (separately from
+  // `messages`, which stores the API-facing conversation history with
+  // products/buttons collapsed to placeholder text) so a restore can
+  // faithfully rebuild product carousels and button groups, not just text.
+  const STORAGE_KEY = 'pc_chat_state_v1';
+  let displayLog = []; // [{type: 'dateSep'|'bot'|'user'|'products'|'buttons'|'manager', payload}]
+
+  function saveState() {
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+        sessionId, sessionStartTime, userMessageCount, sessionEnded,
+        messages, displayLog, isOpen,
+      }));
+    } catch (e) {
+      // sessionStorage can throw in some private-browsing modes -- fine to
+      // just skip persistence rather than break the chat over it.
+    }
+  }
+
+  function loadState() {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearPersistedState() {
+    try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  }
+
+  function replayDisplayLog(log) {
+    log.forEach(entry => {
+      switch (entry.type) {
+        case 'dateSep':  addDateSep(entry.payload); break;
+        case 'bot':      addBotBubble(entry.payload); break;
+        case 'user':     addUserBubble(entry.payload); break;
+        case 'products': addProductCarousel(entry.payload); break;
+        case 'buttons':  addButtonsBubble(entry.payload); break;
+        case 'manager':  addManagerButton(); break;
+      }
+    });
+  }
+
   // ─── SESSION: START ──────────────────────────────────────────────────────────
   function startSession() {
     if (sessionStartPromise) return sessionStartPromise;
@@ -621,9 +675,39 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && isOpen) close(); });
 
     window.addEventListener('pagehide', () => endSession(true));
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') endSession(true);
-    });
+    // NOTE: previously also called endSession() on visibilitychange->hidden,
+    // which fires on every tab-switch or same-tab navigation -- meaning a
+    // customer briefly glancing at another tab, or clicking a product's
+    // "Подробнее" link, was ending their support session. Removed: session
+    // end should reflect the customer actually leaving, not momentary
+    // navigation. pagehide + sendBeacon above still catches genuine tab
+    // close/navigation-away for analytics purposes.
+
+    // ─── RESTORE PERSISTED STATE (see PERSISTENCE section above) ────────────
+    // Must happen after the DOM above exists (#pc-messages etc.) so restored
+    // bubbles/carousels have somewhere to render into.
+    const restored = loadState();
+    if (restored && Array.isArray(restored.messages) && restored.messages.length > 0) {
+      sessionId        = restored.sessionId;
+      sessionStartTime = restored.sessionStartTime;
+      userMessageCount = restored.userMessageCount || 0;
+      sessionEnded     = false; // resuming counts as still-active, even if a
+                                 // prior pagehide fired an analytics end-call
+      messages         = restored.messages;
+      displayLog       = restored.displayLog || [];
+      // Already have a real session_id from before -- don't call
+      // /api/session/start again, that would create a second session
+      // record for what the customer experiences as one continuous chat.
+      sessionStartPromise = Promise.resolve();
+
+      replayDisplayLog(displayLog);
+
+      if (restored.isOpen) {
+        // Defer to next tick so open()'s DOM queries succeed after the
+        // synchronous init() work above finishes.
+        setTimeout(open, 0);
+      }
+    }
 
     setTimeout(() => { if (!isOpen) { showTeasers(); showBadge(2); } }, 2000);
   }
@@ -645,9 +729,15 @@
     clearBadge();
     if (messages.length === 0) {
       addDateSep('Сегодня');
-      PROACTIVE.forEach((text, i) => { setTimeout(() => addBotBubble(text), i * 650 + 200); });
+      displayLog.push({ type: 'dateSep', payload: 'Сегодня' });
+      PROACTIVE.forEach((text, i) => {
+        setTimeout(() => addBotBubble(text), i * 650 + 200);
+        displayLog.push({ type: 'bot', payload: text });
+      });
       setTimeout(() => addButtonsBubble(QUICK_BUTTONS), PROACTIVE.length * 650 + 500);
+      displayLog.push({ type: 'buttons', payload: QUICK_BUTTONS });
     }
+    saveState();
     setTimeout(() => document.getElementById('pc-input').focus(), 380);
   }
 
@@ -660,6 +750,7 @@
     backdrop.classList.remove('pc-open');
     setTimeout(() => { backdrop.style.display = 'none'; }, 300);
     endSession(false);
+    saveState();
   }
 
   function clearChat() {
@@ -670,11 +761,19 @@
     userMessageCount = 0;
     sessionEnded     = false;
     sessionStartPromise = null;
+    displayLog       = [];
+    clearPersistedState();
     const container = document.getElementById('pc-messages');
     container.innerHTML = '';
     addDateSep('Сегодня');
-    PROACTIVE.forEach((text, i) => { setTimeout(() => addBotBubble(text), i * 650 + 200); });
+    displayLog.push({ type: 'dateSep', payload: 'Сегодня' });
+    PROACTIVE.forEach((text, i) => {
+      setTimeout(() => addBotBubble(text), i * 650 + 200);
+      displayLog.push({ type: 'bot', payload: text });
+    });
     setTimeout(() => addButtonsBubble(QUICK_BUTTONS), PROACTIVE.length * 650 + 500);
+    displayLog.push({ type: 'buttons', payload: QUICK_BUTTONS });
+    saveState();
   }
 
   // ─── BADGE ───────────────────────────────────────────────────────────────────
@@ -968,6 +1067,8 @@
 
     addUserBubble(userText);
     messages.push({ role: 'user', content: userText });
+    displayLog.push({ type: 'user', payload: userText });
+    saveState();
 
     isLoading = true;
     document.getElementById('pc-send').disabled = true;
@@ -1017,6 +1118,7 @@
 
       if (text) {
         addBotBubble(text);
+        displayLog.push({ type: 'bot', payload: text });
         const cleanedForHistory = raw
           .replace(/<<<PRODUCTS>>>[\s\S]*?<<<END_PRODUCTS>>>/g, '[запчасти показаны]')
           .replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/g, '')
@@ -1024,9 +1126,19 @@
           .trim();
         messages.push({ role: 'assistant', content: cleanedForHistory });
       }
-      if (products && products.length > 0) addProductCarousel(products);
-      if (buttons  && buttons.length  > 0) addButtonsBubble(buttons);
-      if (showManager)                      addManagerButton();
+      if (products && products.length > 0) {
+        addProductCarousel(products);
+        displayLog.push({ type: 'products', payload: products });
+      }
+      if (buttons && buttons.length > 0) {
+        addButtonsBubble(buttons);
+        displayLog.push({ type: 'buttons', payload: buttons });
+      }
+      if (showManager) {
+        addManagerButton();
+        displayLog.push({ type: 'manager', payload: null });
+      }
+      saveState();
 
     } catch (err) {
       removeTypingIndicator();
