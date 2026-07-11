@@ -548,7 +548,14 @@ module.exports = async function handler(req, res) {
                                          // limit vs a prompt issue. Sonnet 5 REJECTS non-default
                                          // temperature/top_p/top_k with a 400 error, so temperature
                                          // is intentionally omitted here (was 0.2 for Haiku).
-        max_tokens:  2048,
+        max_tokens:  4096, // was 2048 -- too tight for a full TO service kit
+                           // (5+ verbose product entries with long URLs/
+                           // picture links + intro prose sharing the same
+                           // budget), causing the response to cut off
+                           // mid-JSON. The widget can't parse a truncated
+                           // <<<PRODUCTS>>> block, so it silently fell back
+                           // to showing the raw (broken) text instead of
+                           // rendering cards.
         system:      systemWithData,
         messages:    messages,
       }),
