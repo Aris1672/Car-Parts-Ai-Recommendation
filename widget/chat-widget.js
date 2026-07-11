@@ -445,44 +445,56 @@
   let sessionEnded        = false;
 
   // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
-  // Fixes: clicking a product's "Подробнее" link navigates the same tab to
-  // another page on the site (e.g. bmwclub77.ru/parts/...), which reloads
-  // this whole script from scratch -- previously wiping the conversation
-  // entirely since everything lived only in JS variables. sessionStorage
-  // survives same-tab navigation but is cleared when the tab actually
-  // closes, which is exactly the right lifetime for "resume where the
-  // customer left off, but start fresh in a new visit."
+  // Fixes: clicking a product's "Подробнее" link opens a NEW TAB
+  // (target="_blank" -- intentional, so customers don't lose the chat by
+  // navigating away entirely). sessionStorage is scoped per-tab and is
+  // NEVER shared with a newly opened tab even on the same origin -- so an
+  // earlier attempt using sessionStorage looked like it did nothing,
+  // because there was genuinely no prior state for the new tab to see.
+  // localStorage IS shared across all tabs of the same origin, which is
+  // what's actually needed here. Tradeoff: localStorage doesn't auto-clear
+  // when a tab closes, so we track our own expiry (EXPIRY_MS) and treat
+  // anything older as stale rather than resurrecting an old conversation
+  // days later.
   //
   // displayLog mirrors what's rendered on screen (separately from
   // `messages`, which stores the API-facing conversation history with
   // products/buttons collapsed to placeholder text) so a restore can
   // faithfully rebuild product carousels and button groups, not just text.
-  const STORAGE_KEY = 'pc_chat_state_v1';
+  const STORAGE_KEY = 'pc_chat_state_v2';
+  const EXPIRY_MS    = 45 * 60 * 1000; // 45 minutes of inactivity -- matches typical "session" semantics
   let displayLog = []; // [{type: 'dateSep'|'bot'|'user'|'products'|'buttons'|'manager', payload}]
 
   function saveState() {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
         sessionId, sessionStartTime, userMessageCount, sessionEnded,
         messages, displayLog, isOpen,
+        lastActivityAt: Date.now(),
       }));
     } catch (e) {
-      // sessionStorage can throw in some private-browsing modes -- fine to
+      // localStorage can throw in some private-browsing modes -- fine to
       // just skip persistence rather than break the chat over it.
     }
   }
 
   function loadState() {
     try {
-      const raw = sessionStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (Date.now() - (parsed.lastActivityAt || 0) > EXPIRY_MS) {
+        localStorage.removeItem(STORAGE_KEY); // stale -- don't resurrect an old conversation
+        return null;
+      }
+      return parsed;
     } catch (e) {
       return null;
     }
   }
 
   function clearPersistedState() {
-    try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
   }
 
   function replayDisplayLog(log) {
