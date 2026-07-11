@@ -1,7 +1,7 @@
 # Car Parts AI Recommendation Chat Agent
 
 Custom Claude-powered chat widget and analytics dashboard for car parts e-commerce (client: bmwclub77.ru, ABCP platform, id2319).
-Powered by Claude Haiku via a Vercel serverless proxy.
+Powered by a **two-model architecture** via a Vercel serverless proxy: **Claude Sonnet 5** handles the actual customer-facing conversation, **Claude Haiku** does a cheap, fast structured-data extraction step that feeds it (see "Compatibility matching architecture" below for why this changed from a single-model, single-blob design).
 
 Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom` (mosaic tile e-commerce, same two-repo architecture).
 
@@ -9,7 +9,7 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-07-08 — finalized the compatibility-data architecture: `Compatability_catalog.json` (agent's data source) + `Crawled_modificationIds.json` (client-relevant scope/tracking list) via the hybrid crawl workflow. `Car_model_list.xml` (hand-typed table) retired, no longer used. Next actionable step: build a merge script for accumulating batches, then host the file and wire it into `chat.js`.
+**Last updated:** 2026-07-10 — replaced the original "dump full compatibility+catalog blob into every prompt" design with a deterministic pre-filtering pipeline (see "Compatibility matching architecture" section below). Widget is now live on the client's site (integrated via ABCP's admin panel "Внешний вид и контент → Инфоблоки → footer block", confirmed working). Next actionable step: keep expanding crawl coverage; consider a part-first (reverse) crawl direction for high-traffic wear parts (filters, brake pads) alongside the existing model-first crawl.
 
 ### 🔄 Resuming in a fresh chat? This README explains *why* things are the way they are — it does NOT contain live file contents. Upload these before continuing:
 
@@ -29,18 +29,31 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 - [x] Designed + built escalation/lead-capture feature: `chat.js` (compatibility fetch + escalation triggers), `manager.js` (real Bitrix24 CRM lead, removed dangerous hardcoded webhook, fixed summary prompt), `chat-widget.js` (confirmed wiring + added confirmation message)
 - [x] Decided product card button = link to `product.url`, new tab
 - [x] Scrubbed exposed secret from README, added resume checklist
+- [x] Built `merge-compatibility.js` — dedupes hybrid-crawl batches into the two accumulating files (by `modificationId` within each vendorCode; conflicts logged, batch/newer wins), with automatic timestamped backups
+- [x] Updated `crawl-compatibility.js` to auto-emit `compatibility-crawl-successful-ids.json` per run (only genuinely-resolved ids, not failed ones) — closed the last manual-copy-paste gap in the crawl→merge workflow
+- [x] Built & hosted `api/compatibility.js` in `abcp-catalog-proxy` — serves the committed `Compatability_catalog.json` directly (unwrapped JSON, matches `chat.js`'s `fetchCompatibility()` contract). `COMPATIBILITY_API_URL` set and live.
+- [x] **Fixed catalog fetch timeout bug** — `catalog.js`'s live XML fetch/parse took 15–20s; `chat.js`'s original 8s timeout silently aborted and fell back to an empty catalog every time. Root-caused via `servedFrom` diagnostic field.
+- [x] **Rebuilt `catalog.js` around a Supabase-backed cache**, refreshed every 6h by a GitHub Actions cron workflow (`refresh-catalog.yml`) calling a protected `api/refresh-catalog.js` endpoint — works around Vercel Hobby's 10s function-duration cap and once-daily cron limit. Live catalog reads are now near-instant (`servedFrom: "supabase"`), with a live-fetch fallback if Supabase is ever unreachable.
+- [x] **Found & fixed a major scaling bug:** once the catalog fetch actually started succeeding (see above), `chat.js` was stuffing the *entire* ~22k-product catalog into every system prompt — 2.75M tokens, >13x Claude's 200k limit. Fixed by filtering the catalog server-side to only vendorCodes present in the compatibility data before it ever reaches the prompt.
+- [x] **Diagnosed and fixed a cross-vehicle hallucination bug** — the agent would sometimes present a product's compatibility data for the *wrong* car (e.g. citing an A6 Avant fitment record while discussing an A4). Root cause: reading through a multi-hundred-record JSON blob and picking the right sub-record is a search/retrieval task, not a reasoning task — confirmed by testing with Sonnet 5 (a much stronger model) and getting the *same* class of failure. See "Compatibility matching architecture" below for the fix.
+- [x] **Built a deterministic vehicle-matching pipeline** (`extractVehicleInfo()` + `matchCompatibility()` in `chat.js`) — a cheap Haiku call extracts `{vendorCode, brand, model, engineCode, powerHp}` from the conversation; plain JS does fuzzy brand/model/engine matching against the full compatibility dataset; only the already-matched result (typically 0–5 records) is sent to the main conversational call. Fixes both the hallucination bug and the token-cost problem at once.
+- [x] Switched the main conversational model to **Claude Sonnet 5** (extraction step stays on Haiku) — now that the matching pipeline does the hard retrieval work in JS, the conversational model's job is just natural, well-reasoned dialogue around an already-correct answer.
+- [x] Fixed a response-parsing bug (`data.content?.[0]?.text`) that broke silently on any model with thinking blocks enabled by default (e.g. Sonnet 5) — was grabbing content by array position instead of by `type: 'text'`, causing empty replies with real token cost. Fixed in both `chat.js` and `manager.js`.
+- [x] Found and fixed a **silent duplicate-key data-loss bug** in `Compatability_catalog.json` from repeated manual edits bypassing `merge-compatibility.js`'s dedup logic — `JSON.parse` silently keeps only the last of several duplicate top-level keys. Client wrote a cleanup script; file is now clean.
+- [x] Added a parts-terminology glossary to the system prompt (catalog naming quirks → plain-language equivalents, e.g. "Фильтрующий элемент с проклад." = oil filter) — extensible as more mismatches are found.
+- [x] Added mandatory engine-code/horsepower disambiguation to the system prompt when multiple engine variants exist for the same model/year range (many parts — filters, timing belts, spark plugs — are engine-specific, not just model/year-specific).
+- [x] Applied consistent widget CSS (explicit font stack + reset scoped to the widget's root containers, so it no longer inherits the host site's font) — fixes it looking inconsistent/small depending on the client site's own CSS.
+- [x] **Widget integrated live on the client's site** — via ABCP's admin panel ("Внешний вид и контент" → "Инфоблоки" → footer info-block), confirmed working.
+- [x] Rotated `ABCP_EXPORT_URL` after it was found committed in `env.local` (missing from `.gitignore`) via a stray `git add .`
 
 ### ⬜ TO DO
-- [ ] Establish a process to merge hybrid-crawl batch outputs into one accumulating compatibility file (not yet defined)
-- [ ] Build a clean merge process for `Compatability_catalog.json` + `Crawled_modificationIds.json` so each new hybrid-crawl batch appends/dedupes rather than requiring manual copy-paste
-- [ ] Host the accumulated compatibility JSON somewhere reachable, then set `COMPATIBILITY_API_URL` in `chat.js`'s Vercel env vars
-- [ ] Set `BITRIX24_WEBHOOK_URL` once client's Bitrix24 account + webhook exist
+- [ ] Set `BITRIX24_WEBHOOK_URL` once client's Bitrix24 account + webhook exist (currently degrades gracefully — logs the lead attempt, doesn't crash, shows a graceful fallback message to the user)
 - [ ] Fill remaining `TODO_COMPANY_NAME` / `TODO_PHONE` / `TODO_EMAIL` / `TODO_ADDRESS` / `TODO_HOURS` placeholders in `chat.js` / `chat-widget.js`
-- [ ] Set a **Расписание** (refresh schedule) on the production YML export config (currently manual/test only)
-- [ ] **Security:** regenerate/rotate the ABCP export token — it was exposed in README git history before the 2026-07-08 scrub
-- [ ] Confirm whether Supabase is actually configured for this project (optional/non-blocking either way)
-- [ ] Push all rewritten files to their repos if not already done: `catalog.js`, `crawl-compatibility.js`, `chat.js`, `manager.js`, `chat-widget.js`, `vercel.json` changes
-- [ ] End-to-end test of the full agent once the above are in place
+- [ ] Upgrade Vercel plan from Hobby to Pro (client demo's 7-day free window; Hobby's 10s function-duration cap and non-commercial-use terms are a real risk for a live production tool)
+- [ ] Remove the temporary diagnostic `console.log` calls in `chat.js` (`diag: 'match-check'`, etc.) once the matching pipeline has been observed stable for a while in production
+- [ ] Keep expanding compatibility crawl coverage — consider a part-first (reverse, per-vendorCode "Применимость" page) crawl direction for common wear items, which may reach full coverage faster than the current model-first (`getAdaptability`) direction for high-traffic parts
+- [ ] Confirm whether Supabase session/manager logging (`SUPABASE_URL` / `SUPABASE_SERVICE_KEY` in the `Car-Parts-Ai-Recommendation` project specifically, separate from the catalog-cache Supabase table) is actually configured — optional/non-blocking either way
+- [ ] End-to-end regression test now that the model + pipeline have changed (Sonnet 5 + deterministic matching) — confirm escalation flow, product cards, and manager handoff all still behave correctly under the new architecture
 
 ### Where we are
 - Catalog source confirmed: client's site runs on **ABCP** (auto parts distribution platform, not a simple CMS).
@@ -430,16 +443,43 @@ Then set `window.AGENT_URL = 'http://localhost:3000'` temporarily in the widget.
 
 ---
 
+## Compatibility matching architecture (why it works the way it does)
+
+**Original design (retired 2026-07-10):** `chat.js` fetched the full catalog and full compatibility dataset, compacted them, and pasted both as raw JSON directly into the system prompt on every turn — one Claude call, no separate lookup step. Simple, but it broke in two escalating ways as real data volume arrived:
+
+1. **Token-limit crash.** Once the catalog fetch was actually succeeding (see the timeout-bug fix above), the full ~22k-product catalog blew the prompt out to 2.75M tokens — over 13x Claude's 200k context limit. Fixed first by filtering the catalog down to only vendorCodes present in the compatibility data (nothing else can ever be recommended anyway, since compatibility can't be confirmed for it) — this alone got typical prompts down to ~10k tokens for the current crawl coverage.
+2. **Cross-vehicle hallucination.** Even with the smaller, filtered payload, the model would sometimes present a *different* vehicle's fitment record as if it matched the customer's car (e.g. citing an Audi A6 Avant record while discussing an A4 — same part number, wrong vehicle attached). **This was tested and confirmed on both Claude Haiku and Claude Sonnet 5** — the same failure mode on a much stronger model rules out "the model just isn't smart enough" and points instead to a structural issue: correctly picking one matching record out of a few hundred embedded in a JSON blob is a *retrieval/search* task, not a *reasoning* task, and LLMs are unreliable at exact retrieval over multi-KB embedded data regardless of model size.
+
+**Current design:** a deterministic, two-stage pipeline per message:
+
+1. **Extraction (cheap, Claude Haiku, `temperature: 0`)** — `extractVehicleInfo()` in `chat.js` reads the conversation so far and returns strict JSON: `{vendorCode, brand, model, engineCode, powerHp}`. Small prompt, small output, fast and cheap by design — this call's only job is pulling structured fields out of freeform text, which LLMs are genuinely good at (unlike needle-in-haystack retrieval).
+2. **Matching (deterministic, plain JavaScript, no LLM)** — `matchCompatibility()` searches the full compatibility dataset directly in code:
+   - Direct `vendorCode` hit if the customer named a specific article, no further filtering.
+   - Otherwise: case-insensitive brand match + fuzzy model-name match (`normalizeModel()` strips bracketed chassis codes and punctuation, so `"A4 Allroad"` correctly matches a record stored as `"A4 Allroad (8KH, B8)"`) + engine-code overlap check (`engineCodesOverlap()`) **only if** the customer has given an engine code — if they haven't yet, all matching engine variants for that model are kept so the agent can show them and ask the customer to disambiguate using real data, rather than guessing.
+3. **Conversational response (Claude Sonnet 5)** — only the already-matched result (typically 0–5 records, not the full ~214) gets spliced into the system prompt. The model's job is reduced to natural dialogue and formatting around an answer that's already correct, instead of also being responsible for finding it.
+
+This fixes the hallucination bug (matching is deterministic and testable, not probabilistic) and further reduces prompt size/cost on top of the earlier catalog filter (typical compatibility payload per turn: a handful of records instead of ~214).
+
+**Known trade-off:** the extraction step is a separate API call every turn (small/cheap, but non-zero latency + cost). Diagnostic logging (`diag: 'match-check'` in `chat.js`'s console output) prints the extracted fields, match counts, and resulting prompt sizes — useful for auditing whether the matching layer found what it should have, and for comparing token cost against the old full-blob approach. Remove once the pipeline's been stable in production for a while (see TODO).
+
+**Debugging note (2026-07-10 incident):** a "the agent doesn't know a match that should exist" report turned out to be **stale data on the debugging side, not a pipeline bug** — the live `Compatability_catalog.json` served by `api/compatibility.js` didn't yet contain a locally-fixed record that hadn't been pushed to the repo. Lesson: when a match unexpectedly fails, check the *actual live* data via the deployed `/api/compatibility` endpoint directly (browser `Ctrl+F` on the raw JSON works fine) before assuming the extraction/matching code is at fault — and note that `api/compatibility.js` has its own independent in-memory cache (6h TTL) on top of `chat.js`'s own cache, so a fresh Vercel deployment (which resets both) may be needed to see a just-pushed data fix reflected live.
+
+**Related data-integrity incident (same day):** manual edits to `Compatability_catalog.json` (bypassing `merge-compatibility.js`) introduced **duplicate top-level JSON keys** — valid JSON syntax, but `JSON.parse` silently keeps only the last occurrence of a repeated key, discarding earlier ones. This looked identical to "data went missing" when in fact it was several different versions of the same vendorCode's data sitting in the file simultaneously, with only the last one surviving parse. Always edit these files via `merge-compatibility.js`, never by hand — if a manual fix is unavoidable, verify afterward that no vendorCode key appears more than once in the raw file (a JSON formatter/linter won't catch this on its own, since duplicate keys aren't a syntax error).
+
+---
+
 ## How it works
 
 1. User opens the chat widget on the landing page
 2. Widget sends `POST /api/chat` with the conversation history
 3. `api/session/start.js` creates a session and logs it via `api/session/manager.js`
-4. Vercel function fetches the live parts catalog (from the ABCP YML export, via the catalog-proxy repo) and injects it into Claude's system prompt
-5. Claude returns a response with optional `<<<PRODUCTS>>>` and `<<<BUTTONS>>>` blocks
-6. Widget parses and renders product carousels + quick-action buttons
-7. When the user requests a manager, `api/session/end.js` closes the session
-8. Dashboard reads session data from `api/dashboard/sessions.js` and renders analytics
+4. `chat.js` fetches the compatibility dataset (cached, `abcp-catalog-proxy`'s `api/compatibility.js`) and the price/stock catalog (cached, Supabase-backed, `abcp-catalog-proxy`'s `api/catalog.js`), then filters the catalog down to only vendorCodes present in the compatibility data
+5. A cheap Claude Haiku call extracts `{vendorCode, brand, model, engineCode, powerHp}` from the conversation so far
+6. Plain JavaScript deterministically matches those extracted fields against the compatibility dataset (see "Compatibility matching architecture" above) — only the matched result (typically a handful of records) is used from here on
+7. Claude Sonnet 5 receives the system prompt with just that matched subset injected, and returns a response with optional `<<<PRODUCTS>>>` and `<<<BUTTONS>>>` blocks
+8. Widget parses and renders product carousels + quick-action buttons
+9. When the user requests a manager, `api/session/end.js` closes the session and `manager.js` generates a summary + creates a Bitrix24 lead (once `BITRIX24_WEBHOOK_URL` is set)
+10. Dashboard reads session data from `api/dashboard/sessions.js` and renders analytics
 
 Reference implementation for the proxy/chat.js contract: see the working `pixmosaic-proxy` (`api/catalog.js`) + `mosaic-recom` (`api/chat.js`) sibling project. Same pattern, different feed format — see field mapping table above for the deltas.
 
@@ -455,7 +495,7 @@ The catalog endpoint must return a `products` array. Each product should have:
 | `name` | Part name (ABCP: `name`) |
 | `brand` | Manufacturer brand (ABCP: `vendor`) |
 | `category` | Part category (ABCP: `categoryId`, needs id→name lookup) |
-| `compatibility` | Compatible car makes/models — **not in the YML feed; exists on the live site as a separate vehicle-fitment catalog module, API access unconfirmed (pending)** |
+| `compatibility` | Compatible car makes/models — sourced from `Compatability_catalog.json` (crawled via `getAdaptability($articleId)`, see below), NOT the YML feed. Injected into the prompt only as an already-matched subset — see "Compatibility matching architecture" |
 | `price` | Price in RUB (ABCP: `price`) |
 | `stock` | Units in stock — **ABCP feed only has boolean `available`, not a quantity, pending client input** |
 | `url` | Product page URL (ABCP: `url`) |
