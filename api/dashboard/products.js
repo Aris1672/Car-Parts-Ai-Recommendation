@@ -135,6 +135,16 @@ function extractSpecs(html) {
   return specs;
 }
 
+function extractDescription(html) {
+  // The free-text technical/marketing description block -- distinct from
+  // the structured "Характеристики" spec table. Often explains use-case
+  // details the spec table doesn't (engine generation compatibility, DPF
+  // suitability, technology notes) -- useful extra context for the agent
+  // beyond the raw viscosity/ACEA/approval fields.
+  const match = html.match(/<div class="goodsInfoModelDescr">([\s\S]*?)<\/div>/);
+  return match ? stripTags(match[1]).trim() : null;
+}
+
 function stripTags(s) {
   return s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -177,7 +187,7 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'category and url are required' });
       }
 
-      let name = null, image = null, price = null, specs = {}, crawlError = null;
+      let name = null, image = null, price = null, description = null, specs = {}, crawlError = null;
 
       if (pastedHtml && pastedHtml.trim().length > 0) {
         // Primary path: admin pasted the page's HTML directly (View Source
@@ -194,6 +204,7 @@ module.exports = async function handler(req, res) {
           image = extractImage(pastedHtml, url);
           price = extractPrice(pastedHtml);
           specs = extractSpecs(pastedHtml);
+          description = extractDescription(pastedHtml);
           if (Object.keys(specs).length === 0) {
             crawlError = 'Специфи­кации не найдены в предоставленном HTML — проверьте, что скопирована вся страница (Ctrl+A после Ctrl+U)';
           }
@@ -219,6 +230,7 @@ module.exports = async function handler(req, res) {
           image = extractImage(fetchedHtml, url);
           price = extractPrice(fetchedHtml);
           specs = extractSpecs(fetchedHtml);
+          description = extractDescription(fetchedHtml);
           if (Object.keys(specs).length === 0) {
             crawlError = 'Специфи­кации не найдены — возможно, потребуется вставить HTML страницы вручную';
           }
@@ -238,7 +250,7 @@ module.exports = async function handler(req, res) {
         method: 'POST',
         headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify({
-          category, url, name, image, price, specs,
+          category, url, name, image, price, description, specs,
           crawl_error: crawlError,
           updated_at: new Date().toISOString(),
         }),

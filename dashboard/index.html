@@ -1334,6 +1334,10 @@
           .join('');
         dr.innerHTML = `<td colspan="6">
           <div class="detail-content">
+            ${p.description ? `
+              <div class="detail-title">Описание</div>
+              <div style="font-size:12px; color:var(--text2); margin-bottom:16px; line-height:1.5;">${esc(p.description)}</div>
+            ` : ''}
             <div class="detail-title">Характеристики</div>
             ${specRows || '<div class="detail-no-summary">Нет данных о характеристиках</div>'}
           </div>
