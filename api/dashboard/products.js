@@ -172,56 +172,66 @@ module.exports = async function handler(req, res) {
     if (action === 'add') {
       if (role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-      const { category, url } = req.body || {};
+      const { category, url, html: pastedHtml } = req.body || {};
       if (!category || !url) {
         return res.status(400).json({ error: 'category and url are required' });
       }
 
       let name = null, image = null, price = null, specs = {}, crawlError = null;
-      try {
-        const html = await fetchHtml(url);
 
-        // TEMPORARY DIAGNOSTIC LOGGING -- the same extraction logic tests
-        // correctly against real page HTML (verified manually), but came
-        // back empty when actually crawled live. This logs exactly what
-        // the server-side fetch received (length + a snippet + whether key
-        // markers are present at all) so we can tell apart: a genuinely
-        // different page (bot-block/challenge page), a truncated response,
-        // or something else -- rather than guessing further. Check Vercel
-        // logs after a crawl attempt.
-        console.log(JSON.stringify({
-          diag: 'crawl-fetch-check',
-          url,
-          htmlLength: html.length,
-          htmlSnippetStart: html.slice(0, 300),
-          hasCharacteristicsListRow: html.includes('characteristicsListRow'),
-          hasArticleBrand: html.includes('article-brand'),
-          hasGoodsInfoDescr: html.includes('goodsInfoDescr'),
-        }));
-
-        name  = extractName(html);
-        image = extractImage(html, url);
-        price = extractPrice(html);
-        specs = extractSpecs(html);
-        if (Object.keys(specs).length === 0) {
-          crawlError = 'Специфи­кации не найдены — возможно, потребуется уточнить структуру страницы';
+      if (pastedHtml && pastedHtml.trim().length > 0) {
+        // Primary path: admin pasted the page's HTML directly (View Source
+        // on the actual product page). This exists because Vercel's
+        // outbound connections to bmwclub77.ru time out at the TCP level
+        // (UND_ERR_CONNECT_TIMEOUT) -- confirmed via diagnostic logging,
+        // consistent with many RU-hosted sites filtering foreign
+        // datacenter IP ranges regardless of request headers. A real
+        // browser (which is what generates this pasted HTML) doesn't hit
+        // that wall, so this sidesteps the problem entirely rather than
+        // trying to work around network-level filtering.
+        try {
+          name  = extractName(pastedHtml);
+          image = extractImage(pastedHtml, url);
+          price = extractPrice(pastedHtml);
+          specs = extractSpecs(pastedHtml);
+          if (Object.keys(specs).length === 0) {
+            crawlError = 'Специфи­кации не найдены в предоставленном HTML — проверьте, что скопирована вся страница (Ctrl+A после Ctrl+U)';
+          }
+        } catch (err) {
+          crawlError = `Ошибка обработки HTML: ${err.message}`;
         }
-      } catch (err) {
-        // "fetch failed" alone is a generic wrapper -- Node's fetch (undici)
-        // usually attaches a more specific `cause` (DNS failure, connection
-        // refused, TLS error, timeout, etc.) that doesn't show up unless
-        // explicitly logged. This was previously silent on failure (no log
-        // at all), which is why Vercel's logs were empty despite the crawl
-        // actually failing.
-        const causeInfo = err.cause ? `${err.cause.code || ''} ${err.cause.message || err.cause}`.trim() : null;
-        console.log(JSON.stringify({
-          diag: 'crawl-fetch-error',
-          url,
-          errorMessage: err.message,
-          errorCause: causeInfo,
-          errorName: err.name,
-        }));
-        crawlError = `Не удалось загрузить страницу: ${err.message}${causeInfo ? ` (${causeInfo})` : ''}`;
+      } else {
+        // Fallback: attempt a live server-side fetch. Expected to fail in
+        // the current network setup (see above) -- kept in case this
+        // changes later (e.g. after moving to a custom domain / different
+        // hosting setup), so the feature degrades to "paste HTML" rather
+        // than being removed outright.
+        try {
+          const fetchedHtml = await fetchHtml(url);
+          console.log(JSON.stringify({
+            diag: 'crawl-fetch-check',
+            url,
+            htmlLength: fetchedHtml.length,
+            htmlSnippetStart: fetchedHtml.slice(0, 300),
+            hasCharacteristicsListRow: fetchedHtml.includes('characteristicsListRow'),
+          }));
+          name  = extractName(fetchedHtml);
+          image = extractImage(fetchedHtml, url);
+          price = extractPrice(fetchedHtml);
+          specs = extractSpecs(fetchedHtml);
+          if (Object.keys(specs).length === 0) {
+            crawlError = 'Специфи­кации не найдены — возможно, потребуется вставить HTML страницы вручную';
+          }
+        } catch (err) {
+          const causeInfo = err.cause ? `${err.cause.code || ''} ${err.cause.message || err.cause}`.trim() : null;
+          console.log(JSON.stringify({
+            diag: 'crawl-fetch-error',
+            url,
+            errorMessage: err.message,
+            errorCause: causeInfo,
+          }));
+          crawlError = `Не удалось загрузить страницу автоматически (${err.message}${causeInfo ? `, ${causeInfo}` : ''}) — вставьте HTML страницы вручную`;
+        }
       }
 
       const sbRes = await supabaseFetch('manual_products?on_conflict=url', {

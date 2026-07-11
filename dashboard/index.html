@@ -831,8 +831,25 @@
             <label class="login-label" style="margin-bottom:6px;">Ссылка на товар</label>
             <input type="text" class="login-input" id="product-url" placeholder="https://bmwclub77.ru/parts/..." style="margin-bottom:0;">
           </div>
-          <button class="filter-btn" id="crawl-product-btn" style="height:41px; white-space:nowrap;">🔎 Спарсить и добавить</button>
         </div>
+
+        <div style="margin-top:14px;">
+          <label class="login-label" style="margin-bottom:6px; display:flex; align-items:center; gap:8px;">
+            HTML страницы товара
+            <span style="font-weight:400; color:var(--text2); font-size:12px;">
+              (откройте ссылку выше → Ctrl+U (просмотр кода) → Ctrl+A → Ctrl+C → вставьте сюда)
+            </span>
+          </label>
+          <textarea id="product-html" class="login-input" rows="4" style="width:100%; margin-bottom:0; font-family: monospace; font-size:11px; resize:vertical;" placeholder="Вставьте HTML-код страницы товара сюда..."></textarea>
+          <div style="font-size:12px; color:var(--text2); margin-top:6px;">
+            Автоматическая загрузка страницы недоступна из Vercel (сайт блокирует запросы с зарубежных серверов) — вставьте HTML вручную. Поле необязательно: если оставить пустым, будет предпринята попытка автозагрузки (обычно неудачная).
+          </div>
+        </div>
+
+        <div style="margin-top:14px;">
+          <button class="filter-btn" id="crawl-product-btn">➕ Добавить товар</button>
+        </div>
+
         <div id="product-add-error" class="login-error" style="display:none; margin-top:14px;"></div>
         <div id="product-add-success" style="display:none; margin-top:14px; padding:10px 14px; background:var(--green-dim); border:1px solid rgba(34,197,94,0.3); border-radius:8px; font-size:13px; color:var(--green);"></div>
       </div>
@@ -1196,6 +1213,7 @@
   document.getElementById('crawl-product-btn').addEventListener('click', async () => {
     const category = document.getElementById('product-category').value.trim();
     const url      = document.getElementById('product-url').value.trim();
+    const html     = document.getElementById('product-html').value.trim();
     const btn      = document.getElementById('crawl-product-btn');
     const errBox   = document.getElementById('product-add-error');
     const okBox    = document.getElementById('product-add-success');
@@ -1208,14 +1226,14 @@
       return;
     }
 
-    btn.textContent = 'Парсинг…';
+    btn.textContent = 'Обработка…';
     btn.disabled = true;
 
     try {
       const res = await fetch(PRODUCTS_API_URL, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ password, action: 'add', category, url }),
+        body:    JSON.stringify({ password, action: 'add', category, url, html }),
       });
       const data = await res.json();
 
@@ -1225,17 +1243,20 @@
         return;
       }
 
-      okBox.textContent = `Добавлено: ${data.product.name || url}`;
+      okBox.textContent = data.product.crawl_error
+        ? `Добавлено с предупреждением: ${data.product.crawl_error}`
+        : `Добавлено: ${data.product.name || url}`;
       okBox.style.display = 'block';
       document.getElementById('product-category').value = '';
       document.getElementById('product-url').value = '';
+      document.getElementById('product-html').value = '';
       await loadProducts();
 
     } catch (e) {
       errBox.textContent = 'Ошибка соединения';
       errBox.style.display = 'block';
     } finally {
-      btn.textContent = '🔎 Спарсить и добавить';
+      btn.textContent = '➕ Добавить товар';
       btn.disabled = false;
     }
   });
