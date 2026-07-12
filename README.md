@@ -9,7 +9,7 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-07-10 — replaced the original "dump full compatibility+catalog blob into every prompt" design with a deterministic pre-filtering pipeline (see "Compatibility matching architecture" section below). Widget is now live on the client's site (integrated via ABCP's admin panel "Внешний вид и контент → Инфоблоки → footer block", confirmed working). Next actionable step: keep expanding crawl coverage; consider a part-first (reverse) crawl direction for high-traffic wear parts (filters, brake pads) alongside the existing model-first crawl.
+**Last updated:** 2026-07-12 — built out the manual cross-sell products feature end-to-end (dashboard "Товары" tab, `manual_products` Supabase table, paste-HTML extraction, manual price entry) and wired it into `chat.js` as an oil/fluid recommendation pipeline (Tier 1: exact manufacturer-approval-code matching, brand-agnostic). Also fixed a widget conversation-persistence bug (product links open a new tab; `localStorage` now carries the conversation across it) and a truncated-JSON product-card bug (`max_tokens` too low). Next actionable step: Tier 2 fallback (fuel/turbo/mileage heuristic for when the customer doesn't know their oil approval code) is designed but not yet built; client is now populating the oils/fluids catalog with real products.
 
 ### 🔄 Resuming in a fresh chat? This README explains *why* things are the way they are — it does NOT contain live file contents. Upload these before continuing:
 
@@ -45,15 +45,29 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 - [x] Applied consistent widget CSS (explicit font stack + reset scoped to the widget's root containers, so it no longer inherits the host site's font) — fixes it looking inconsistent/small depending on the client site's own CSS.
 - [x] **Widget integrated live on the client's site** — via ABCP's admin panel ("Внешний вид и контент" → "Инфоблоки" → footer info-block), confirmed working.
 - [x] Rotated `ABCP_EXPORT_URL` after it was found committed in `env.local` (missing from `.gitignore`) via a stray `git add .`
+- [x] **Diagnosed a structural data gap:** oils/fluids (and other consumables) have no vehicle-fitment data anywhere on ABCP's platform (confirmed via the platform's own product pages — "Нет информации о применимости"). The entire compatibility pipeline above is built around parts that DO have fitment data; oils needed a fundamentally different approach.
+- [x] **Built the manual cross-sell products feature** — new dashboard tab ("Товары") where the client pastes a category + product URL + the page's HTML source (View Source) + price (typed manually, see below) for any product ABCP doesn't have fitment data for. New `manual_products` Supabase table (`category`, `url` unique, `name`, `image`, `price`, `description`, `specs` jsonb, `crawl_error`). New `api/dashboard/products.js` endpoint (list/add/delete, admin-only for add/delete, same password pattern as `sessions.js`).
+- [x] **HTML extraction selectors verified against real ABCP product page markup** (not guessed from screenshots) — `extractName`, `extractImage`, `extractSpecs`, `extractDescription` all tested and confirmed working. `extractPrice()` was iterated on twice: first found the price is sometimes wrapped in extra markup depending on product category (made the regex more tolerant), then discovered the deeper issue below.
+- [x] **Found that price loads via a separate async AJAX call** on ABCP's platform (`/ajaxRoute/goodsInfo/searchArticle`), *after* the page's initial HTML response — meaning "View Source" (Ctrl+U) can never contain it, no matter how good the parser is; it genuinely isn't there yet at that point. DevTools' "Copy outerHTML" (post-render DOM) would work but is too advanced for the client day-to-day.
+- [x] **Solved this by adding a manual price field** — client just reads the price off the page and types it in; always overrides any extraction attempt. Simpler and more reliable than depending on any capture method for this one field. Kept the (still-improved) `extractPrice()` as a best-effort fallback for name/specs-only pastes.
+- [x] Confirmed Vercel's outbound connections to `bmwclub77.ru` fail outright (`UND_ERR_CONNECT_TIMEOUT` at the TCP level, not a bot-challenge page) — consistent with many RU-hosted sites filtering foreign datacenter IP ranges. This is why the "paste HTML manually" flow exists at all instead of a one-click server-side crawl; kept a fetch-fallback in the code in case this changes later (e.g. after a custom domain move).
+- [x] Found `car-parts-ai-recommendation` was missing `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `DASHBOARD_ADMIN_PASSWORD` / `DASHBOARD_CLIENT_PASSWORD` entirely — the dashboard login could never have worked until these were added.
+- [x] **Designed the oil/fluid cross-sell matching strategy** (client's own proposal, refined together): Tier 1 — ask the customer for their engine's required manufacturer approval code (e.g. VW 507.00, BMW Longlife-01) and match it *exactly* against `manual_products.specs["Допуски производителей"]`, brand-agnostic (a generic-brand oil carrying the right approval is exactly as valid as an OEM-branded one — confirmed this is how real oil-compatibility approvals work, not a compromise). Tier 2 — a general fuel-type/turbo/mileage fallback heuristic for when the customer doesn't know their approval code — **designed but not yet built** (see TODO).
+- [x] **Built Tier 1 end-to-end in `chat.js`**: `fetchOilProducts()` (cached Supabase read), `normalizeApprovalCode()` (tolerates "VW 502.00" vs "VW 502 00" vs "vw50200"), `matchOilByApproval()` (deterministic, brand-agnostic substring match) — same "match in code, not in the prompt" pattern as vehicle compatibility, for the same reason (retrieval over a large embedded list is unreliable regardless of model size). `extractVehicleInfo()`'s schema extended with `oilApprovalCode`/`fuelType`/`turbo`/`mileageKm` (last three captured now, unused until Tier 2). New `{{OIL_PRODUCTS}}` prompt section (always pre-matched, never the full table) and a "ПОДБОР МАСЛА И ЖИДКОСТЕЙ" skill telling the agent to ask for the approval code and escalate rather than guess if the customer doesn't know it.
+- [x] Added a `description` field (separate from the structured `specs`) capturing the free-text technical/marketing blurb from product pages — extra context for the agent beyond raw spec values.
+- [x] **Fixed a truncated-JSON bug**: `max_tokens: 2048` was too tight for a full multi-item response (e.g. a complete ТО service kit — 5 verbose products + intro prose sharing one budget), causing the response to cut off mid-`<<<PRODUCTS>>>` block. The widget can't parse broken JSON, so it silently fell back to showing the raw (broken) text instead of rendering cards. Raised to 4096.
+- [x] **Fixed a conversation-persistence bug**: product card links open in a new tab (`target="_blank"`, deliberate — doesn't lose the chat by navigating away entirely) but the new tab had no way to see the original tab's state, so the widget looked like it "forgot" the conversation. First attempt used `sessionStorage` (wrong tool — never shared between tabs, even same-origin, by browser design); fixed by switching to `localStorage` (shared across tabs) with a 45-minute inactivity expiry so it never resurrects a genuinely old conversation. Also removed an overly-aggressive `endSession()` trigger on `visibilitychange` (was ending the session just from a customer glancing at another browser tab).
 
 ### ⬜ TO DO
+- [ ] **Build Tier 2 oil/fluid fallback** (fuel type + turbo + mileage → general viscosity/spec recommendation, clearly labeled as non-manufacturer-verified) for when the customer doesn't know their required approval code — currently just escalates to a manager instead
 - [ ] Set `BITRIX24_WEBHOOK_URL` once client's Bitrix24 account + webhook exist (currently degrades gracefully — logs the lead attempt, doesn't crash, shows a graceful fallback message to the user)
 - [ ] Fill remaining `TODO_COMPANY_NAME` / `TODO_PHONE` / `TODO_EMAIL` / `TODO_ADDRESS` / `TODO_HOURS` placeholders in `chat.js` / `chat-widget.js`
 - [ ] Upgrade Vercel plan from Hobby to Pro (client demo's 7-day free window; Hobby's 10s function-duration cap and non-commercial-use terms are a real risk for a live production tool)
-- [ ] Remove the temporary diagnostic `console.log` calls in `chat.js` (`diag: 'match-check'`, etc.) once the matching pipeline has been observed stable for a while in production
+- [ ] Remove the temporary diagnostic `console.log` calls in `chat.js` / `products.js` (`diag: 'match-check'`, `diag: 'crawl-fetch-check'`, etc.) once both pipelines have been observed stable for a while in production
 - [ ] Keep expanding compatibility crawl coverage — consider a part-first (reverse, per-vendorCode "Применимость" page) crawl direction for common wear items, which may reach full coverage faster than the current model-first (`getAdaptability`) direction for high-traffic parts
-- [ ] Confirm whether Supabase session/manager logging (`SUPABASE_URL` / `SUPABASE_SERVICE_KEY` in the `Car-Parts-Ai-Recommendation` project specifically, separate from the catalog-cache Supabase table) is actually configured — optional/non-blocking either way
-- [ ] End-to-end regression test now that the model + pipeline have changed (Sonnet 5 + deterministic matching) — confirm escalation flow, product cards, and manager handoff all still behave correctly under the new architecture
+- [ ] Client is populating `manual_products` with real oils/fluids (in progress) — re-add the small number of early entries that were saved without a price (added before the manual price field existed) by re-submitting their URL with a price now
+- [ ] Consider live cross-tab sync for the widget (currently: two simultaneously-open tabs each only see the shared `localStorage` state on their own next page load, not live) — likely unnecessary for the actual usage pattern (chat → click product → close that tab or return), flagged only if it turns out to matter in practice
+- [ ] End-to-end regression test now that the model + both matching pipelines have changed (Sonnet 5 + deterministic vehicle matching + deterministic oil matching) — confirm escalation flow, product cards, oil recommendations, and manager handoff all still behave correctly together
 
 ### Where we are
 - Catalog source confirmed: client's site runs on **ABCP** (auto parts distribution platform, not a simple CMS).
@@ -302,25 +316,39 @@ Also note: unlike pixmosaic's feed, **ABCP's YML has no `<param>` blocks** (no m
 Car-Parts-Ai-Recommendation/
 ├── api/
 │   ├── dashboard/
-│   │   └── sessions.js        ← Sessions data endpoint for dashboard
+│   │   ├── sessions.js         ← Sessions data endpoint for dashboard (Аналитика tab)
+│   │   └── products.js         ← Manual cross-sell products endpoint (Товары tab) — list/add/delete, paste-HTML extraction + manual price
 │   ├── session/
-│   │   ├── end.js             ← Ends a user session
-│   │   ├── manager.js         ← Session management logic
-│   │   └── start.js           ← Starts a new user session
-│   ├── chat.js                ← Vercel serverless function (Claude proxy)
-│   └── image.js               ← Image handling endpoint
+│   │   ├── end.js              ← Ends a user session
+│   │   ├── manager.js          ← Bitrix24 lead creation + Claude-generated summary
+│   │   └── start.js            ← Starts a new user session
+│   ├── chat.js                 ← Vercel serverless function (Claude proxy) — deterministic compatibility + oil matching, then Sonnet 5
+│   └── image.js                ← Image handling endpoint
 ├── dashboard/
-│   └── index.html             ← Admin analytics dashboard
+│   └── index.html               ← Admin dashboard (Аналитика + Товары tabs)
 ├── widget/
-│   └── chat-widget.js         ← Chat UI loaded by your landing page
-├── apple-touch-icon.png       ← PWA / bookmark icon
-├── .env.local                 ← Your API key (NEVER commit)
+│   └── chat-widget.js           ← Chat UI loaded by the client's landing page (localStorage persistence, product card carousels)
+├── apple-touch-icon.png        ← PWA / bookmark icon
+├── .env.local                   ← Your API key (NEVER commit)
 ├── .gitignore
-├── vercel.json                ← Routes + CORS headers
+├── vercel.json                  ← Routes + CORS headers
 └── README.md
+
+abcp-catalog-proxy/               ← separate repo, mirrors pixmosaic-proxy's structure
+├── api/
+│   ├── catalog.js                ← Serves price/stock catalog from Supabase cache (live-fetch fallback)
+│   ├── compatibility.js          ← Serves Compatability_catalog.json directly from the repo
+│   └── refresh-catalog.js        ← Protected endpoint, fetches+parses ABCP XML export, writes to Supabase (triggered by GitHub Actions cron every 6h)
+├── scripts/
+│   └── crawl-compatibility.js    ← Crawls ABCP's vehicle-fitment pages (getAdaptability), hybrid manual+batch workflow
+├── merge-compatibility.js        ← Dedupes/merges hybrid-crawl batches into the two accumulating files
+├── Compatability_catalog.json    ← Accumulated vendorCode → vehicle-fitment data
+├── Crawled_modificationIds.json  ← Scope/tracking list of already-crawled vehicle modifications
+└── .github/workflows/
+    └── refresh-catalog.yml       ← GitHub Actions cron (every 6h + manual trigger)
 ```
 
-**Still to be created:** a separate catalog-proxy repo (e.g. `abcp-catalog-proxy`), mirroring `pixmosaic-proxy`'s structure — single `api/catalog.js` that fetches the ABCP YML URL, parses it, and exposes a clean JSON endpoint for `chat.js` to consume. Not started yet.
+**Supabase tables** (shared project across both repos): `chat_sessions` (session logging), `catalog_cache` (price/stock, refreshed by the cron above), `manual_products` (client-curated oils/fluids/etc. with no vehicle-fitment data on ABCP's platform — see "Compatibility matching architecture" below).
 
 ---
 
@@ -468,18 +496,32 @@ This fixes the hallucination bug (matching is deterministic and testable, not pr
 
 ---
 
-## How it works
+## Manual products & oil/fluid cross-sell architecture
 
-1. User opens the chat widget on the landing page
+**The problem this solves:** oils, brake fluid, coolant, and similar consumables have **no vehicle-fitment data anywhere on ABCP's platform** — confirmed directly on the platform's own product pages ("Нет информации о применимости" / no applicability data). The entire compatibility pipeline above (crawl → `Compatability_catalog.json` → deterministic match) only works because that data exists for parts; it structurally can't be extended to oils, since ABCP itself never links a bottle of oil to a `modificationId`.
+
+**Data collection — client-curated, not auto-crawled.** Vercel's serverless functions can't reach `bmwclub77.ru` at all (`UND_ERR_CONNECT_TIMEOUT` at the TCP level — confirmed via diagnostic logging, consistent with RU-hosted sites filtering foreign datacenter IP ranges regardless of headers/UA). So instead of a server-side crawler, the dashboard's "Товары" tab lets the client build this catalog manually: paste a category, the product URL, the page's HTML (Ctrl+U → Ctrl+A → Ctrl+C — simple, no DevTools needed), and the price (typed in directly, since price loads via a separate async AJAX call on ABCP's site and is never present in a plain View Source capture, however captured). `api/dashboard/products.js` parses the pasted HTML for name/image/specs/description; price is always whatever was typed in, never guessed. Stored in the `manual_products` Supabase table.
+
+**Matching strategy — the client's own proposal, refined together:**
+- **Tier 1 (built):** the actual matching key is the **manufacturer approval code** (ABCP calls this "Допуски производителей" — e.g. `BMW Longlife-01`, `VW 507.00`, `MB 229.5`), not the oil's brand. This is how real oil compatibility works — a generic-brand oil (e.g. LUKOIL) carrying the right approval is exactly as valid as an OEM-branded one, not a compromise substitute. So: the agent asks the customer for their required approval code (from their vehicle's manual, or the oil cap), and `matchOilByApproval()` in `chat.js` searches every `manual_products` row's approvals field for that exact code — deterministic, brand-agnostic, tolerant of formatting differences (`"VW 502.00"` / `"VW 502 00"` / `"vw50200"` all normalize the same via `normalizeApprovalCode()`).
+- **Tier 2 (designed, not yet built):** for customers who don't know their approval code, a general fallback using fuel type + turbo/naturally-aspirated + mileage to suggest a reasonable *general* viscosity/spec category — explicitly labeled as non-manufacturer-verified, never presented with Tier 1's confidence. `extractVehicleInfo()` already captures `fuelType`/`turbo`/`mileageKm` in anticipation of this, currently unused. Until Tier 2 exists, the agent escalates to a manager rather than guessing when the customer doesn't know their approval code.
+
+**Same "match in code, not in the prompt" principle as vehicle compatibility, and for the same reason:** letting Claude search through an embedded list of `manual_products` for one matching approval code is the same retrieval task that caused the cross-vehicle hallucination bug (see above) — unreliable regardless of model size. `matchOilByApproval()` does the actual search in plain JavaScript; only the already-matched result reaches the prompt via `{{OIL_PRODUCTS}}`.
+
+---
+
+
+
+1. User opens the chat widget on the landing page (or it restores an in-progress conversation from `localStorage` if the customer navigated here via a product's "Подробнее" link, which opens in a new tab)
 2. Widget sends `POST /api/chat` with the conversation history
 3. `api/session/start.js` creates a session and logs it via `api/session/manager.js`
-4. `chat.js` fetches the compatibility dataset (cached, `abcp-catalog-proxy`'s `api/compatibility.js`) and the price/stock catalog (cached, Supabase-backed, `abcp-catalog-proxy`'s `api/catalog.js`), then filters the catalog down to only vendorCodes present in the compatibility data
-5. A cheap Claude Haiku call extracts `{vendorCode, brand, model, engineCode, powerHp}` from the conversation so far
-6. Plain JavaScript deterministically matches those extracted fields against the compatibility dataset (see "Compatibility matching architecture" above) — only the matched result (typically a handful of records) is used from here on
-7. Claude Sonnet 5 receives the system prompt with just that matched subset injected, and returns a response with optional `<<<PRODUCTS>>>` and `<<<BUTTONS>>>` blocks
-8. Widget parses and renders product carousels + quick-action buttons
+4. `chat.js` fetches the compatibility dataset, the price/stock catalog (both cached, from `abcp-catalog-proxy`), and the manual oils/fluids catalog (cached, from Supabase `manual_products`)
+5. A cheap Claude Haiku call extracts `{vendorCode, brand, model, engineCode, powerHp, oilApprovalCode, fuelType, turbo, mileageKm}` from the conversation so far
+6. Plain JavaScript deterministically matches the vehicle fields against the compatibility dataset (see "Compatibility matching architecture" above) and, separately, any given oil approval code against `manual_products` (see "Manual products & oil/fluid cross-sell architecture" above) — only the matched results are used from here on, never the full datasets
+7. Claude Sonnet 5 receives the system prompt with just those matched subsets injected, and returns a response with optional `<<<PRODUCTS>>>` and `<<<BUTTONS>>>` blocks
+8. Widget parses and renders product carousels + quick-action buttons, persisting the conversation to `localStorage` after each turn
 9. When the user requests a manager, `api/session/end.js` closes the session and `manager.js` generates a summary + creates a Bitrix24 lead (once `BITRIX24_WEBHOOK_URL` is set)
-10. Dashboard reads session data from `api/dashboard/sessions.js` and renders analytics
+10. Dashboard reads session data from `api/dashboard/sessions.js` (Аналитика tab) and manual product data from `api/dashboard/products.js` (Товары tab)
 
 Reference implementation for the proxy/chat.js contract: see the working `pixmosaic-proxy` (`api/catalog.js`) + `mosaic-recom` (`api/chat.js`) sibling project. Same pattern, different feed format — see field mapping table above for the deltas.
 
