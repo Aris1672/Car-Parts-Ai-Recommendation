@@ -113,13 +113,25 @@ function extractImage(html, pageUrl) {
 }
 
 function extractPrice(html) {
-  // "Цена" label followed by the amount + ₽, inside distrInfoPrice block.
-  // Note: price is often absent from the raw page for logged-out/no-profile
-  // requests (ABCP shows "Посмотреть другие предложения" instead) -- null
-  // is an expected, normal outcome here, not a parsing failure.
-  const match = html.match(/Цена<\/div>\s*([\d\s\u00A0]+)\s*₽/);
+  // More robust than a strict inline regex: some categories (e.g. batteries)
+  // apparently wrap the number in extra tags (a <span>, etc.) between the
+  // "Цена" label and the "₽" sign, which broke the original strict
+  // digits-and-spaces-only pattern. This instead locates the "Цена" label,
+  // takes a text window after it, strips any tags within that window, and
+  // then pulls the number out of the resulting plain text -- tolerant of
+  // markup differences between product categories.
+  const idx = html.indexOf('>Цена<');
+  if (idx === -1) return null;
+
+  const window = html.slice(idx, idx + 300);
+  const plain  = stripTags(window); // tags removed, whitespace collapsed
+
+  // Number can include regular spaces, non-breaking spaces, or narrow
+  // no-break spaces as thousands separators (all normalized by stripTags's
+  // \s+ collapse already, but kept tolerant here just in case).
+  const match = plain.match(/Цена\s*([\d\s.,]+)\s*₽/);
   if (!match) return null;
-  return match[1].replace(/[\s\u00A0]+/g, ' ').trim() + ' ₽';
+  return match[1].replace(/\s+/g, ' ').trim() + ' ₽';
 }
 
 function extractSpecs(html) {
@@ -182,7 +194,7 @@ module.exports = async function handler(req, res) {
     if (action === 'add') {
       if (role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
-      const { category, url, html: pastedHtml } = req.body || {};
+      const { category, url, html: pastedHtml, manualPrice } = req.body || {};
       if (!category || !url) {
         return res.status(400).json({ error: 'category and url are required' });
       }
@@ -244,6 +256,21 @@ module.exports = async function handler(req, res) {
           }));
           crawlError = `Не удалось загрузить страницу автоматически (${err.message}${causeInfo ? `, ${causeInfo}` : ''}) — вставьте HTML страницы вручную`;
         }
+      }
+
+      // Manual price always wins over extraction, if provided. Price is
+      // loaded via a separate AJAX call on the live site (after the page
+      // has already rendered), so it's genuinely absent from a plain
+      // "View Source" (Ctrl+U) copy -- rather than requiring the client to
+      // use DevTools' Elements panel (Copy outerHTML) to capture the
+      // post-AJAX DOM, it's simpler and more reliable for them to just
+      // type the price in directly from what they see on the page.
+      if (manualPrice && manualPrice.trim().length > 0) {
+        const trimmed = manualPrice.trim();
+        price = trimmed.includes('₽') ? trimmed : `${trimmed} ₽`;
+        // A manually-supplied price means this product is usable even if
+        // the pasted HTML had no specs -- don't let an unrelated crawl
+        // warning obscure that price is fine.
       }
 
       const sbRes = await supabaseFetch('manual_products?on_conflict=url', {

@@ -831,6 +831,10 @@
             <label class="login-label" style="margin-bottom:6px;">Ссылка на товар</label>
             <input type="text" class="login-input" id="product-url" placeholder="https://bmwclub77.ru/parts/..." style="margin-bottom:0;">
           </div>
+          <div style="flex:0 0 140px; min-width:120px;">
+            <label class="login-label" style="margin-bottom:6px;">Цена (₽)</label>
+            <input type="text" class="login-input" id="product-price" placeholder="Например: 4500" style="margin-bottom:0;">
+          </div>
         </div>
 
         <div style="margin-top:14px;">
@@ -843,6 +847,7 @@
           <textarea id="product-html" class="login-input" rows="4" style="width:100%; margin-bottom:0; font-family: monospace; font-size:11px; resize:vertical;" placeholder="Вставьте HTML-код страницы товара сюда..."></textarea>
           <div style="font-size:12px; color:var(--text2); margin-top:6px;">
             Автоматическая загрузка страницы недоступна из Vercel (сайт блокирует запросы с зарубежных серверов) — вставьте HTML вручную. Поле необязательно: если оставить пустым, будет предпринята попытка автозагрузки (обычно неудачная).
+            <br><strong>Цена вводится вручную</strong> (посмотрите на странице товара) — цена подгружается на сайте отдельным запросом уже после открытия страницы, поэтому её не всегда можно скопировать вместе с остальным кодом страницы.
           </div>
         </div>
 
@@ -1215,6 +1220,7 @@
     const category = document.getElementById('product-category').value.trim();
     const url      = document.getElementById('product-url').value.trim();
     const html     = document.getElementById('product-html').value.trim();
+    const manualPrice = document.getElementById('product-price').value.trim();
     const btn      = document.getElementById('crawl-product-btn');
     const errBox   = document.getElementById('product-add-error');
     const okBox    = document.getElementById('product-add-success');
@@ -1234,7 +1240,7 @@
       const res = await fetch(PRODUCTS_API_URL, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ password, action: 'add', category, url, html }),
+        body:    JSON.stringify({ password, action: 'add', category, url, html, manualPrice }),
       });
       const data = await res.json();
 
@@ -1251,6 +1257,7 @@
       document.getElementById('product-category').value = '';
       document.getElementById('product-url').value = '';
       document.getElementById('product-html').value = '';
+      document.getElementById('product-price').value = '';
       await loadProducts();
 
     } catch (e) {
