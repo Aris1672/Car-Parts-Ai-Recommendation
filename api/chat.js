@@ -364,8 +364,18 @@ function matchCompatibility(compatibilityData, extracted) {
     const hits = records.filter(r => {
       if (userBrand && r.brand?.toUpperCase().trim() !== userBrand) return false;
       if (userModelTokens.length) {
-        const recordModelNorm = normalizeModel(r.model);
-        if (!userModelTokens.every(tok => recordModelNorm.includes(tok))) return false;
+        // Search BOTH model and modificationName -- fitment data isn't
+        // consistent about which field holds the trim/engine variant name.
+        // Audi puts engine size in modificationName ("2.0 TDI quattro")
+        // with chassis-only in model ("A4 Allroad (8KH, B8)"), but BMW's
+        // data has chassis-only in model ("3 (E46)") with the trim number
+        // (e.g. "325i") in modificationName. A user saying "325i (E46)"
+        // extracts as model="3 (E46) 325i" -- searching model alone would
+        // never find "325I" if it actually lives in modificationName,
+        // producing a false "no data" result even when the vehicle is
+        // fully crawled (confirmed real incident, not a hypothetical).
+        const recordSearchNorm = normalizeModel(`${r.model} ${r.modificationName || ''}`);
+        if (!userModelTokens.every(tok => recordSearchNorm.includes(tok))) return false;
       }
       if (extracted.engineCode && !engineCodesOverlap(extracted.engineCode, r.engineCode)) {
         return false;
