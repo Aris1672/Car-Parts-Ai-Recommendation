@@ -726,6 +726,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-btn-analytics" data-tab="analytics">📊 Аналитика</button>
       <button class="tab-btn" id="tab-btn-products" data-tab="products">🛢️ Товары</button>
+      <button class="tab-btn" id="tab-btn-billing" data-tab="billing" style="display:none;">💳 Тариф</button>
     </div>
 
     <!-- ══ TAB: Analytics (existing view, unchanged) ══ -->
@@ -817,6 +818,7 @@
     <!-- ══ TAB: Products (manual cross-sell catalog) ══ -->
     <div id="tab-products" class="tab-panel" style="display:none;">
 
+      <div id="add-product-card">
       <div class="section-header">
         <div class="section-title">Добавить товар</div>
       </div>
@@ -858,6 +860,7 @@
         <div id="product-add-error" class="login-error" style="display:none; margin-top:14px;"></div>
         <div id="product-add-success" style="display:none; margin-top:14px; padding:10px 14px; background:var(--green-dim); border:1px solid rgba(34,197,94,0.3); border-radius:8px; font-size:13px; color:var(--green);"></div>
       </div>
+      </div><!-- /add-product-card -->
 
       <div class="table-card">
         <div class="table-header">
@@ -890,6 +893,73 @@
       </div>
 
     </div><!-- /tab-products -->
+
+    <!-- ══ TAB: Billing/Plan (admin only, never shown to client role) ══ -->
+    <div id="tab-billing" class="tab-panel" style="display:none;">
+
+      <div class="section-header">
+        <div class="section-title">Текущий тариф</div>
+      </div>
+
+      <div class="kpi-grid" id="billing-kpi-grid" style="margin-bottom:20px;">
+        <!-- filled by renderBilling() -->
+      </div>
+
+      <div class="chart-card" style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div style="font-size:13px; color:var(--text2);">Использовано за текущий период</div>
+          <div style="font-size:13px;" id="billing-usage-text">—</div>
+        </div>
+        <div style="height:10px; background:var(--border); border-radius:6px; overflow:hidden;">
+          <div id="billing-usage-bar" style="height:100%; width:0%; background:var(--red); transition:width 0.3s;"></div>
+        </div>
+        <div style="font-size:12px; color:var(--text2); margin-top:8px;" id="billing-period-text">—</div>
+      </div>
+
+      <div class="table-card" style="padding:20px;">
+        <div class="table-title" style="margin-bottom:16px;">Изменить тариф</div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+          <button class="filter-btn plan-preset-btn" data-plan="start">Старт — 21 000 ₽/мес</button>
+          <button class="filter-btn plan-preset-btn" data-plan="pro">Профи — 42 000 ₽/мес</button>
+          <button class="filter-btn plan-preset-btn" data-plan="enterprise">Энтерпрайз — от 80 000 ₽/мес</button>
+        </div>
+
+        <div style="border-top:1px solid var(--border); padding-top:16px; margin-top:6px;">
+          <div style="font-size:13px; color:var(--text2); margin-bottom:12px;">Или задать вручную:</div>
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:160px;">
+              <label class="login-label">Название</label>
+              <input type="text" class="login-input" id="billing-custom-name" style="margin-bottom:0;">
+            </div>
+            <div style="flex:1; min-width:140px;">
+              <label class="login-label">Цена, ₽/мес</label>
+              <input type="number" class="login-input" id="billing-custom-price" style="margin-bottom:0;">
+            </div>
+            <div style="flex:1; min-width:140px;">
+              <label class="login-label">Запросов включено</label>
+              <input type="number" class="login-input" id="billing-custom-included" style="margin-bottom:0;">
+            </div>
+            <div style="flex:1; min-width:140px;">
+              <label class="login-label">Цена за превышение, ₽</label>
+              <input type="number" class="login-input" id="billing-custom-overage" style="margin-bottom:0;">
+            </div>
+          </div>
+          <button class="filter-btn" id="billing-custom-save-btn" style="margin-top:14px;">Сохранить вручную заданный тариф</button>
+        </div>
+
+        <div style="border-top:1px solid var(--border); padding-top:16px; margin-top:16px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text2); cursor:pointer;">
+            <input type="checkbox" id="billing-reset-cycle">
+            Сбросить период биллинга на сегодня (начать новый 30-дневный цикл)
+          </label>
+        </div>
+
+        <div id="billing-error" class="login-error" style="display:none; margin-top:14px;"></div>
+        <div id="billing-success" style="display:none; margin-top:14px; padding:10px 14px; background:var(--green-dim); border:1px solid rgba(34,197,94,0.3); border-radius:8px; font-size:13px; color:var(--green);"></div>
+      </div>
+
+    </div><!-- /tab-billing -->
 
   </div><!-- /main -->
 </div><!-- /dashboard -->
@@ -986,6 +1056,16 @@
     if (role === 'client') {
       document.getElementById('col-session').style.display = 'none';
     }
+
+    // Admin-only sections -- these must be genuinely hidden (not just a
+    // column within an otherwise-shared view), especially the billing tab,
+    // which the client must never see at all. Previously the only
+    // role-based difference anywhere in this dashboard was the session-id
+    // column above, which is why admin and client looked identical.
+    const isAdmin = role === 'admin';
+    document.getElementById('tab-btn-billing').style.display = isAdmin ? '' : 'none';
+    const addProductCard = document.getElementById('add-product-card');
+    if (addProductCard) addProductCard.style.display = isAdmin ? '' : 'none';
 
     renderKPIs(data.stats);
     renderChart(data.chartData);
@@ -1181,6 +1261,7 @@
 
   // ── Tabs ────────────────────────────────────────────────────
   let productsLoaded = false;
+  let billingLoaded  = false;
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1188,9 +1269,14 @@
       const tab = btn.dataset.tab;
       document.getElementById('tab-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
       document.getElementById('tab-products').style.display  = tab === 'products'  ? 'block' : 'none';
+      document.getElementById('tab-billing').style.display   = tab === 'billing'   ? 'block' : 'none';
       if (tab === 'products' && !productsLoaded) {
         productsLoaded = true;
         loadProducts();
+      }
+      if (tab === 'billing' && !billingLoaded) {
+        billingLoaded = true;
+        loadBilling();
       }
     });
   });
@@ -1359,6 +1445,123 @@
   // Exposed for the inline onclick handler above (kept simple/consistent
   // with the rest of this file's vanilla-JS style, no event delegation lib)
   window.__deleteProduct = deleteProduct;
+
+  // ── Billing: state ───────────────────────────────────────────
+  const BILLING_API_URL = '/api/dashboard/billing';
+  let currentPlan = null;
+
+  async function loadBilling() {
+    try {
+      const res = await fetch(BILLING_API_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, action: 'get' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        document.getElementById('billing-error').textContent = data.error || 'Не удалось загрузить тариф';
+        document.getElementById('billing-error').style.display = 'block';
+        return;
+      }
+      currentPlan = data.plan;
+      renderBilling(data.plan, data.usage);
+    } catch (e) {
+      console.error('loadBilling error:', e);
+    }
+  }
+
+  function renderBilling(plan, usage) {
+    const kpiGrid = document.getElementById('billing-kpi-grid');
+    kpiGrid.innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label">Тариф</div>
+        <div class="kpi-value" style="font-size:22px;">${esc(plan.plan_name)}</div>
+        <div class="kpi-sub">${Number(plan.monthly_price).toLocaleString('ru-RU')} ₽/мес</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Включено запросов</div>
+        <div class="kpi-value">${plan.included_sessions}</div>
+        <div class="kpi-sub">за 30-дневный период</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Превышение</div>
+        <div class="kpi-value">${usage.overageSessions}</div>
+        <div class="kpi-sub">× ${Number(plan.overage_price_per_session).toLocaleString('ru-RU')} ₽ = ${usage.overageCost.toLocaleString('ru-RU')} ₽</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Итого за период</div>
+        <div class="kpi-value">${usage.estimatedTotal.toLocaleString('ru-RU')} ₽</div>
+        <div class="kpi-sub">оценка</div>
+      </div>
+    `;
+
+    const pct = Math.min(100, Math.round((usage.usedSessions / plan.included_sessions) * 100));
+    document.getElementById('billing-usage-bar').style.width = pct + '%';
+    document.getElementById('billing-usage-bar').style.background = pct >= 100 ? 'var(--red)' : 'var(--blue, #3b82f6)';
+    document.getElementById('billing-usage-text').textContent = `${usage.usedSessions} / ${plan.included_sessions} запросов`;
+
+    const periodEnd = new Date(usage.periodEnd);
+    const daysLeft = Math.max(0, Math.ceil((periodEnd - Date.now()) / (24*60*60*1000)));
+    document.getElementById('billing-period-text').textContent =
+      `Период: ${fmtDate(usage.periodStart.split('T')[0])} — ${fmtDate(usage.periodEnd.split('T')[0])} (осталось ${daysLeft} дн.)`;
+
+    // Highlight the active preset button, if the current plan matches one
+    document.querySelectorAll('.plan-preset-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.plan === plan.plan_key);
+    });
+
+    // Pre-fill the custom fields with the current plan, so "edit slightly"
+    // is easy without retyping everything
+    document.getElementById('billing-custom-name').value     = plan.plan_name;
+    document.getElementById('billing-custom-price').value    = plan.monthly_price;
+    document.getElementById('billing-custom-included').value = plan.included_sessions;
+    document.getElementById('billing-custom-overage').value  = plan.overage_price_per_session;
+  }
+
+  async function saveBillingPlan(body) {
+    const errBox = document.getElementById('billing-error');
+    const okBox  = document.getElementById('billing-success');
+    errBox.style.display = 'none';
+    okBox.style.display  = 'none';
+
+    const resetCycle = document.getElementById('billing-reset-cycle').checked;
+
+    try {
+      const res = await fetch(BILLING_API_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, action: 'set', ...body, reset_cycle: resetCycle }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        errBox.textContent = data.error || 'Не удалось сохранить тариф';
+        errBox.style.display = 'block';
+        return;
+      }
+      okBox.textContent = `Тариф обновлён: ${data.plan.plan_name}`;
+      okBox.style.display = 'block';
+      document.getElementById('billing-reset-cycle').checked = false;
+      billingLoaded = false; // force a fresh reload of usage against the (possibly reset) cycle
+      await loadBilling();
+      billingLoaded = true;
+    } catch (e) {
+      errBox.textContent = 'Ошибка соединения';
+      errBox.style.display = 'block';
+    }
+  }
+
+  document.querySelectorAll('.plan-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => saveBillingPlan({ plan_key: btn.dataset.plan }));
+  });
+
+  document.getElementById('billing-custom-save-btn').addEventListener('click', () => {
+    saveBillingPlan({
+      plan_name:                 document.getElementById('billing-custom-name').value.trim(),
+      monthly_price:              Number(document.getElementById('billing-custom-price').value),
+      included_sessions:          Number(document.getElementById('billing-custom-included').value),
+      overage_price_per_session:  Number(document.getElementById('billing-custom-overage').value),
+    });
+  });
 
   // ── Init: hide loading immediately on page load ─────────────
   window.addEventListener('load', () => {
