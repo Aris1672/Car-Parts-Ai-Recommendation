@@ -341,9 +341,20 @@ function normalizeModel(s) {
 
 function engineCodesOverlap(userCode, recordCode) {
   if (!userCode || !recordCode) return true;
-  const userSet = new Set(userCode.toUpperCase().split(/[,\s]+/).filter(Boolean));
-  const recordSet = recordCode.toUpperCase().split(/[,\s]+/).filter(Boolean);
-  return recordSet.some(code => userSet.has(code));
+  // Split ONLY on commas -- a comma genuinely separates multiple distinct
+  // codes (e.g. "CJCD,CSUA"), but whitespace does NOT: some codes contain
+  // internal spaces as part of a single code (e.g. BMW's "M54 B22"), and
+  // splitting on whitespace was wrongly fragmenting those into two tokens
+  // that never matched the stored no-space form ("M54B22") -- this was
+  // intermittent (not a constant failure) because the extraction step
+  // doesn't always format the code identically across calls, sometimes
+  // preserving the display's internal space and sometimes not.
+  // normalizeApprovalCode() strips ALL internal whitespace/punctuation, so
+  // "M54 B22" and "M54B22" always compare equal regardless of which form
+  // extraction happens to produce.
+  const userCodes   = userCode.split(',').map(normalizeApprovalCode).filter(Boolean);
+  const recordCodes = recordCode.split(',').map(normalizeApprovalCode).filter(Boolean);
+  return recordCodes.some(rc => userCodes.some(uc => uc === rc || uc.includes(rc) || rc.includes(uc)));
 }
 
 function matchCompatibility(compatibilityData, extracted) {
