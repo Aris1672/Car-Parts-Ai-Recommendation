@@ -292,7 +292,35 @@ async function fetchCatalog(compatibilityKeys) {
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
 {"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null"}
+For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
+The "model" field should include BOTH the model designation and the chassis/generation when available.
+
+Examples:
+
+BMW 320i (E46)
+→ "3 E46 320i"
+
+BMW 530d F10
+→ "5 F10 530d"
+
+Audi A6 Avant (4G, C7)
+→ "A6 Avant 4G C7"
+
+Mercedes C220 W204
+→ "C W204 C220"
+
+Do not omit chassis codes such as:
+E46
+E90
+F30
+G20
+4G
+C7
+B8
+W204
+W212
+etc.
 Диалог:
 `;
 
@@ -331,10 +359,25 @@ async function extractVehicleInfo(messages) {
 
 function normalizeModel(s) {
   if (!s) return '';
+
   return s
     .toUpperCase()
-    .replace(/\([^)]*\)/g, ' ')
+
+    // Keep chassis codes inside parentheses:
+    // (E46) -> E46
+    // (B8)  -> B8
+    .replace(/\(([^)]*)\)/g, ' $1 ')
+
+    // Remove punctuation
     .replace(/[^A-ZА-Я0-9\s]/g, ' ')
+
+    // Merge BMW style names:
+    // 320 I -> 320I
+    // 330 XD -> 330XD
+    // 740 LI -> 740LI
+    .replace(/(\d+)\s+([A-Z]+)/g, '$1$2')
+
+    // Remove duplicate spaces
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -368,31 +411,60 @@ function matchCompatibility(compatibilityData, extracted) {
   if (!extracted.brand && !extracted.model) return matched;
 
   const userBrand = (extracted.brand || '').toUpperCase().trim();
-  const userModelNorm = normalizeModel(extracted.model);
+  const userModelNorm = normalizeModel(extracted.model);  
+  console.log("User model:", extracted.model);
+console.log("Normalized:", userModelNorm);
   const userModelTokens = userModelNorm.split(' ').filter(Boolean);
 
   for (const [vendorCode, records] of Object.entries(compatibilityData)) {
-    const hits = records.filter(r => {
-      if (userBrand && r.brand?.toUpperCase().trim() !== userBrand) return false;
-      if (userModelTokens.length) {
-        // Search BOTH model and modificationName -- fitment data isn't
-        // consistent about which field holds the trim/engine variant name.
-        // Audi puts engine size in modificationName ("2.0 TDI quattro")
-        // with chassis-only in model ("A4 Allroad (8KH, B8)"), but BMW's
-        // data has chassis-only in model ("3 (E46)") with the trim number
-        // (e.g. "325i") in modificationName. A user saying "325i (E46)"
-        // extracts as model="3 (E46) 325i" -- searching model alone would
-        // never find "325I" if it actually lives in modificationName,
-        // producing a false "no data" result even when the vehicle is
-        // fully crawled (confirmed real incident, not a hypothetical).
-        const recordSearchNorm = normalizeModel(`${r.model} ${r.modificationName || ''}`);
-        if (!userModelTokens.every(tok => recordSearchNorm.includes(tok))) return false;
-      }
-      if (extracted.engineCode && !engineCodesOverlap(extracted.engineCode, r.engineCode)) {
+  const hits = records.filter(r => {
+    if (userBrand && r.brand?.toUpperCase().trim() !== userBrand) {
+      return false;
+    }
+
+    if (userModelTokens.length) {
+      // Search BOTH model and modificationName because different
+      // manufacturers store the trim in different fields.
+      // Examples:
+      //   Audi: model="A4 (B8)", modificationName="2.0 TDI quattro"
+      //   BMW:  model="3 (E46)", modificationName="320 i"
+
+      const recordSearchNorm = normalizeModel(
+        `${r.model} ${r.modificationName || ''}`
+      );
+      if (extracted.brand === "BMW") {
+    console.log({
+        database: `${r.model} ${r.modificationName}`,
+        normalized: recordSearchNorm
+    });
+}
+
+      // Remove spaces so that:
+      // 320i == 320 i
+      // 330xd == 330 xd
+      // 740Li == 740 Li
+      const recordCompact = recordSearchNorm.replace(/\s+/g, '');
+
+      const modelOk = userModelTokens.every(tok => {
+        const tokenCompact = tok.replace(/\s+/g, '');
+        return recordCompact.includes(tokenCompact);
+      });
+
+      if (!modelOk) {
         return false;
       }
-      return true;
-    });
+    }
+
+    // Engine code match
+    if (
+      extracted.engineCode &&
+      !engineCodesOverlap(extracted.engineCode, r.engineCode)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
     if (hits.length) matched[vendorCode] = hits;
   }
 
@@ -520,6 +592,8 @@ module.exports = async function handler(req, res) {
     // fields cheaply, match them in plain JS, and only send Claude the
     // already-matched result instead of all ~214 compatibility records.
     const extracted = await extractVehicleInfo(messages);
+    console.log("========== VEHICLE ==========");
+console.log(JSON.stringify(extracted, null, 2));
     const matchedCompatibility = matchCompatibility(compatibilityData, extracted);
     const matchedVendorCodes = new Set(Object.keys(matchedCompatibility));
     const matchedCatalog = catalogParsed.filter(p => matchedVendorCodes.has(p.article));
