@@ -22,15 +22,15 @@
   const SESSION_URL = BASE_URL + '/api/session';
   const MANAGER_PHONE = 'TODO_PHONE_DIGITS_ONLY'; // TODO: e.g. '+79991234567'
 
-  // TODO: Set your brand colors
-  const BRAND_COLOR      = '#1a56db'; // primary (blue works well for auto parts)
-  const BRAND_COLOR_HOVER= '#1648c0';
+  // BMW Club77 brand colors (BMW's well-known blue palette)
+  const BRAND_COLOR      = '#0066b1';
+  const BRAND_COLOR_HOVER= '#004e87';
   const BRAND_DARK       = '#111111';
 
   // ─── PROACTIVE MESSAGES ─────────────────────────────────────────────────────
   // TODO: Adjust to match company name and tone
   const PROACTIVE = [
-    'Здравствуйте! 👋 Я ИИ-консультант по автозапчастям компании TODO_COMPANY_NAME.',
+    'Здравствуйте! 👋 Я ИИ-консультант по автозапчастям компании BMW Club77.',
     'Помогу подобрать запчасть по марке и модели автомобиля, проверить совместимость, рассчитать стоимость и ответить на вопросы по установке.',
   ];
 
@@ -107,6 +107,7 @@
       right: calc(var(--pc-panel-w) + 16px);
     }
     #pc-launcher svg { width: 26px; height: 26px; }
+    #pc-launcher img { display: block; }
 
     /* Unread badge */
     #pc-badge {
@@ -639,7 +640,11 @@
 
     const launcher = document.createElement('button');
     launcher.id = 'pc-launcher';
-    launcher.innerHTML = ICON_CHAT;
+    // Uses the client's own logo file if hosted at BASE_URL/apple-touch-icon.png
+    // (same file the header avatar uses); falls back to the generic chat icon
+    // if that file is missing or fails to load.
+    window.__pcIconChatFallback = ICON_CHAT; // exposed so the inline onerror string below (which runs in global scope) can reach it
+    launcher.innerHTML = `<img src="${BASE_URL}/apple-touch-icon.png" style="width:34px;height:34px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.innerHTML = window.__pcIconChatFallback;">`;
     launcher.setAttribute('aria-label', 'Открыть ИИ-консультанта');
     launcher.addEventListener('click', toggle);
     document.body.appendChild(launcher);
@@ -655,7 +660,7 @@
           <div class="pc-header-name">ИИ-Консультант</div>
           <div class="pc-header-status">
             <div class="pc-status-dot"></div>
-            <span>Онлайн · TODO_COMPANY_NAME</span>
+            <span>Онлайн · BMW Club77</span>
           </div>
         </div>
         <div class="pc-header-actions">
