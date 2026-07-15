@@ -1425,7 +1425,7 @@
       tr.innerHTML = `
         <td><span class="expand-icon">${isExp ? '▼' : '▶'}</span></td>
         <td>${esc(p.category)}</td>
-        <td>
+        <td style="white-space:normal; max-width:480px;">
           ${p.image ? `<img src="${esc(p.image)}" style="width:28px;height:28px;object-fit:contain;border-radius:4px;vertical-align:middle;margin-right:8px;background:#fff;">` : ''}
           <a href="${esc(p.url)}" target="_blank" style="color:var(--text);text-decoration:none;" onclick="event.stopPropagation()">${esc(p.name) || esc(p.url)}</a>
           ${p.crawl_error ? `<span title="${esc(p.crawl_error)}" style="color:var(--amber);margin-left:6px;">⚠️</span>` : ''}
