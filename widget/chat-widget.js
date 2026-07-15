@@ -640,9 +640,9 @@
 
     const launcher = document.createElement('button');
     launcher.id = 'pc-launcher';
-    // Uses the client's own logo file if hosted at BASE_URL/apple-touch-icon.png
-    // (same file the header avatar uses); falls back to the generic chat icon
-    // if that file is missing or fails to load.
+    // Uses the client-provided AI_Agent.png (site root), same icon used in
+    // the header avatar and per-message icons; falls back to the inline
+    // headset SVG if the file is missing or fails to load.
     window.__pcIconAgentFallback = ICON_AGENT; // used by the inline onerror string below (runs in global scope, can't see closure vars)
     launcher.innerHTML = `<img src="${BASE_URL}/AI_Agent.png" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
     launcher.setAttribute('aria-label', 'Открыть ИИ-консультанта');
@@ -655,7 +655,7 @@
     panel.setAttribute('aria-label', 'ИИ-Консультант по запчастям');
     panel.innerHTML = `
       <div id="pc-header">
-        <div class="pc-avatar"><img src="${BASE_URL}/apple-touch-icon.png" style="width:28px;height:28px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
+        <div class="pc-avatar"><img src="${BASE_URL}/AI_Agent.png" style="width:28px;height:28px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
         <div class="pc-header-info">
           <div class="pc-header-name">ИИ-Консультант</div>
           <div class="pc-header-status">
@@ -829,7 +829,7 @@
     const el = document.createElement('div');
     el.className = 'pc-msg pc-msg-bot';
     el.innerHTML = `
-      <div class="pc-msg-icon"><img src="${BASE_URL}/apple-touch-icon.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
+      <div class="pc-msg-icon"><img src="${BASE_URL}/AI_Agent.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
       <div class="pc-bubble">${renderMarkdown(text)}</div>
     `;
     appendMsg(el);
@@ -854,7 +854,7 @@
     el.className = 'pc-msg pc-msg-bot';
     el.id = 'pc-typing';
     el.innerHTML = `
-      <div class="pc-msg-icon"><img src="${BASE_URL}/apple-touch-icon.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
+      <div class="pc-msg-icon"><img src="${BASE_URL}/AI_Agent.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
       <div class="pc-bubble" style="padding:0;">
         <div class="pc-typing"><span></span><span></span><span></span></div>
       </div>
