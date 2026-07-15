@@ -1447,6 +1447,21 @@
         const specRows = Object.entries(p.specs || {})
           .map(([k, v]) => `<div style="display:flex;gap:10px;padding:4px 0;border-bottom:1px solid var(--border);"><div style="flex:0 0 200px;color:var(--text2);font-size:12px;">${esc(k)}</div><div style="font-size:12px;">${esc(String(v))}</div></div>`)
           .join('');
+
+        const fitmentList = Array.isArray(p.fitment) ? p.fitment : [];
+        const fitmentRows = fitmentList.map((f, idx) => `
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+            <div style="flex:1;">
+              ${[f.brand, f.series, f.modification].filter(Boolean).join(' ')}
+              ${(f.yearFrom || f.yearTo) ? ` &middot; ${f.yearFrom || '…'}–${f.yearTo || '…'}` : ''}
+              ${f.bodyType ? ` &middot; ${esc(f.bodyType)}` : ''}
+              ${f.region ? ` &middot; ${esc(f.region)}` : ''}
+              ${f.steering ? ` &middot; ${esc(f.steering)}` : ''}
+            </div>
+            <button class="reset-btn" style="padding:2px 8px;" onclick="event.stopPropagation(); window.__removeFitment(${p.id}, ${idx})">✕</button>
+          </div>
+        `).join('');
+
         dr.innerHTML = `<td colspan="7">
           <div class="detail-content">
             ${p.description ? `
@@ -1455,12 +1470,89 @@
             ` : ''}
             <div class="detail-title">Характеристики</div>
             ${specRows || '<div class="detail-no-summary">Нет данных о характеристиках</div>'}
+
+            <div class="detail-title" style="margin-top:16px;">Совместимость с моделями авто</div>
+            <div style="font-size:11px; color:var(--text2); margin-bottom:10px;">
+              Если этот товар подходит только к конкретным моделям (не масла/жидкости) — привяжите модели ниже. Пока список пуст, товар считается неограниченным по совместимости (для масел/жидкостей это обычно и нужно).
+            </div>
+            ${fitmentRows || '<div class="detail-no-summary" style="margin-bottom:10px;">Модели пока не привязаны</div>'}
+
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-top:10px;">
+              <input type="text" id="fitment-brand-${p.id}"        placeholder="Марка (например BMW)"        class="login-input" style="margin-bottom:0;">
+              <input type="text" id="fitment-series-${p.id}"       placeholder="Серия (например E60)"        class="login-input" style="margin-bottom:0;">
+              <input type="text" id="fitment-modification-${p.id}" placeholder="Модификация (например 523i)" class="login-input" style="margin-bottom:0;">
+              <input type="text" id="fitment-bodytype-${p.id}"     placeholder="Тип кузова (например Седан)" class="login-input" style="margin-bottom:0;">
+              <input type="number" id="fitment-yearfrom-${p.id}"   placeholder="Год с" class="login-input" style="margin-bottom:0;">
+              <input type="number" id="fitment-yearto-${p.id}"     placeholder="Год по" class="login-input" style="margin-bottom:0;">
+              <input type="text" id="fitment-region-${p.id}"       placeholder="Регион (например Европа)" class="login-input" style="margin-bottom:0;">
+              <input type="text" id="fitment-steering-${p.id}"     placeholder="Руль (например Левый руль)" class="login-input" style="margin-bottom:0;">
+            </div>
+            <button class="filter-btn" style="margin-top:10px;" onclick="event.stopPropagation(); window.__addFitment(${p.id})">+ Привязать модель</button>
           </div>
         </td>`;
         tbody.appendChild(dr);
       }
     });
   }
+
+  // ── Products: fitment (vehicle-model linking) ────────────────
+  // Both add and remove work the same way: read the product's current
+  // fitment array, mutate it locally, then send the FULL replacement array
+  // via set_fitment (simpler than a dedicated append/remove endpoint, and
+  // the arrays here are small -- a handful of models per product at most).
+  async function saveFitment(id, fitmentList) {
+    try {
+      const res = await fetch(PRODUCTS_API_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, action: 'set_fitment', id, fitment: fitmentList }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || 'Не удалось сохранить привязку модели');
+        return;
+      }
+      expandedProductId = id; // keep the row open after re-render
+      await loadProducts();
+    } catch (e) {
+      console.error('saveFitment error:', e);
+      alert('Ошибка соединения');
+    }
+  }
+
+  function addFitment(id) {
+    const product = allProducts.find(p => p.id === id);
+    if (!product) return;
+
+    const entry = {
+      brand:        document.getElementById(`fitment-brand-${id}`).value.trim(),
+      series:       document.getElementById(`fitment-series-${id}`).value.trim(),
+      modification: document.getElementById(`fitment-modification-${id}`).value.trim(),
+      bodyType:     document.getElementById(`fitment-bodytype-${id}`).value.trim(),
+      yearFrom:     document.getElementById(`fitment-yearfrom-${id}`).value.trim(),
+      yearTo:       document.getElementById(`fitment-yearto-${id}`).value.trim(),
+      region:       document.getElementById(`fitment-region-${id}`).value.trim(),
+      steering:     document.getElementById(`fitment-steering-${id}`).value.trim(),
+    };
+
+    if (!entry.brand && !entry.series && !entry.modification) {
+      alert('Укажите хотя бы марку, серию или модификацию');
+      return;
+    }
+
+    const fitmentList = [...(Array.isArray(product.fitment) ? product.fitment : []), entry];
+    saveFitment(id, fitmentList);
+  }
+
+  function removeFitment(id, idx) {
+    const product = allProducts.find(p => p.id === id);
+    if (!product) return;
+    const fitmentList = (Array.isArray(product.fitment) ? product.fitment : []).filter((_, i) => i !== idx);
+    saveFitment(id, fitmentList);
+  }
+
+  window.__addFitment    = addFitment;
+  window.__removeFitment = removeFitment;
 
   // Exposed for the inline onclick handler above (kept simple/consistent
   // with the rest of this file's vanilla-JS style, no event delegation lib)

@@ -12,6 +12,20 @@
  *   { action: 'list' }                          -> returns all products
  *   { action: 'add', category, url }             -> crawls url, stores it
  *   { action: 'delete', id }                     -> removes a product
+ *   { action: 'set_fitment', id, fitment }       -> replaces a product's vehicle-fitment list
+ *
+ * Vehicle fitment: most manual_products (oils, fluids) are matched purely
+ * by manufacturer approval code (see chat.js matchOilByApproval) --
+ * brand/model-agnostic, which is correct for how oil compatibility
+ * actually works. But some manual_products are physical parts (e.g. a
+ * shock absorber) that only fit specific car models -- for those, the
+ * dashboard lets the client attach one or more fitment entries (brand,
+ * series/chassis, modification, year range, region, steering side, body
+ * type). A product with a non-empty `fitment` array is ONLY recommended
+ * when the customer's vehicle matches one of those entries (see chat.js
+ * matchManualProductsByVehicle) -- a product with an empty/absent
+ * `fitment` array keeps today's behavior (approval-code-only, or fully
+ * unrestricted if it has neither).
  *
  * Auth: same password pattern as sessions.js (DASHBOARD_ADMIN_PASSWORD /
  * DASHBOARD_CLIENT_PASSWORD). Both 'add' and 'delete' are available to
@@ -194,7 +208,7 @@ module.exports = async function handler(req, res) {
     if (action === 'add') {
       // Both admin and client roles can add products.
 
-      const { category, url, html: pastedHtml, manualPrice } = req.body || {};
+      const { category, url, html: pastedHtml, manualPrice, fitment } = req.body || {};
       if (!category || !url) {
         return res.status(400).json({ error: 'category and url are required' });
       }
@@ -279,6 +293,7 @@ module.exports = async function handler(req, res) {
         body: JSON.stringify({
           category, url, name, image, price, description, specs,
           crawl_error: crawlError,
+          fitment: Array.isArray(fitment) ? fitment : [],
           updated_at: new Date().toISOString(),
         }),
       });
@@ -286,6 +301,24 @@ module.exports = async function handler(req, res) {
       if (!sbRes.ok) {
         return res.status(502).json({ error: 'DB error', detail: await sbRes.text() });
       }
+      const [product] = await sbRes.json();
+      return res.status(200).json({ success: true, product });
+    }
+
+    if (action === 'set_fitment') {
+      // Both admin and client roles can manage fitment, same as add/delete.
+      const { id, fitment } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'id is required' });
+      if (!Array.isArray(fitment)) {
+        return res.status(400).json({ error: 'fitment must be an array' });
+      }
+
+      const sbRes = await supabaseFetch(`manual_products?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({ fitment, updated_at: new Date().toISOString() }),
+      });
+      if (!sbRes.ok) return res.status(502).json({ error: 'DB error', detail: await sbRes.text() });
       const [product] = await sbRes.json();
       return res.status(200).json({ success: true, product });
     }

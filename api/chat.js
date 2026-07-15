@@ -67,11 +67,13 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 
 **Этап 1 — точный допуск производителя (приоритет, самый надёжный способ):**
 Спроси у пользователя, знает ли он требуемый допуск производителя для своего двигателя (например, VW 507.00, BMW Longlife-01, MB 229.5 — обычно указан в руководстве по эксплуатации автомобиля или можно узнать у дилера).
-- Если пользователь называет допуск — он уже сверен по коду (см. раздел "МАСЛА И ЖИДКОСТИ" выше, который содержит уже отфильтрованные по этому допуску товары). ВАЖНО: подходящее масло necessarily не обязательно от бренда производителя автомобиля — универсальные бренды (LUKOIL, GENERAL MOTORS и т.д.) часто имеют тот же допуск и полностью подходят. Если в разделе есть товары — уверенно предложи их, указав, что они имеют нужный допуск.
-- Если раздел "МАСЛА И ЖИДКОСТИ" пуст, а допуск был назван — честно скажи, что среди доступных товаров нет масла с этим допуском, и предложи связаться с менеджером.
+- Если пользователь называет допуск — он уже сверен по коду (см. раздел "ТОВАРЫ ИЗ РУЧНОГО КАТАЛОГА" выше, который содержит уже отфильтрованные по этому допуску товары). ВАЖНО: подходящее масло necessarily не обязательно от бренда производителя автомобиля — универсальные бренды (LUKOIL, GENERAL MOTORS и т.д.) часто имеют тот же допуск и полностью подходят. Если в разделе есть товары — уверенно предложи их, указав, что они имеют нужный допуск.
+- Если раздел "ТОВАРЫ ИЗ РУЧНОГО КАТАЛОГА" пуст, а допуск был назван — честно скажи, что среди доступных товаров нет масла с этим допуском, и предложи связаться с менеджером.
 
 **Этап 2 — если пользователь НЕ знает допуск производителя:**
 В текущей версии агента общий (запасной) подбор по типу топлива/наддуву/пробегу ещё не реализован. Если пользователь не знает допуск — вежливо объясни, что для точного подбора масла нужен допуск производителя (можно посмотреть в руководстве по эксплуатации или на крышке маслозаливной горловины), и предложи связаться с менеджером для помощи с подбором, используя сценарий ЭСКАЛАЦИИ (см. ниже). НЕ угадывай подходящее масло по типу топлива/наддуву самостоятельно — это будет добавлено отдельно.
+
+**Запчасти в этом же разделе (не масла):** раздел "ТОВАРЫ ИЗ РУЧНОГО КАТАЛОГА" может также содержать физические запчасти (например, амортизаторы), которые клиент вручную привязал к конкретным моделям авто в панели управления. Если такой товар присутствует в разделе — значит его совместимость с автомобилем пользователя УЖЕ подтверждена подбором по марке/модели/году (см. поле fitment товара), и отдельно проверять её по разделу "ДАННЫЕ О СОВМЕСТИМОСТИ" не нужно — та секция про ABCP-данные, это независимый источник.
 
 ## СОВМЕСТИМОСТЬ (Compatibility)
 Если пользователь спрашивает «подойдёт ли эта деталь на мою машину»:
@@ -185,7 +187,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 {{COMPATIBILITY}}
 
 ═══════════════════════════════════════════
-МАСЛА И ЖИДКОСТИ (уже подобранные по допуску производителя, если применимо):
+ТОВАРЫ ИЗ РУЧНОГО КАТАЛОГА (масла/жидкости, подобранные по допуску производителя, И/ИЛИ запчасти, подобранные по совместимости с автомобилем клиента — оба типа уже проверены ниже, доверяй результату):
 ═══════════════════════════════════════════
 {{OIL_PRODUCTS}}
 `;
@@ -291,7 +293,7 @@ async function fetchCatalog(compatibilityKeys) {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null"}
+{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -535,6 +537,54 @@ function matchOilByApproval(products, approvalCode) {
   });
 }
 
+// Given the full manual_products list and the extracted vehicle info,
+// return products whose `fitment` array (set by the client in the
+// dashboard, see products.js `set_fitment`) contains an entry matching the
+// customer's vehicle. Only products WITH a non-empty fitment array are
+// considered here -- products without one (e.g. most oils, matched
+// instead by approval code above) are intentionally left untouched by
+// this function so their existing brand/vehicle-agnostic behavior doesn't
+// change. Reuses normalizeModel() so matching stays consistent with the
+// ABCP vehicle-compatibility matching above (matchCompatibility) rather
+// than introducing a second, subtly different comparison scheme.
+function matchManualProductsByVehicle(products, extracted) {
+  if (!extracted.brand && !extracted.model) return [];
+
+  const userBrand       = (extracted.brand || '').toUpperCase().trim();
+  const userModelNorm   = normalizeModel(extracted.model);
+  const userModelTokens = userModelNorm.split(' ').filter(Boolean);
+  const userYear        = extracted.year ? parseInt(extracted.year, 10) : null;
+
+  return products.filter(p => {
+    const fitmentList = Array.isArray(p.fitment) ? p.fitment : [];
+    if (fitmentList.length === 0) return false; // no vehicle data on this product -- not vehicle-matchable
+
+    return fitmentList.some(f => {
+      if (userBrand && f.brand && f.brand.toUpperCase().trim() !== userBrand) {
+        return false;
+      }
+
+      if (userModelTokens.length) {
+        // Same series+modification search-string trick as matchCompatibility
+        // (record.model + record.modificationName), just with this
+        // fitment entry's own field names.
+        const recordSearchNorm = normalizeModel(`${f.series || ''} ${f.modification || ''}`);
+        const recordCompact    = recordSearchNorm.replace(/\s+/g, '');
+        const modelOk = userModelTokens.every(tok => recordCompact.includes(tok.replace(/\s+/g, '')));
+        if (!modelOk) return false;
+      }
+
+      if (userYear && (f.yearFrom || f.yearTo)) {
+        const from = f.yearFrom ? parseInt(f.yearFrom, 10) : -Infinity;
+        const to   = f.yearTo   ? parseInt(f.yearTo, 10)   : Infinity;
+        if (userYear < from || userYear > to) return false;
+      }
+
+      return true;
+    });
+  });
+}
+
 // Pre-warm caches on cold start -- compatibility first, since catalog
 // filtering depends on it.
 fetchCompatibility()
@@ -601,15 +651,25 @@ console.log(JSON.stringify(extracted, null, 2));
     const compatibility = JSON.stringify(matchedCompatibility);
     const catalogForPrompt = JSON.stringify(matchedCatalog);
 
-    // Oil/fluid cross-sell matching (Tier 1: exact approval code match).
-    // Tier 2 (general fuel/turbo/mileage fallback when the customer
-    // doesn't know their required approval) is not yet implemented --
-    // matchedOilProducts stays empty in that case, and the prompt
-    // instructs the agent accordingly (see ПОДБОР МАСЛА skill below).
+    // Manual-products matching, two independent paths merged together:
+    // 1) Oil/fluid cross-sell (Tier 1: exact approval code match). Tier 2
+    //    (general fuel/turbo/mileage fallback when the customer doesn't
+    //    know their required approval) is not yet implemented -- this path
+    //    contributes nothing in that case, and the prompt instructs the
+    //    agent accordingly (see ПОДБОР МАСЛА skill below).
+    // 2) Vehicle-fitment match, for manual_products that carry a `fitment`
+    //    list (physical parts tied to specific car models -- see
+    //    products.js). Independent of approval codes entirely.
     const oilProducts = await fetchOilProducts();
-    const matchedOilProducts = extracted.oilApprovalCode
+    const matchedByApproval = extracted.oilApprovalCode
       ? matchOilByApproval(oilProducts, extracted.oilApprovalCode)
       : [];
+    const matchedByVehicleFitment = matchManualProductsByVehicle(oilProducts, extracted);
+    // Merge + dedupe by id -- a product could in principle satisfy both
+    // (an oil with an approval code AND a fitment list), don't send it twice.
+    const matchedOilProductsMap = new Map();
+    [...matchedByApproval, ...matchedByVehicleFitment].forEach(p => matchedOilProductsMap.set(p.id, p));
+    const matchedOilProducts = [...matchedOilProductsMap.values()];
     const oilProductsForPrompt = JSON.stringify(matchedOilProducts);
 
     // TEMPORARY DIAGNOSTIC LOGGING — shows what the matching layer actually
