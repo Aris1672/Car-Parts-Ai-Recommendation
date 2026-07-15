@@ -85,28 +85,27 @@
       width: 60px;
       height: 60px;
       border-radius: 50%;
-      background: var(--pc-red);
+      background: transparent;
       color: #fff;
       border: none;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 6px 28px rgba(26,86,219,0.45);
+      box-shadow: none;
       z-index: 999999;
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
-      transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
+      transition: transform 0.2s;
     }
     #pc-launcher:hover {
       transform: scale(1.08);
-      background: var(--pc-red-hover);
-      box-shadow: 0 8px 36px rgba(26,86,219,0.55);
     }
     #pc-launcher.pc-panel-open {
       right: calc(var(--pc-panel-w) + 16px);
     }
     #pc-launcher svg { width: 30px; height: 30px; }
+    #pc-launcher img { width: 56px; height: 56px; object-fit: contain; display: block; }
 
     /* Unread badge */
     #pc-badge {
@@ -644,7 +643,8 @@
     // Uses the client's own logo file if hosted at BASE_URL/apple-touch-icon.png
     // (same file the header avatar uses); falls back to the generic chat icon
     // if that file is missing or fails to load.
-    launcher.innerHTML = ICON_AGENT;
+    window.__pcIconAgentFallback = ICON_AGENT; // used by the inline onerror string below (runs in global scope, can't see closure vars)
+    launcher.innerHTML = `<img src="${BASE_URL}/AI_Agent.png" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
     launcher.setAttribute('aria-label', 'Открыть ИИ-консультанта');
     launcher.addEventListener('click', toggle);
     document.body.appendChild(launcher);
