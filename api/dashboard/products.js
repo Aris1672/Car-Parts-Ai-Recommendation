@@ -14,9 +14,10 @@
  *   { action: 'delete', id }                     -> removes a product
  *
  * Auth: same password pattern as sessions.js (DASHBOARD_ADMIN_PASSWORD /
- * DASHBOARD_CLIENT_PASSWORD). 'add' and 'delete' are admin-only -- the
- * client role can list/view but not modify, matching the spirit of the
- * client role being read-only in sessions.js (session_id stripped there).
+ * DASHBOARD_CLIENT_PASSWORD). 'add' is available to both admin and client
+ * roles -- the client needs to be able to add their own products. 'delete'
+ * remains admin-only, to avoid the client role accidentally wiping out
+ * catalog entries.
  *
  * Extraction selectors (extractName, extractImage, extractPrice,
  * extractSpecs) were verified against real bmwclub77.ru product page HTML
@@ -192,7 +193,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'add') {
-      if (role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+      // Both admin and client roles can add products.
 
       const { category, url, html: pastedHtml, manualPrice } = req.body || {};
       if (!category || !url) {

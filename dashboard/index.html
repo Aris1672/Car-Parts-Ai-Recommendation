@@ -1080,8 +1080,10 @@
     // the "Изменить тариф" edit card inside it is admin-only, hidden via
     // #billing-edit-card below.
     const isAdmin = role === 'admin';
-    const addProductCard = document.getElementById('add-product-card');
-    if (addProductCard) addProductCard.style.display = isAdmin ? '' : 'none';
+    // add-product-card is now shown to both roles -- the client can add
+    // their own products (server-side 'add' action in products.js is no
+    // longer admin-only either). Only the billing edit card below stays
+    // admin-only.
     const billingEditCard = document.getElementById('billing-edit-card');
     if (billingEditCard) billingEditCard.style.display = isAdmin ? '' : 'none';
 
@@ -1431,7 +1433,7 @@
         <td class="td-dur">${p.price ? esc(p.price) : '<span style="color:var(--text2)">—</span>'}</td>
         <td class="td-dur">${specCount}</td>
         <td class="td-date">${p.created_at ? fmtDate(p.created_at.split('T')[0]) : '—'}</td>
-        <td><button class="reset-btn" style="padding:4px 10px;" onclick="event.stopPropagation(); window.__deleteProduct(${p.id})">🗑</button></td>
+        <td>${role === 'admin' ? `<button class="reset-btn" style="padding:4px 10px;" onclick="event.stopPropagation(); window.__deleteProduct(${p.id})">🗑</button>` : ''}</td>
       `;
       tr.addEventListener('click', () => {
         expandedProductId = isExp ? null : p.id;
