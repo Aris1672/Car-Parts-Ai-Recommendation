@@ -1433,7 +1433,7 @@
         <td class="td-dur">${p.price ? esc(p.price) : '<span style="color:var(--text2)">—</span>'}</td>
         <td class="td-dur">${specCount}</td>
         <td class="td-date">${p.created_at ? fmtDate(p.created_at.split('T')[0]) : '—'}</td>
-        <td>${role === 'admin' ? `<button class="reset-btn" style="padding:4px 10px;" onclick="event.stopPropagation(); window.__deleteProduct(${p.id})">🗑</button>` : ''}</td>
+        <td><button class="reset-btn" style="padding:4px 10px;" onclick="event.stopPropagation(); window.__deleteProduct(${p.id})">🗑</button></td>
       `;
       tr.addEventListener('click', () => {
         expandedProductId = isExp ? null : p.id;

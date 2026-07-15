@@ -14,10 +14,9 @@
  *   { action: 'delete', id }                     -> removes a product
  *
  * Auth: same password pattern as sessions.js (DASHBOARD_ADMIN_PASSWORD /
- * DASHBOARD_CLIENT_PASSWORD). 'add' is available to both admin and client
- * roles -- the client needs to be able to add their own products. 'delete'
- * remains admin-only, to avoid the client role accidentally wiping out
- * catalog entries.
+ * DASHBOARD_CLIENT_PASSWORD). Both 'add' and 'delete' are available to
+ * admin and client roles -- the client fully manages their own product
+ * catalog.
  *
  * Extraction selectors (extractName, extractImage, extractPrice,
  * extractSpecs) were verified against real bmwclub77.ru product page HTML
@@ -292,7 +291,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'delete') {
-      if (role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+      // Both admin and client roles can delete products.
       const { id } = req.body || {};
       if (!id) return res.status(400).json({ error: 'id is required' });
 
