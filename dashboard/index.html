@@ -743,7 +743,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-btn-analytics" data-tab="analytics">📊 Аналитика</button>
       <button class="tab-btn" id="tab-btn-products" data-tab="products">🛢️ Товары</button>
-      <button class="tab-btn" id="tab-btn-billing" data-tab="billing" style="display:none;">💳 Тариф</button>
+      <button class="tab-btn" id="tab-btn-billing" data-tab="billing">💳 Тариф</button>
     </div>
 
     <!-- ══ TAB: Analytics (existing view, unchanged) ══ -->
@@ -911,7 +911,7 @@
 
     </div><!-- /tab-products -->
 
-    <!-- ══ TAB: Billing/Plan (admin only, never shown to client role) ══ -->
+    <!-- ══ TAB: Billing/Plan (read-only for client; edit card below is admin-only) ══ -->
     <div id="tab-billing" class="tab-panel" style="display:none;">
 
       <div class="section-header">
@@ -933,7 +933,7 @@
         <div style="font-size:12px; color:var(--text2); margin-top:8px;" id="billing-period-text">—</div>
       </div>
 
-      <div class="table-card" style="padding:20px;">
+      <div class="table-card" id="billing-edit-card" style="padding:20px; display:none;">
         <div class="table-title" style="margin-bottom:16px;">Изменить тариф</div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
@@ -1075,14 +1075,15 @@
     }
 
     // Admin-only sections -- these must be genuinely hidden (not just a
-    // column within an otherwise-shared view), especially the billing tab,
-    // which the client must never see at all. Previously the only
-    // role-based difference anywhere in this dashboard was the session-id
-    // column above, which is why admin and client looked identical.
+    // column within an otherwise-shared view). The billing TAB itself is
+    // now shown to both roles (read-only plan+usage for the client); only
+    // the "Изменить тариф" edit card inside it is admin-only, hidden via
+    // #billing-edit-card below.
     const isAdmin = role === 'admin';
-    document.getElementById('tab-btn-billing').style.display = isAdmin ? '' : 'none';
     const addProductCard = document.getElementById('add-product-card');
     if (addProductCard) addProductCard.style.display = isAdmin ? '' : 'none';
+    const billingEditCard = document.getElementById('billing-edit-card');
+    if (billingEditCard) billingEditCard.style.display = isAdmin ? '' : 'none';
 
     renderKPIs(data.stats);
     renderChart(data.chartData);

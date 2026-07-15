@@ -2,15 +2,12 @@
  * api/dashboard/billing.js — Vercel Serverless Function
  *
  * Manages the client's billing plan and reports usage against it.
- * Admin-only for viewing AND changing the plan -- the client must never
- * see pricing/plan details, only their own usage (if surfaced at all;
- * currently this endpoint itself is admin-only end to end, see 'get'
- * below. If the client dashboard should show usage without pricing,
- * that's a separate, deliberately scoped-down view -- ask before building
- * it, don't just expose this endpoint to the client role).
+ * 'get' (plan + usage, read-only) is available to both admin and client
+ * roles -- the client dashboard's "Тариф" tab shows this read-only, with
+ * no edit controls. 'set' (changing the plan) is admin-only.
  *
  * Actions (all POST, same endpoint):
- *   { action: 'get' }                          -> current plan + usage this cycle (admin only)
+ *   { action: 'get' }                          -> current plan + usage this cycle (admin + client)
  *   { action: 'set', ...plan fields }           -> update the plan (admin only)
  *
  * Auth: same password pattern as sessions.js / products.js
@@ -103,11 +100,13 @@ module.exports = async function handler(req, res) {
   const role = authenticate(password);
   if (!role) return res.status(401).json({ error: 'Invalid password' });
 
-  // Every action on this endpoint is admin-only -- there is no
-  // client-facing billing view. Don't relax this without deliberately
-  // designing what a client SHOULD see (usage only? nothing?), rather
-  // than accidentally exposing pricing by loosening this check.
-  if (role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  // 'get' is read-only and is now deliberately available to both roles --
+  // the client dashboard's "Тариф" tab shows plan + usage read-only,
+  // with no way to change the plan. 'set' (changing the plan) stays
+  // admin-only, enforced below.
+  if (action === 'set' && role !== 'admin') {
+    return res.status(403).json({ error: 'Admin only' });
+  }
 
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return res.status(500).json({ error: 'Supabase not configured' });
