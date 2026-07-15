@@ -470,7 +470,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         sessionId, sessionStartTime, userMessageCount, sessionEnded,
-        messages, displayLog, isOpen,
+        messages, displayLog,
         lastActivityAt: Date.now(),
       }));
     } catch (e) {
@@ -719,11 +719,13 @@
 
       replayDisplayLog(displayLog);
 
-      if (restored.isOpen) {
-        // Defer to next tick so open()'s DOM queries succeed after the
-        // synchronous init() work above finishes.
-        setTimeout(open, 0);
-      }
+      // Deliberately NOT restoring `isOpen` here. Previously a new page/tab
+      // (e.g. from the product carousel's "Подробнее" link, target="_blank")
+      // would reopen the panel automatically if it was open on the previous
+      // page, which on mobile covers the whole new page the customer just
+      // navigated to. The widget should always start closed on a fresh
+      // page load; the chat history is still fully restored above and
+      // appears the moment the customer taps the launcher.
     }
 
     setTimeout(() => { if (!isOpen) { showTeasers(); showBadge(2); } }, 2000);
