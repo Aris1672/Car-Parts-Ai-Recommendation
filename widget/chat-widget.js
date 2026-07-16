@@ -444,6 +444,10 @@
   let sessionStartTime    = null;
   let userMessageCount    = 0;
   let sessionEnded        = false;
+  // Set once the phone/email auto-handoff has fired for this session, so
+  // mentioning contact info again later in the same conversation doesn't
+  // create a second Bitrix lead / re-run the summary.
+  let managerAutoTriggered = false;
 
   // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
   // Fixes: clicking a product's "Подробнее" link opens a NEW TAB
@@ -470,7 +474,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         sessionId, sessionStartTime, userMessageCount, sessionEnded,
-        messages, displayLog,
+        messages, displayLog, managerAutoTriggered,
         lastActivityAt: Date.now(),
       }));
     } catch (e) {
@@ -712,6 +716,7 @@
                                  // prior pagehide fired an analytics end-call
       messages         = restored.messages;
       displayLog       = restored.displayLog || [];
+      managerAutoTriggered = restored.managerAutoTriggered || false;
       // Already have a real session_id from before -- don't call
       // /api/session/start again, that would create a second session
       // record for what the customer experiences as one continuous chat.
@@ -779,7 +784,7 @@
     sessionStartTime = null;
     userMessageCount = 0;
     sessionEnded     = false;
-    sessionStartPromise = null;
+    managerAutoTriggered = false;
     displayLog       = [];
     clearPersistedState();
     const container = document.getElementById('pc-messages');
@@ -1048,6 +1053,7 @@
     let products  = null;
     let buttons   = null;
     let showManager = false;
+    let autoHandoff = false;
 
     const prodMatch = text.match(/<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/);
     if (prodMatch) {
@@ -1066,7 +1072,12 @@
       text = text.replace(/<<<MANAGER_BUTTON>>>/g, '').trim();
     }
 
-    return { text, products, buttons, showManager };
+    if (text.includes('<<<AUTO_MANAGER_HANDOFF>>>')) {
+      autoHandoff = true;
+      text = text.replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '').trim();
+    }
+
+    return { text, products, buttons, showManager, autoHandoff };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -1129,7 +1140,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, showManager } = parseBotResponse(raw);
+      const { text, products, buttons, showManager, autoHandoff } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -1142,6 +1153,7 @@
           .replace(/<<<PRODUCTS>>>[\s\S]*?<<<END_PRODUCTS>>>/g, '[запчасти показаны]')
           .replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/g, '')
           .replace(/<<<MANAGER_BUTTON>>>/g, '')
+          .replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '')
           .trim();
         messages.push({ role: 'assistant', content: cleanedForHistory });
       }
@@ -1156,6 +1168,15 @@
       if (showManager) {
         addManagerButton();
         displayLog.push({ type: 'manager', payload: null });
+      }
+      if (autoHandoff && !managerAutoTriggered) {
+        // Customer typed a phone/email instead of clicking the button --
+        // reuse the exact same handoff path (Bitrix lead + Supabase save)
+        // rather than duplicating that logic here. Guarded by
+        // managerAutoTriggered so this only fires once per session even if
+        // contact info is mentioned again later in the conversation.
+        managerAutoTriggered = true;
+        triggerManagerHandoff();
       }
       saveState();
 

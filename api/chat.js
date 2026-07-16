@@ -116,8 +116,12 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 
 Порядок действий при эскалации:
 1. Кратко и честно объясни, почему нужен специалист (например: "У меня нет данных о совместимости этой детали с вашим автомобилем" или "Я не нашёл точного совпадения в каталоге").
-2. Попроси пользователя оставить номер телефона ИЛИ email, чтобы специалист связался с ним в ближайшее время. Спрашивай прямо в тексте ответа, например: "Оставьте, пожалуйста, номер телефона или email — наш специалист свяжется с вами и уточнит детали."
-3. Добавь в конец ответа блок <<<MANAGER_BUTTON>>> (см. ниже), чтобы пользователь мог передать диалог менеджеру одним нажатием, даже если ещё не оставил контакт текстом.
+2. Предложи пользователю СРАЗУ ДВА равнозначных варианта связи со специалистом, оба варианта в одном ответе, а не по очереди:
+   - Вариант 1: оставить номер телефона или email прямо в чате — специалист свяжется в ближайшее время. Например: "Вы можете оставить номер телефона или email прямо здесь, и специалист свяжется с вами."
+   - Вариант 2: нажать кнопку связи с менеджером ниже, чтобы передать диалог сразу.
+3. Добавь в конец ответа блок <<<MANAGER_BUTTON>>> (см. ниже), чтобы кнопка появилась одновременно с текстовым предложением оставить контакт — оба пути должны быть доступны пользователю сразу, а не последовательно.
+
+Если пользователь в ЛЮБОЙ момент диалога (не обязательно сразу после эскалации) сам называет номер телефона или email текстом — ничего специально делать не нужно: система автоматически обнаружит контакт и запустит передачу менеджеру таким же образом, как и по кнопке. Просто поблагодари пользователя за контакт в ответе (например: "Спасибо! Специалист свяжется с вами в ближайшее время.").
 
 НЕ придумывай данные о совместимости и НЕ придумывай товары, которых нет в каталоге — эскалация в этих случаях лучше, чем неверная информация.
 
@@ -293,7 +297,7 @@ async function fetchCatalog(compatibilityKeys) {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null"}
+{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -732,7 +736,17 @@ console.log(JSON.stringify(extracted, null, 2));
     // string here (tokens billed, nothing rendered) once we switched off
     // Haiku, which never produced thinking blocks so this bug was latent.
     const textBlock = (data.content || []).find(block => block.type === 'text');
-    const text = textBlock?.text ?? '';
+    let text = textBlock?.text ?? '';
+
+    // If the customer typed a phone/email instead of clicking the manager
+    // button, tell the widget to trigger the same handoff automatically
+    // (Bitrix lead + Supabase save via api/session/manager.js) -- see
+    // extracted.contactPhone/contactEmail above. The widget guards this
+    // with a per-session flag so it only fires once even if contact info
+    // is repeated in a later message.
+    if (extracted.contactPhone || extracted.contactEmail) {
+      text = `${text}\n<<<AUTO_MANAGER_HANDOFF>>>`;
+    }
 
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
     res.setHeader('Content-Type', 'application/json');
