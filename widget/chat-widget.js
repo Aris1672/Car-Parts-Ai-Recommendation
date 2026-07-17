@@ -20,7 +20,7 @@
   const BASE_URL    = window.AGENT_URL || 'https://TODO-YOUR-PROJECT.vercel.app'; // TODO: set your Vercel URL
   const AGENT_URL   = BASE_URL + '/api/chat';
   const SESSION_URL = BASE_URL + '/api/session';
-  const MANAGER_PHONE = 'TODO_PHONE_DIGITS_ONLY'; // TODO: e.g. '+79991234567'
+  const MANAGER_PHONE = '+79855558675'; // TODO: e.g. '+79991234567'
 
   // BMW Club77 brand colors (BMW's well-known blue palette)
   const BRAND_COLOR      = '#0066b1';
