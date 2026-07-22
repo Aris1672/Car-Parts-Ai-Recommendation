@@ -297,7 +297,7 @@ async function fetchCatalog(compatibilityKeys) {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
+{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeyword": "краткое ключевое слово(а) детали НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), максимально общее и без марки/модели авто (например 'колодки', 'тормозной диск', 'масляный фильтр', 'ремень грм'), если клиент называл конкретную деталь или категорию, иначе null", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -406,6 +406,26 @@ function engineCodesOverlap(userCode, recordCode) {
   return recordCodes.some(rc => userCodes.some(uc => uc === rc || uc.includes(rc) || rc.includes(uc)));
 }
 
+// Narrows an already vehicle-matched catalog slice down to the specific
+// part the customer is asking about. Without this, matchCompatibility()
+// returns every vendorCode that fits the customer's vehicle regardless of
+// part type -- as the compatibility catalog grows to cover more part
+// categories, that set (and therefore the prompt) grows with total catalog
+// size instead of staying scoped to the actual question. This is a plain
+// substring match against the catalog's own `name`/`category` fields (both
+// in Russian, matching how ABCP's feed stores them) -- cheap, deterministic,
+// no LLM retrieval involved, same principle as the vehicle-matching layer.
+function filterCatalogByPartKeyword(catalogArray, partKeyword) {
+  if (!partKeyword) return catalogArray; // nothing to narrow by yet -- caller decides whether that's safe to send as-is
+  const target = partKeyword.toUpperCase().trim();
+  if (!target) return catalogArray;
+  const tokens = target.split(/\s+/).filter(Boolean);
+  return catalogArray.filter(p => {
+    const haystack = `${p.name || ''} ${p.category || ''}`.toUpperCase();
+    return tokens.some(tok => haystack.includes(tok));
+  });
+}
+
 function matchCompatibility(compatibilityData, extracted) {
   const matched = {};
 
@@ -438,12 +458,6 @@ console.log("Normalized:", userModelNorm);
       const recordSearchNorm = normalizeModel(
         `${r.model} ${r.modificationName || ''}`
       );
-      if (extracted.brand === "BMW") {
-    console.log({
-        database: `${r.model} ${r.modificationName}`,
-        normalized: recordSearchNorm
-    });
-}
 
       // Remove spaces so that:
       // 320i == 320 i
@@ -648,9 +662,34 @@ module.exports = async function handler(req, res) {
     const extracted = await extractVehicleInfo(messages);
     console.log("========== VEHICLE ==========");
 console.log(JSON.stringify(extracted, null, 2));
-    const matchedCompatibility = matchCompatibility(compatibilityData, extracted);
-    const matchedVendorCodes = new Set(Object.keys(matchedCompatibility));
-    const matchedCatalog = catalogParsed.filter(p => matchedVendorCodes.has(p.article));
+    const matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
+    const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
+    const matchedCatalogByVehicle = catalogParsed.filter(p => matchedVendorCodesByVehicle.has(p.article));
+
+    // Narrow the vehicle-matched slice down to the part actually being asked
+    // about (see filterCatalogByPartKeyword above) -- this is what keeps
+    // prompt size scoped to the question rather than to total catalog size.
+    // Safety net: if the customer hasn't named a part yet (partKeyword is
+    // null -- e.g. still in the middle of the "which car do you have"
+    // back-and-forth), fall back to a hard cap instead of sending every
+    // part that ever fits their vehicle.
+    const MAX_UNFILTERED_CATALOG_ITEMS = 40;
+    let matchedCatalog;
+    let partFilterApplied = false;
+    if (extracted.partKeyword) {
+      matchedCatalog = filterCatalogByPartKeyword(matchedCatalogByVehicle, extracted.partKeyword);
+      partFilterApplied = true;
+    } else if (matchedCatalogByVehicle.length > MAX_UNFILTERED_CATALOG_ITEMS) {
+      matchedCatalog = matchedCatalogByVehicle.slice(0, MAX_UNFILTERED_CATALOG_ITEMS);
+    } else {
+      matchedCatalog = matchedCatalogByVehicle;
+    }
+
+    const matchedVendorCodes = new Set(matchedCatalog.map(p => p.article));
+    const matchedCompatibility = {};
+    for (const code of matchedVendorCodes) {
+      if (matchedCompatibilityByVehicle[code]) matchedCompatibility[code] = matchedCompatibilityByVehicle[code];
+    }
 
     const compatibility = JSON.stringify(matchedCompatibility);
     const catalogForPrompt = JSON.stringify(matchedCatalog);
@@ -679,11 +718,11 @@ console.log(JSON.stringify(extracted, null, 2));
     // TEMPORARY DIAGNOSTIC LOGGING — shows what the matching layer actually
     // found, plus payload size for cost comparison against the old
     // full-blob approach.
-    console.log(JSON.stringify({
-      diag: 'match-check',
-      extracted,
-      matchedVendorCodeCount: matchedVendorCodes.size,
-      matchedCatalogCount: matchedCatalog.length,
+    console.log('DIAG match-check', JSON.stringify({
+      partKeyword: extracted.partKeyword || null,
+      partFilterApplied,
+      vehicleMatchedCount: matchedCatalogByVehicle.length,
+      finalMatchedCount: matchedCatalog.length,
       compatibilityPromptChars: compatibility.length,
       catalogPromptChars: catalogForPrompt.length,
       totalOilProducts: oilProducts.length,
