@@ -377,6 +377,22 @@ function normalizeModel(s) {
     // Remove punctuation
     .replace(/[^A-ZА-Я0-9\s]/g, ' ')
 
+    // Strip BMW's xDrive (AWD) marker entirely before merging. It's
+    // written inconsistently: catalog data spells it out as its own word
+    // ("xDrive 50 i"), while customers/Haiku commonly use the colloquial
+    // shorthand of a trailing "x" fused to the trim number ("50iX").
+    // Confirmed real incident: user "X6 F16 50iX" normalized to
+    // "X6F16 50IX", but the catalog's "X6 (F16, F86) xDrive 50 i"
+    // normalized to "...XDRIVE50I" -- the trailing "X" in "50IX" has no
+    // equivalent adjacent character in the catalog string (its "X" is a
+    // separate word, far away after compacting), so the token never
+    // matched and a correctly-catalogued part (11427583220) returned zero
+    // results. Rather than try to keep xDrive/non-xDrive apart reliably
+    // across both spellings, drop it from both sides -- a false positive
+    // (occasionally matching a non-xDrive variant) is far less costly
+    // than a false negative (telling a customer a real part isn't there).
+    .replace(/\bXDRIVE\b/g, ' ')
+
     // Merge BMW style names:
     // 320 I -> 320I
     // 330 XD -> 330XD
@@ -391,6 +407,13 @@ function normalizeModel(s) {
     // catalogued BMW X5 M records matched zero results because "X5M" is
     // not a substring of "X5E70M").
     .replace(/(\d+)\s+([A-Z]+)/g, (match, num, letters) => (letters === 'M' ? match : num + letters))
+
+    // Strip a leftover xDrive shorthand "x" now fused to a trim number
+    // (e.g. "50IX" -> "50I"), now that the word form has already been
+    // removed above. Only strips when it directly follows an existing
+    // digit+letter pair, so body-style prefixes like "X5"/"X6" (letter
+    // before digit, not after) are untouched.
+    .replace(/([0-9][A-Z])X\b/g, '$1')
 
     // Remove duplicate spaces
     .replace(/\s+/g, ' ')
