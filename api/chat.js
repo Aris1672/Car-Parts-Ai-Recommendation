@@ -381,7 +381,16 @@ function normalizeModel(s) {
     // 320 I -> 320I
     // 330 XD -> 330XD
     // 740 LI -> 740LI
-    .replace(/(\d+)\s+([A-Z]+)/g, '$1$2')
+    // EXCEPT standalone "M" (BMW's M-performance division, e.g. "X5 M",
+    // "M3") -- unlike engine-suffix letters (i/d/xd/li), "M" is always
+    // written as its own word and is never concatenated to the preceding
+    // number. Merging it anyway breaks matching whenever a chassis code
+    // sits between the base model number and "M" in one of the two
+    // strings being compared but not the other (e.g. user says "X5 M",
+    // catalog stores "X5 (E70) M" -- confirmed real incident: correctly
+    // catalogued BMW X5 M records matched zero results because "X5M" is
+    // not a substring of "X5E70M").
+    .replace(/(\d+)\s+([A-Z]+)/g, (match, num, letters) => (letters === 'M' ? match : num + letters))
 
     // Remove duplicate spaces
     .replace(/\s+/g, ' ')
