@@ -743,6 +743,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-btn-analytics" data-tab="analytics">📊 Аналитика</button>
       <button class="tab-btn" id="tab-btn-products" data-tab="products">🛢️ Товары</button>
+      <button class="tab-btn" id="tab-btn-missing" data-tab="missing">🖼️ Нет фото</button>
       <button class="tab-btn" id="tab-btn-billing" data-tab="billing">💳 Тариф</button>
     </div>
 
@@ -910,6 +911,43 @@
       </div>
 
     </div><!-- /tab-products -->
+
+    <div id="tab-missing" class="tab-panel" style="display:none;">
+
+      <div class="chart-card" style="margin-bottom:20px; font-size:13px; color:var(--text2); line-height:1.5;">
+        Здесь показаны артикулы, которые точно подходят автомобилю клиента (по данным совместимости), но отсутствуют в каталоге — как правило, потому что у товара нет фото в выгрузке ABCP, а ИИ-агент не рекомендует товары без фото. Отсортировано по количеству запросов — сначала самые востребованные. Добавьте фото на платформе ABCP, затем нажмите «Решено», чтобы убрать позицию из списка (она вернётся автоматически, если понадобится снова).
+      </div>
+
+      <div class="table-card">
+        <div class="table-header">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div class="table-title">Артикулы без фото</div>
+            <div class="table-count" id="missing-count">0</div>
+          </div>
+          <input type="text" class="table-search" id="missing-search" placeholder="🔍  Поиск по артикулу…">
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th data-mcol="vendor_code">Артикул</th>
+                <th data-mcol="request_count">Запросов</th>
+                <th>Автомобиль (последний запрос)</th>
+                <th data-mcol="last_requested_at">Последний запрос</th>
+                <th></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="missing-table-body"></tbody>
+          </table>
+          <div id="missing-empty" class="state-empty" style="display:none;">
+            <div class="state-empty-icon">🖼️</div>
+            <div class="state-empty-text">Пока нет артикулов без фото — отлично!</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab-missing -->
 
     <!-- ══ TAB: Billing/Plan (read-only for client; edit card below is admin-only) ══ -->
     <div id="tab-billing" class="tab-panel" style="display:none;">
@@ -1281,6 +1319,7 @@
 
   // ── Tabs ────────────────────────────────────────────────────
   let productsLoaded = false;
+  let missingLoaded  = false;
   let billingLoaded  = false;
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1289,10 +1328,15 @@
       const tab = btn.dataset.tab;
       document.getElementById('tab-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
       document.getElementById('tab-products').style.display  = tab === 'products'  ? 'block' : 'none';
+      document.getElementById('tab-missing').style.display   = tab === 'missing'   ? 'block' : 'none';
       document.getElementById('tab-billing').style.display   = tab === 'billing'   ? 'block' : 'none';
       if (tab === 'products' && !productsLoaded) {
         productsLoaded = true;
         loadProducts();
+      }
+      if (tab === 'missing' && !missingLoaded) {
+        missingLoaded = true;
+        loadMissing();
       }
       if (tab === 'billing' && !billingLoaded) {
         billingLoaded = true;
@@ -1557,6 +1601,99 @@
   // Exposed for the inline onclick handler above (kept simple/consistent
   // with the rest of this file's vanilla-JS style, no event delegation lib)
   window.__deleteProduct = deleteProduct;
+
+  // ── Missing articles: state ──────────────────────────────────
+  const MISSING_API_URL = '/api/dashboard/missing-articles';
+  let allMissingArticles = [];
+
+  async function loadMissing() {
+    try {
+      const res = await fetch(MISSING_API_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, action: 'list' }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Ошибка загрузки');
+      allMissingArticles = data.articles || [];
+      renderMissing(allMissingArticles);
+    } catch (e) {
+      console.error('loadMissing error:', e);
+    }
+  }
+
+  // ── Missing articles: search ─────────────────────────────────
+  document.getElementById('missing-search').addEventListener('input', function () {
+    const q = this.value.toLowerCase();
+    const filtered = allMissingArticles.filter(a => (a.vendor_code || '').toLowerCase().includes(q));
+    renderMissing(filtered);
+  });
+
+  // ── Missing articles: render table ───────────────────────────
+  function renderMissing(articles) {
+    const tbody = document.getElementById('missing-table-body');
+    const empty = document.getElementById('missing-empty');
+    document.getElementById('missing-count').textContent = articles.filter(a => !a.resolved).length;
+
+    if (articles.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    tbody.innerHTML = '';
+    articles.forEach(a => {
+      const examples = Array.isArray(a.vehicle_examples) ? a.vehicle_examples : [];
+      const last = examples[0] || {};
+      const vehicleText = [last.brand, last.model, last.year, last.engineCode].filter(Boolean).join(' ') || '—';
+
+      const tr = document.createElement('tr');
+      if (a.resolved) tr.style.opacity = '0.5';
+      tr.innerHTML = `
+        <td><strong>${esc(a.vendor_code)}</strong></td>
+        <td class="td-dur">${a.request_count}</td>
+        <td style="white-space:normal; max-width:360px;">${esc(vehicleText)}</td>
+        <td class="td-date">${a.last_requested_at ? fmtDate(a.last_requested_at.split('T')[0]) : '—'}</td>
+        <td>${a.resolved
+          ? '<span style="color:var(--green); font-size:12px;">✓ Решено</span>'
+          : `<button class="filter-btn" style="padding:4px 10px;" onclick="window.__resolveMissing('${esc(a.vendor_code)}')">✓ Решено</button>`}</td>
+        <td><button class="reset-btn" style="padding:4px 10px;" onclick="window.__deleteMissing('${esc(a.vendor_code)}')">🗑</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── Missing articles: actions ────────────────────────────────
+  async function resolveMissing(vendorCode) {
+    try {
+      await fetch(MISSING_API_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, action: 'resolve', vendor_code: vendorCode }),
+      });
+      await loadMissing();
+    } catch (e) {
+      console.error('resolveMissing error:', e);
+    }
+  }
+
+  async function deleteMissing(vendorCode) {
+    if (!confirm('Удалить этот артикул из списка?')) return;
+    try {
+      await fetch(MISSING_API_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, action: 'delete', vendor_code: vendorCode }),
+      });
+      await loadMissing();
+    } catch (e) {
+      console.error('deleteMissing error:', e);
+    }
+  }
+
+  window.__resolveMissing = resolveMissing;
+  window.__deleteMissing  = deleteMissing;
 
   // ── Billing: state ───────────────────────────────────────────
   const BILLING_API_URL = '/api/dashboard/billing';

@@ -464,6 +464,52 @@ function filterCatalogByPartKeyword(catalogArray, partKeywords) {
   });
 }
 
+// Logs vendorCodes that fit a customer's vehicle but are absent from the
+// client's catalog feed (see call site above -- almost always the
+// no-photo export exclusion). One row per vendorCode ("missing_articles"
+// table), incremented/updated on every occurrence rather than logged as a
+// full history -- keeps the dashboard sorted by "most requested" so the
+// client can prioritize which photos to add first, instead of scrolling
+// an unsorted event log.
+//
+// Uses PostgREST's upsert (Prefer: resolution=merge-duplicates) plus a
+// Postgres function bump for the increment -- see abcp-catalog-proxy /
+// dashboard setup SQL for the missing_articles table + bump_missing_article
+// function definitions. Never throws into the caller -- this is a
+// best-effort side log, not something that should ever affect the actual
+// chat response.
+async function logMissingArticles(vendorCodes, extracted) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return;
+
+  const vehicleInfo = {
+    brand:      extracted.brand      || null,
+    model:      extracted.model      || null,
+    year:       extracted.year       || null,
+    engineCode: extracted.engineCode || null,
+  };
+
+  await Promise.all(vendorCodes.map(async (vendorCode) => {
+    const res = await fetch(
+      `${SUPABASE_URL.replace(/\/?$/, '/')}rest/v1/rpc/bump_missing_article`,
+      {
+        method:  'POST',
+        headers: {
+          'apikey':        SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({
+          p_vendor_code:  vendorCode,
+          p_vehicle_info: vehicleInfo,
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.error('bump_missing_article failed:', vendorCode, await res.text());
+    }
+  }));
+}
+
 function matchCompatibility(compatibilityData, extracted) {
   const matched = {};
 
@@ -703,6 +749,24 @@ console.log(JSON.stringify(extracted, null, 2));
     const matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
     const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
     const matchedCatalogByVehicle = catalogParsed.filter(p => matchedVendorCodesByVehicle.has(p.article));
+
+    // Parts that genuinely fit this vehicle (per the compatibility data)
+    // but have no entry at all in catalogParsed -- almost always because
+    // ABCP's export excludes items without a photo (see README's
+    // "Compatibility matching architecture" -- the catalog feed is
+    // configured upstream to only include items with images, precisely so
+    // the agent never recommends something with no visual). Rather than
+    // just silently having nothing to offer, log these so the client can
+    // see which specific parts are blocking a sale and go add a photo for
+    // them. Fire-and-forget -- must never block or fail the chat response.
+    const missingVendorCodes = [...matchedVendorCodesByVehicle].filter(
+      code => !matchedCatalogByVehicle.some(p => p.article === code)
+    );
+    if (missingVendorCodes.length) {
+      logMissingArticles(missingVendorCodes, extracted).catch(err =>
+        console.error('logMissingArticles error:', err.message)
+      );
+    }
 
     // Narrow the vehicle-matched slice down to the part actually being asked
     // about (see filterCatalogByPartKeyword above) -- this is what keeps
