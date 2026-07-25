@@ -16,6 +16,22 @@
 (function () {
   'use strict';
 
+  // ─── SINGLE-INIT GUARD ───────────────────────────────────────────────────────
+  // The widget script can end up executing more than once on the same page
+  // load without a full page reload -- e.g. the host site re-injecting the
+  // footer info-block this <script> tag lives in during client-side
+  // navigation, or (less likely but possible) the tag being included twice.
+  // Each execution is its own independent IIFE closure with its own
+  // `isOpen`/`greeted` state, but every closure calls
+  // document.getElementById('pc-panel') / ('pc-messages'), which always
+  // resolves to the SAME first matching element in the DOM regardless of
+  // which closure is asking -- so two unaware-of-each-other init() runs can
+  // each append their own copy of the greeting into that one shared node.
+  // Confirmed real symptom: two full "Сегодня" blocks stacked in one panel.
+  // This guard makes a second (or third...) execution a no-op.
+  if (window.__pcWidgetInitialized) return;
+  window.__pcWidgetInitialized = true;
+
   // ─── CONFIG ─────────────────────────────────────────────────────────────────
   const BASE_URL    = window.AGENT_URL || 'https://TODO-YOUR-PROJECT.vercel.app'; // TODO: set your Vercel URL
   const AGENT_URL   = BASE_URL + '/api/chat';
@@ -706,7 +722,7 @@
         <textarea id="pc-input" rows="1" placeholder="Напишите марку авто или название запчасти…" aria-label="Сообщение"></textarea>
         <button id="pc-send" aria-label="Отправить">${ICON_SEND}</button>
       </div>
-      <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru" target="_blank">ASSISTANT24</a></div>
+      <div class="pc-powered">Powered by AI · <a href="https://assistant24.tech" target="_blank">ASSISTANT24</a></div>
     `;
     document.body.appendChild(panel);
 
