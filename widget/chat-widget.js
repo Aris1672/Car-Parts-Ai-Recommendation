@@ -57,6 +57,15 @@
       --pc-shadow:     -8px 0 48px rgba(0,0,0,0.18);
       --pc-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                  "Helvetica Neue", Arial, sans-serif;
+      /* Background photo behind the message list. Hosted at the repo
+         root (same convention as AI_Agent.png -- see the launcher/avatar
+         icons below), referenced via BASE_URL since this widget is loaded
+         from a different origin (the client's site) than the file itself.
+         If the image 404s, the browser just falls back to the plain
+         --pc-messages-bg color already layered beneath it -- no JS/onerror
+         needed for a CSS background-image, unlike the <img> icons below. */
+      --pc-messages-bg-image: url('${BASE_URL}/chat-bg.jpg');
+      --pc-messages-bg: #f5f5f5;
     }
 
     /* Explicit font reset — without this the widget silently inherits
@@ -217,7 +226,18 @@
     #pc-messages {
       flex: 1; overflow-y: auto; padding: 20px 18px;
       display: flex; flex-direction: column; gap: 14px;
-      scroll-behavior: smooth; background: #f5f5f5;
+      scroll-behavior: smooth;
+      /* Layered: gradient on top (keeps the light-grey date-separator text
+         and scrollbar legible against the photo, and stops the image
+         competing with the message bubbles) + photo + solid fallback
+         color, in that order. Message bubbles themselves are already
+         fully opaque (see .pc-bubble below) so this only ever shows in
+         the gaps between them, never behind message text. */
+      background-image: linear-gradient(180deg, rgba(20,20,20,0.42) 0%, rgba(20,20,20,0.55) 100%), var(--pc-messages-bg-image);
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-color: var(--pc-messages-bg); /* shows through if the image itself 404s */
     }
     #pc-messages::-webkit-scrollbar { width: 4px; }
     #pc-messages::-webkit-scrollbar-track { background: transparent; }
