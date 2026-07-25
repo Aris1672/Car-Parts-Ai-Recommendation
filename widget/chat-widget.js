@@ -390,10 +390,10 @@
       flex: 1; border: 1.5px solid rgba(255,255,255,0.14); border-radius: 22px;
       padding: 10px 18px; font-size: 15px; resize: none; outline: none;
       max-height: 120px; overflow-y: auto; line-height: 1.55; font-family: inherit;
-      background: rgba(255,255,255,0.08); color: #fff; transition: border-color 0.2s, background 0.2s;
+      background: #fff; color: var(--pc-dark); transition: border-color 0.2s, background 0.2s;
     }
-    #pc-input:focus { border-color: var(--pc-red); background: rgba(255,255,255,0.12); }
-    #pc-input::placeholder { color: rgba(255,255,255,0.85); }
+    #pc-input:focus { border-color: var(--pc-red); background: #fff; }
+    #pc-input::placeholder { color: #999; }
     #pc-send {
       width: 42px; height: 42px; border-radius: 50%; background: var(--pc-red);
       border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
