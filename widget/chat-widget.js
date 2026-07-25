@@ -706,7 +706,7 @@
         <textarea id="pc-input" rows="1" placeholder="Напишите марку авто или название запчасти…" aria-label="Сообщение"></textarea>
         <button id="pc-send" aria-label="Отправить">${ICON_SEND}</button>
       </div>
-      <div class="pc-powered">Powered by AI · <a href="https://assistant24.tech" target="_blank">ASSISTANT24</a></div>
+      <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru" target="_blank">ASSISTANT24</a></div>
     `;
     document.body.appendChild(panel);
 
