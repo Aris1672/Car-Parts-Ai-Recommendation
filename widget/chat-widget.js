@@ -383,28 +383,28 @@
 
     /* ── Input area ── */
     #pc-input-area {
-      padding: 14px 16px; background: #fff; border-top: 1px solid #eee;
+      padding: 14px 16px; background: var(--pc-dark); border-top: 1px solid rgba(255,255,255,0.08);
       display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0;
     }
     #pc-input {
-      flex: 1; border: 1.5px solid #e5e5e5; border-radius: 22px;
+      flex: 1; border: 1.5px solid rgba(255,255,255,0.14); border-radius: 22px;
       padding: 10px 18px; font-size: 15px; resize: none; outline: none;
       max-height: 120px; overflow-y: auto; line-height: 1.55; font-family: inherit;
-      background: #fafafa; color: var(--pc-dark); transition: border-color 0.2s, background 0.2s;
+      background: rgba(255,255,255,0.08); color: #fff; transition: border-color 0.2s, background 0.2s;
     }
-    #pc-input:focus { border-color: var(--pc-red); background: #fff; }
-    #pc-input::placeholder { color: #b0b0b0; }
+    #pc-input:focus { border-color: var(--pc-red); background: rgba(255,255,255,0.12); }
+    #pc-input::placeholder { color: rgba(255,255,255,0.45); }
     #pc-send {
       width: 42px; height: 42px; border-radius: 50%; background: var(--pc-red);
       border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
       flex-shrink: 0; transition: background 0.15s, transform 0.15s;
     }
     #pc-send:hover { background: var(--pc-red-hover); transform: scale(1.06); }
-    #pc-send:disabled { background: #ccc; transform: none; cursor: default; }
+    #pc-send:disabled { background: #555; transform: none; cursor: default; }
     #pc-send svg { width: 18px; height: 18px; color: #ffffff; }
 
     /* Powered by */
-    .pc-powered { text-align: center; font-size: 10px; color: #c0c0c0; padding: 4px 0 9px; background: #fff; letter-spacing: 0.2px; }
+    .pc-powered { text-align: center; font-size: 10px; color: #999; padding: 4px 0 9px; background: var(--pc-dark); letter-spacing: 0.2px; }
     .pc-powered a { color: inherit; text-decoration: none; }
 
     /* ── Teaser bubbles (pre-open) ── */
@@ -697,7 +697,7 @@
         <textarea id="pc-input" rows="1" placeholder="Напишите марку авто или название запчасти…" aria-label="Сообщение"></textarea>
         <button id="pc-send" aria-label="Отправить">${ICON_SEND}</button>
       </div>
-      <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru" target="_blank">ASSISTANT24</a></div>
+      <div class="pc-powered">Powered by AI · <a href="https://assistant24.tech" target="_blank">ASSISTANT24</a></div>
     `;
     document.body.appendChild(panel);
 
