@@ -468,6 +468,15 @@
   // mentioning contact info again later in the same conversation doesn't
   // create a second Bitrix lead / re-run the summary.
   let managerAutoTriggered = false;
+  // Set once the proactive greeting (PROACTIVE bubbles + quick buttons) has
+  // been shown for this session. Deliberately separate from `messages`
+  // (the API-facing conversation) -- the greeting is canned UI text, never
+  // sent to Claude, so `messages` stays empty if a customer opens the
+  // widget, reads the greeting, and closes without typing anything. Using
+  // `messages.length` to decide both "should I restore?" and "should I
+  // greet again?" meant that exact (very common) case was indistinguishable
+  // from a genuinely fresh session, so the greeting repeated every reopen.
+  let greeted = false;
 
   // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
   // Fixes: clicking a product's "Подробнее" link opens a NEW TAB
@@ -494,7 +503,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         sessionId, sessionStartTime, userMessageCount, sessionEnded,
-        messages, displayLog, managerAutoTriggered,
+        messages, displayLog, managerAutoTriggered, greeted,
         lastActivityAt: Date.now(),
       }));
     } catch (e) {
@@ -728,19 +737,26 @@
     // Must happen after the DOM above exists (#pc-messages etc.) so restored
     // bubbles/carousels have somewhere to render into.
     const restored = loadState();
-    if (restored && Array.isArray(restored.messages) && restored.messages.length > 0) {
+    if (restored && Array.isArray(restored.displayLog) && restored.displayLog.length > 0) {
       sessionId        = restored.sessionId;
       sessionStartTime = restored.sessionStartTime;
       userMessageCount = restored.userMessageCount || 0;
       sessionEnded     = false; // resuming counts as still-active, even if a
                                  // prior pagehide fired an analytics end-call
-      messages         = restored.messages;
+      messages         = restored.messages || [];
       displayLog       = restored.displayLog || [];
       managerAutoTriggered = restored.managerAutoTriggered || false;
-      // Already have a real session_id from before -- don't call
-      // /api/session/start again, that would create a second session
-      // record for what the customer experiences as one continuous chat.
-      sessionStartPromise = Promise.resolve();
+      greeted          = restored.greeted || false;
+      // Only skip a future real /api/session/start call if one was
+      // actually made before (sessionId present) -- otherwise (e.g. the
+      // customer only saw the greeting and closed without typing) leave
+      // sessionStartPromise null so startSession() still fires for real
+      // once they do send a first message. Setting this unconditionally
+      // would permanently short-circuit startSession() with no session
+      // ever actually created.
+      if (sessionId) {
+        sessionStartPromise = Promise.resolve();
+      }
 
       replayDisplayLog(displayLog);
 
@@ -771,7 +787,8 @@
     backdrop.style.display = 'block';
     requestAnimationFrame(() => backdrop.classList.add('pc-open'));
     clearBadge();
-    if (messages.length === 0) {
+    if (!greeted) {
+      greeted = true;
       addDateSep('Сегодня');
       displayLog.push({ type: 'dateSep', payload: 'Сегодня' });
       PROACTIVE.forEach((text, i) => {
@@ -806,6 +823,7 @@
     sessionEnded     = false;
     managerAutoTriggered = false;
     displayLog       = [];
+    greeted          = true; // set immediately (not left false) since the block below shows the greeting right here -- avoids it also re-firing from open() if this is somehow called while already open
     clearPersistedState();
     const container = document.getElementById('pc-messages');
     container.innerHTML = '';
