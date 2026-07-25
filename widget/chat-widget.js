@@ -393,7 +393,7 @@
       background: rgba(255,255,255,0.08); color: #fff; transition: border-color 0.2s, background 0.2s;
     }
     #pc-input:focus { border-color: var(--pc-red); background: rgba(255,255,255,0.12); }
-    #pc-input::placeholder { color: rgba(255,255,255,0.45); }
+    #pc-input::placeholder { color: rgba(255,255,255,0.85); }
     #pc-send {
       width: 42px; height: 42px; border-radius: 50%; background: var(--pc-red);
       border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
