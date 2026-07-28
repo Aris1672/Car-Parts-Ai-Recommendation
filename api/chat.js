@@ -377,6 +377,34 @@ function normalizeModel(s) {
     // Remove punctuation
     .replace(/[^A-ZА-Я0-9\s]/g, ' ')
 
+    // Strip BMW body-style/generation descriptor words entirely. The
+    // catalog's `model` field routinely wedges a body-style word (or a
+    // ", N поколение" generation marker) BETWEEN the series number and
+    // the chassis code -- e.g. "1 Купе (E82)", "5 (G30) Седан, 7
+    // поколение", "5 Gran Turismo (F07)". Customers never mention these
+    // ("BMW 1M E82", never "BMW 1 Coupe E82") -- Haiku extracts what the
+    // customer actually said, so the user's series-number and chassis end
+    // up directly adjacent with nothing between them, while the catalog's
+    // don't. That positional difference then interacts badly with the
+    // digit+letter merge below: the user's "1"+"E82" (nothing between)
+    // merges into one token "1E82", but the catalog's "1"+"Купе"+"E82"
+    // never merges the same way (a Cyrillic word, not digits, precedes
+    // "E82"), so "1E82" is never a substring of it. Confirmed real
+    // incident: BMW 1M (E82) brake parts matched zero results this way.
+    // Stripping these words here (before the merge step) means the
+    // catalog's own string collapses to "1 E82" too, so it merges
+    // identically to the user's version instead of diverging.
+    //
+    // NOTE: no \b word-boundary anchors around the Cyrillic terms --
+    // JS regex's \b is defined relative to \w ([A-Za-z0-9_] only), and
+    // Cyrillic letters are NOT \w characters by default, so \b silently
+    // never matches next to them (confirmed by testing: \bКУПЕ\b matched
+    // nothing at all, the whole clause was a no-op). Plain literal match
+    // works fine here since these are distinctive enough strings.
+    .replace(/КУПЕ|КАБРИОЛЕТ|СЕДАН|УНИВЕРСАЛ|ХЭТЧБЕК/g, ' ')
+    .replace(/\b(TOURING|GRAN\s+COUPE|GRAN\s+TURISMO)\b/g, ' ') // Latin words -- \b works normally here
+    .replace(/\d+\s*ПОКОЛЕНИЕ/g, ' ') // ", 7 поколение" etc. -- generation ordinal customers never mention
+
     // Strip BMW's xDrive (AWD) marker entirely before merging. It's
     // written inconsistently: catalog data spells it out as its own word
     // ("xDrive 50 i"), while customers/Haiku commonly use the colloquial
@@ -414,6 +442,22 @@ function normalizeModel(s) {
     // digit+letter pair, so body-style prefixes like "X5"/"X6" (letter
     // before digit, not after) are untouched.
     .replace(/([0-9][A-Z])X\b/g, '$1')
+
+    // Strip a trailing "M" fused directly onto a model number with NO
+    // space in the ORIGINAL text (e.g. "1M") -- distinct from the M-merge
+    // exclusion above, which only stops US from fusing a space-separated
+    // "X5 M" into "X5M". Some BMW M-cars are marketed and commonly typed
+    // as one fused word from the start ("1M" Coupe, unlike "X5 M" or "M3"
+    // which keep a space) -- Haiku faithfully extracts it that way since
+    // that's genuinely how people write it. Confirmed real incident: user
+    // "1M E82" normalized/compacted to "1M E82"; the catalog stores this
+    // as model "1 Купе (E82)" + modificationName "M" (separate fields,
+    // chassis between them), compacting to "1КУПЕE82M" -- "1M" is not a
+    // contiguous substring of that (chassis sits between the "1" and the
+    // "M"), so a correctly-catalogued 1M brake part matched zero results.
+    // Same tradeoff as xDrive: drop the M rather than try to keep the
+    // M/non-M distinction reliable across every possible way it's written.
+    .replace(/(\d+)M\b/g, '$1')
 
     // Remove duplicate spaces
     .replace(/\s+/g, ' ')
