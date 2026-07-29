@@ -10,18 +10,18 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/Ai_3.png",
+      "src": "/AI_3.png",
       "sizes": "180x180",
       "type": "image/png"
     },
     {
-      "src": "/Ai_2.png",
+      "src": "/AI_2.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/Ai.png",
+      "src": "/AI.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable any"
