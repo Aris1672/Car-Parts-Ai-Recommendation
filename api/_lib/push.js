@@ -62,32 +62,39 @@ async function deleteSubscription(endpoint) {
  */
 async function sendPushToAll(payload) {
   if (!ensureVapid()) {
-    console.error('Web push not configured (missing VAPID env vars) — skipping.');
+    console.error('Web push not configured (missing WEBPUSH_VAPID_PUBLIC_KEY / WEBPUSH_VAPID_PRIVATE_KEY env vars) — skipping.');
     return;
   }
 
   const subs = await getSubscriptions();
+  console.log(`sendPushToAll: ${subs.length} subscription(s) found.`);
   if (subs.length === 0) return;
 
   const body = JSON.stringify(payload);
 
-  await Promise.allSettled(subs.map(async (sub) => {
+  const results = await Promise.allSettled(subs.map(async (sub) => {
     const pushSubscription = {
       endpoint: sub.endpoint,
       keys: { p256dh: sub.p256dh, auth: sub.auth },
     };
     try {
       await webpush.sendNotification(pushSubscription, body);
+      console.log('Push sent OK to', sub.endpoint.slice(0, 60) + '...');
     } catch (err) {
       if (err.statusCode === 404 || err.statusCode === 410) {
         // Subscription no longer valid on the push service's end — remove it
         // so future sends don't keep failing against a dead endpoint.
+        console.warn('Push subscription gone (', err.statusCode, ') — removing:', sub.endpoint.slice(0, 60) + '...');
         await deleteSubscription(sub.endpoint);
       } else {
-        console.error('Push send error for', sub.endpoint, err.statusCode, err.body);
+        console.error('Push send error for', sub.endpoint.slice(0, 60) + '...', err.statusCode, err.body);
       }
+      throw err;
     }
   }));
+
+  const failed = results.filter(r => r.status === 'rejected').length;
+  console.log(`sendPushToAll: ${subs.length - failed}/${subs.length} succeeded.`);
 }
 
 module.exports = { sendPushToAll };

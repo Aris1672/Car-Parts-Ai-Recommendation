@@ -212,20 +212,25 @@ module.exports = async function handler(req, res) {
 
     const bitrixOutcome = leadResult.status === 'fulfilled' ? leadResult.value : { ok: false, error: 'unexpected_failure' };
 
-    // Fire-and-forget push alert. Deliberately not awaited-and-blocking on
-    // the response the widget/client is waiting on, and never allowed to
-    // fail the escalation itself -- same reasoning as saveToSupabase()
-    // above. We push regardless of whether the Bitrix lead succeeded,
-    // since a failed CRM write is exactly the case where the client most
-    // needs to know something happened (they can't rely on seeing it in
-    // Bitrix if that call failed).
+    // Awaited deliberately -- on Vercel serverless (unlike a long-running
+    // Node process), the execution environment can be frozen/terminated
+    // the instant res.json() is sent. A genuine "fire and forget" call
+    // here would silently never complete on some fraction of invocations,
+    // with no error ever logged (the process is killed mid-flight, not
+    // failing). Wrapped in try/catch so a push failure still can't fail
+    // the escalation response itself -- same intent as before, just made
+    // to actually run to completion first.
     const reasonLabel = REASON_LABELS[fields.reason] || 'Обращение из ИИ-чата';
-    sendPushToAll({
-      title: '🚨 Новый лид',
-      body:  `${reasonLabel}${fields.car && fields.car !== 'не указано' ? ' — ' + fields.car : ''}`,
-      url:   '/dashboard',
-      tag:   'lead-alert',
-    }).catch(e => console.error('sendPushToAll error:', e));
+    try {
+      await sendPushToAll({
+        title: '🚨 Новый лид',
+        body:  `${reasonLabel}${fields.car && fields.car !== 'не указано' ? ' — ' + fields.car : ''}`,
+        url:   '/dashboard',
+        tag:   'lead-alert',
+      });
+    } catch (e) {
+      console.error('sendPushToAll error:', e);
+    }
 
     return res.status(200).json({
       ok: bitrixOutcome.ok,
