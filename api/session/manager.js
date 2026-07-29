@@ -29,6 +29,8 @@ const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_KEY;
 // Другое → Входящий вебхук, with crm scope enabled).
 const BITRIX_WEBHOOK = process.env.BITRIX24_WEBHOOK_URL;
 
+const { sendPushToAll } = require('../_lib/push');
+
 // Ask Claude for a machine-parseable header (PHONE/EMAIL/REASON) followed
 // by a short freeform summary, so we can reliably split contact info out
 // for the CRM lead's structured fields rather than regex-guessing it out
@@ -209,6 +211,21 @@ module.exports = async function handler(req, res) {
     ]);
 
     const bitrixOutcome = leadResult.status === 'fulfilled' ? leadResult.value : { ok: false, error: 'unexpected_failure' };
+
+    // Fire-and-forget push alert. Deliberately not awaited-and-blocking on
+    // the response the widget/client is waiting on, and never allowed to
+    // fail the escalation itself -- same reasoning as saveToSupabase()
+    // above. We push regardless of whether the Bitrix lead succeeded,
+    // since a failed CRM write is exactly the case where the client most
+    // needs to know something happened (they can't rely on seeing it in
+    // Bitrix if that call failed).
+    const reasonLabel = REASON_LABELS[fields.reason] || 'Обращение из ИИ-чата';
+    sendPushToAll({
+      title: '🚨 Новый лид',
+      body:  `${reasonLabel}${fields.car && fields.car !== 'не указано' ? ' — ' + fields.car : ''}`,
+      url:   '/dashboard',
+      tag:   'lead-alert',
+    }).catch(e => console.error('sendPushToAll error:', e));
 
     return res.status(200).json({
       ok: bitrixOutcome.ok,

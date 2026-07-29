@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BMW Club77  — AI Dashboard</title>
+<link rel="manifest" href="/dashboard/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI Dashboard">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -730,6 +737,7 @@
       ИИ Аналитика</span>
     </div>
     <div class="topbar-spacer"></div>
+    <button class="topbar-logout" id="push-toggle-btn" style="display:none;" title="Уведомления о новых лидах">🔕 Включить уведомления</button>
     <div class="topbar-role" id="topbar-role">—</div>
     <button class="topbar-logout" id="logout-btn">Выйти</button>
   </div>
@@ -1025,6 +1033,95 @@
 
   // ── Config ──────────────────────────────────────────────────
   const API_URL = '/api/dashboard/sessions';
+  const PUSH_SUBSCRIBE_URL = '/api/dashboard/push-subscribe';
+  // Public VAPID key -- safe to expose client-side (this is the whole point
+  // of the public/private VAPID split; only the private key on the server
+  // can actually sign pushes). Must match WEBPUSH_VAPID_PUBLIC_KEY in Vercel.
+  const VAPID_PUBLIC_KEY = 'BGgr0UaqrCRw_jIjAyTWhX_WSy8MdeDS0449OpCfqaA7f0CBn84Rf-zbq3OjzmVcN4Yfdip1TnaA4-42gC4pVP8';
+
+  // ── PWA: service worker registration ─────────────────────────
+  let swRegistration = null;
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/dashboard/sw.js')
+      .then(reg => { swRegistration = reg; })
+      .catch(e => console.error('SW registration failed:', e));
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+  }
+
+  // ── Push: subscribe / unsubscribe ────────────────────────────
+  const pushBtn = document.getElementById('push-toggle-btn');
+
+  async function getCurrentPushSubscription() {
+    if (!swRegistration) return null;
+    return swRegistration.pushManager.getSubscription();
+  }
+
+  async function refreshPushButton() {
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !swRegistration) {
+      pushBtn.style.display = 'none';
+      return;
+    }
+    pushBtn.style.display = 'inline-block';
+    const existing = await getCurrentPushSubscription();
+    pushBtn.textContent = existing ? '🔔 Уведомления включены' : '🔕 Включить уведомления';
+  }
+
+  async function enablePush() {
+    if (Notification.permission === 'denied') {
+      alert('Уведомления заблокированы в браузере. Разрешите их в настройках сайта, чтобы включить.');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+
+    try {
+      const sub = await swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      await fetch(PUSH_SUBSCRIBE_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, action: 'subscribe', subscription: sub }),
+      });
+      await refreshPushButton();
+    } catch (e) {
+      console.error('Push subscribe error:', e);
+      alert('Не удалось включить уведомления.');
+    }
+  }
+
+  async function disablePush() {
+    try {
+      const existing = await getCurrentPushSubscription();
+      if (existing) {
+        await fetch(PUSH_SUBSCRIBE_URL, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ password, action: 'unsubscribe', subscription: existing }),
+        });
+        await existing.unsubscribe();
+      }
+      await refreshPushButton();
+    } catch (e) {
+      console.error('Push unsubscribe error:', e);
+    }
+  }
+
+  pushBtn?.addEventListener('click', async () => {
+    const existing = await getCurrentPushSubscription();
+    if (existing) {
+      await disablePush();
+    } else {
+      await enablePush();
+    }
+  });
 
   // ── State ───────────────────────────────────────────────────
   let password    = '';
@@ -1128,6 +1225,15 @@
     renderKPIs(data.stats);
     renderChart(data.chartData);
     renderTable(allSessions);
+
+    // Service worker registration is async and may not have resolved yet
+    // at first login -- poll briefly rather than racing it.
+    (async () => {
+      for (let i = 0; i < 10 && !swRegistration; i++) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+      refreshPushButton();
+    })();
   }
 
   // ── Logout ──────────────────────────────────────────────────
