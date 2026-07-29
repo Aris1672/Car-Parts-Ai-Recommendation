@@ -82,6 +82,8 @@
       white-space: nowrap;
       flex-shrink: 0;
     }
+    #push-toggle-btn { padding: 5px 7px; }
+    .push-btn-label { display: none; }
     .main { padding: 16px 12px; }
     .kpi-grid {
       grid-template-columns: repeat(2, 1fr);
@@ -737,7 +739,7 @@
       ИИ Аналитика</span>
     </div>
     <div class="topbar-spacer"></div>
-    <button class="topbar-logout" id="push-toggle-btn" style="display:none;" title="Уведомления о новых лидах">🔕 Включить уведомления</button>
+    <button class="topbar-logout" id="push-toggle-btn" style="display:none;" title="Уведомления о новых лидах"><span class="push-btn-icon">🔕</span><span class="push-btn-label"> Включить уведомления</span></button>
     <div class="topbar-role" id="topbar-role">—</div>
     <button class="topbar-logout" id="logout-btn">Выйти</button>
   </div>
@@ -1069,7 +1071,9 @@
     }
     pushBtn.style.display = 'inline-block';
     const existing = await getCurrentPushSubscription();
-    pushBtn.textContent = existing ? '🔔 Уведомления включены' : '🔕 Включить уведомления';
+    pushBtn.innerHTML = existing
+      ? '<span class="push-btn-icon">🔔</span><span class="push-btn-label"> Уведомления включены</span>'
+      : '<span class="push-btn-icon">🔕</span><span class="push-btn-label"> Включить уведомления</span>';
   }
 
   async function enablePush() {
