@@ -693,7 +693,7 @@
     // the header avatar and per-message icons; falls back to the inline
     // headset SVG if the file is missing or fails to load.
     window.__pcIconAgentFallback = ICON_AGENT; // used by the inline onerror string below (runs in global scope, can't see closure vars)
-    launcher.innerHTML = `<img src="${BASE_URL}/Ai_Agent.png" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
+    launcher.innerHTML = `<img src="${BASE_URL}/AI_Agent.png" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
     launcher.setAttribute('aria-label', 'Открыть ИИ-консультанта');
     launcher.addEventListener('click', toggle);
     document.body.appendChild(launcher);
@@ -722,7 +722,7 @@
         <textarea id="pc-input" rows="1" placeholder="Напишите марку авто или название запчасти…" aria-label="Сообщение"></textarea>
         <button id="pc-send" aria-label="Отправить">${ICON_SEND}</button>
       </div>
-      <div class="pc-powered">Powered by AI · <a href="https://assistantinfo24.ru" target="_blank">ASSISTANT24</a></div>
+      <div class="pc-powered">Powered by AI · <a href="https://assistant24.tech" target="_blank">ASSISTANT24</a></div>
     `;
     document.body.appendChild(panel);
 
