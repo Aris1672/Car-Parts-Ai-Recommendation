@@ -693,7 +693,7 @@
     // the header avatar and per-message icons; falls back to the inline
     // headset SVG if the file is missing or fails to load.
     window.__pcIconAgentFallback = ICON_AGENT; // used by the inline onerror string below (runs in global scope, can't see closure vars)
-    launcher.innerHTML = `<img src="${BASE_URL}/Ai_agent.png" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
+    launcher.innerHTML = `<img src="${BASE_URL}/Ai_Agent.png" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
     launcher.setAttribute('aria-label', 'Открыть ИИ-консультанта');
     launcher.addEventListener('click', toggle);
     document.body.appendChild(launcher);
