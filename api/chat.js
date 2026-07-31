@@ -523,7 +523,10 @@ function filterCatalogByPartKeyword(catalogArray, partKeywords) {
 // best-effort side log, not something that should ever affect the actual
 // chat response.
 async function logMissingArticles(vendorCodes, extracted) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.error('logMissingArticles: SUPABASE_URL or SUPABASE_SERVICE_KEY is not set in this deployment\'s environment');
+    return;
+  }
 
   const vehicleInfo = {
     brand:      extracted.brand      || null,
@@ -632,7 +635,10 @@ let oilProductsCachedAt = 0;
 const OIL_PRODUCTS_TTL_MS = 15 * 60 * 1000; // 15 min -- client adds products manually, doesn't change often
 
 async function fetchOilProducts() {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return [];
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.error('fetchOilProducts: SUPABASE_URL or SUPABASE_SERVICE_KEY is not set in this deployment\'s environment');
+    return [];
+  }
 
   const now = Date.now();
   if (oilProductsCache && (now - oilProductsCachedAt) < OIL_PRODUCTS_TTL_MS) {
@@ -647,12 +653,23 @@ async function fetchOilProducts() {
       },
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return oilProductsCache || [];
+    if (!res.ok) {
+      console.error('fetchOilProducts: Supabase responded', res.status, await res.text().catch(() => ''));
+      return oilProductsCache || [];
+    }
     const data = await res.json();
     oilProductsCache    = data;
     oilProductsCachedAt = now;
     return data;
-  } catch {
+  } catch (err) {
+    // "fetch failed" from Node hides the real cause (DNS, TLS, connection
+    // refused, timeout...) -- err.cause carries the underlying error the
+    // top-level message doesn't show. Previously this catch block was
+    // fully silent, which meant a systemic Supabase connectivity problem
+    // here looked identical to "just no oil products yet" -- confirmed
+    // real incident: totalOilProducts silently dropped to 0 in production
+    // logs with no error at all pointing to why.
+    console.error('fetchOilProducts error:', err.message, err.cause || '');
     return oilProductsCache || [];
   }
 }
@@ -808,7 +825,16 @@ console.log(JSON.stringify(extracted, null, 2));
     );
     if (missingVendorCodes.length) {
       logMissingArticles(missingVendorCodes, extracted).catch(err =>
-        console.error('logMissingArticles error:', err.message)
+        // Node's top-level "fetch failed" message hides the real cause
+        // (DNS, TLS, connection refused, timeout...) -- err.cause carries
+        // the underlying error. Also log whether SUPABASE_URL looks sane,
+        // since a wrong/missing env var in THIS deployment's environment
+        // scope (e.g. set for Production but this is a Preview deploy)
+        // would produce this exact generic failure with no other clue.
+        console.error(
+          'logMissingArticles error:', err.message, err.cause || '',
+          '| SUPABASE_URL set:', !!SUPABASE_URL, '| SUPABASE_SERVICE_KEY set:', !!SUPABASE_SERVICE_KEY
+        )
       );
     }
 
