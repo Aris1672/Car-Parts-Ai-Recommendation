@@ -535,26 +535,55 @@ async function logMissingArticles(vendorCodes, extracted) {
     engineCode: extracted.engineCode || null,
   };
 
-  await Promise.all(vendorCodes.map(async (vendorCode) => {
-    const res = await fetch(
-      `${SUPABASE_URL.replace(/\/?$/, '/')}rest/v1/rpc/bump_missing_article`,
-      {
-        method:  'POST',
-        headers: {
-          'apikey':        SUPABASE_SERVICE_KEY,
-          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-          'Content-Type':  'application/json',
-        },
-        body: JSON.stringify({
-          p_vendor_code:  vendorCode,
-          p_vehicle_info: vehicleInfo,
-        }),
+  // Cap + batch. Confirmed real incident: a single vehicle-wide match can
+  // legitimately have 200+ vendorCodes that fit the vehicle but aren't in
+  // the catalog (e.g. a common model with a large compatibility footprint
+  // but sparse photo coverage). The original code fired one fetch() per
+  // vendorCode via a single unbounded Promise.all -- for ~213 missing
+  // vendorCodes that's ~213 simultaneous outbound HTTPS connections from
+  // one invocation, which blew through the serverless container's file
+  // descriptor limit (EMFILE) and took the NEXT unrelated Supabase call
+  // (fetchOilProducts) down with it in the same request.
+  //
+  // MAX_PER_REQUEST also makes sense on its own terms, independent of the
+  // resource-exhaustion angle: logging 200+ "missing" parts from one
+  // customer query is noise, not a useful worklist entry for the client --
+  // most of those 200 have nothing to do with what was actually asked.
+  const MAX_PER_REQUEST = 25;
+  const BATCH_SIZE      = 5;
+  const toLog = vendorCodes.slice(0, MAX_PER_REQUEST);
+  if (vendorCodes.length > MAX_PER_REQUEST) {
+    console.warn(`logMissingArticles: capping ${vendorCodes.length} missing vendorCodes to ${MAX_PER_REQUEST} for this request`);
+  }
+
+  for (let i = 0; i < toLog.length; i += BATCH_SIZE) {
+    const batch = toLog.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (vendorCode) => {
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL.replace(/\/?$/, '/')}rest/v1/rpc/bump_missing_article`,
+          {
+            method:  'POST',
+            headers: {
+              'apikey':        SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+              'Content-Type':  'application/json',
+            },
+            body: JSON.stringify({
+              p_vendor_code:  vendorCode,
+              p_vehicle_info: vehicleInfo,
+            }),
+            signal: AbortSignal.timeout(8000),
+          }
+        );
+        if (!res.ok) {
+          console.error('bump_missing_article failed:', vendorCode, await res.text());
+        }
+      } catch (err) {
+        console.error('bump_missing_article error:', vendorCode, err.message, err.cause || '');
       }
-    );
-    if (!res.ok) {
-      console.error('bump_missing_article failed:', vendorCode, await res.text());
-    }
-  }));
+    }));
+  }
 }
 
 function matchCompatibility(compatibilityData, extracted) {
