@@ -297,7 +297,7 @@ async function fetchCatalog(compatibilityKeys) {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива (например [\"тормозные колодки\"]). Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
+{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"накладки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -482,6 +482,18 @@ function engineCodesOverlap(userCode, recordCode) {
   return recordCodes.some(rc => userCodes.some(uc => uc === rc || uc.includes(rc) || rc.includes(uc)));
 }
 
+// Crude Russian stemming: truncates a word to tolerate case/gender/number
+// endings (тормозНЫЕ/тормозНАЯ/тормозНОГО/тормозНОЙ all share the root
+// "тормоз"). NOT linguistically rigorous -- just chops a fixed number of
+// trailing characters off longer words -- but it's cheap, deterministic,
+// and good enough to stop exact-word-form mismatches from silently
+// dropping real matches. Left short/ambiguous words (<=4 chars) alone,
+// since stemming those risks matching unrelated words.
+function stemRu(word) {
+  if (word.length <= 4) return word;
+  return word.slice(0, Math.max(4, word.length - 2));
+}
+
 // Narrows an already vehicle-matched catalog slice down to the specific
 // part(s) the customer is asking about. Without this, matchCompatibility()
 // returns every vendorCode that fits the customer's vehicle regardless of
@@ -496,15 +508,34 @@ function engineCodesOverlap(userCode, recordCode) {
 // broad requests like "everything needed for a service" get expanded by
 // the extraction prompt into several concrete categories (oil filter, air
 // filter, spark plugs...) rather than one term that matches nothing.
+//
+// Uses stemRu() (see above) on both the keyword tokens and the haystack
+// words -- confirmed real incident: customer asked for "тормозные
+// колодки" (brake pads); the correct catalog products were named "Рем.
+// к-т торм.накладок" (abbreviated "торм." + a genuinely different word,
+// "накладок" not "колодки") -- neither the grammatical ending nor the
+// word itself matched exactly, so the real match was silently dropped
+// and only an unrelated handbrake-shoe kit (which happened to contain the
+// literal word "колодки") got recommended instead. Stemming plus the
+// накладки synonym now added to the extraction prompt (see EXTRACT_PROMPT
+// above) together close this specific gap; stemming alone also helps
+// generically with other Russian case-ending mismatches we haven't hit
+// yet.
 function filterCatalogByPartKeyword(catalogArray, partKeywords) {
   if (!partKeywords || !partKeywords.length) return catalogArray; // nothing to narrow by yet -- caller decides whether that's safe to send as-is
   const keywordTokenLists = partKeywords
-    .map(k => (k || '').toUpperCase().trim().split(/\s+/).filter(Boolean))
+    .map(k => (k || '').toUpperCase().trim().split(/\s+/).filter(Boolean).map(stemRu))
     .filter(tokens => tokens.length);
   if (!keywordTokenLists.length) return catalogArray;
   return catalogArray.filter(p => {
-    const haystack = `${p.name || ''} ${p.category || ''}`.toUpperCase();
-    return keywordTokenLists.some(tokens => tokens.some(tok => haystack.includes(tok)));
+    const haystackWords = `${p.name || ''} ${p.category || ''}`
+      .toUpperCase()
+      .split(/[^A-ZА-Я0-9]+/)
+      .filter(Boolean)
+      .map(stemRu);
+    return keywordTokenLists.some(tokens =>
+      tokens.some(tok => haystackWords.some(hw => hw.includes(tok) || tok.includes(hw)))
+    );
   });
 }
 
