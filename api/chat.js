@@ -9,13 +9,10 @@ const CATALOG_API       = process.env.CATALOG_API_URL || 'https://abcp-catalog-p
 const SUPABASE_URL         = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-// Compatibility data (vendorCode -> compatible vehicles). Sourced from the
-// manually-built compatibility table (see abcp-catalog-proxy repo /
-// Car_model_list.xml), hosted as a static JSON file once complete. Not yet
-// set — fetchCompatibility() degrades gracefully to an empty object if
-// this isn't configured yet, so chat.js works fine before the compatibility
-// table is finished/hosted.
-const COMPATIBILITY_API = process.env.COMPATIBILITY_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/compatibility';
+// Compatibility data (vendorCode -> compatible vehicles). Read directly
+// from Postgres (SUPABASE_DB_URL, declared near fetchCompatibility() below)
+// rather than via a Vercel function response — see fetchCompatibility()'s
+// comment for why (65MB+ exceeds Vercel's 4.5MB function response limit).
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консультант по автозапчастям компании BMW Club77 (https://bmwclub77.ru/).
@@ -199,36 +196,73 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 // ─── COMPATIBILITY CACHE ────────────────────────────────────────────────────
 // Refreshes much less often than the catalog — vehicle fitment data barely
 // changes, unlike price/stock. Degrades gracefully to '{}' if
-// COMPATIBILITY_API_URL isn't configured yet (e.g. manual table still in
-// progress) — the agent will just always treat compatibility as unknown
-// and correctly trigger escalation per the system prompt's instructions.
+// SUPABASE_DB_URL isn't configured yet — the agent will just always treat
+// compatibility as unknown and correctly trigger escalation per the system
+// prompt's instructions.
 //
 // IMPORTANT: this is fetched BEFORE the catalog (see fetchCatalog below)
 // because the catalog is filtered down to only vendorCodes present here.
 // Without that filter, the full ~22k-product catalog blows past Claude's
 // 200k-token context limit by more than 10x (observed: 2.75M tokens) --
 // see the "prompt is too long" incident this fixes.
+// IMPORTANT (2026-08-01): previously fetched via COMPATIBILITY_API_URL
+// (api/compatibility.js in abcp-catalog-proxy). That approach hit a hard
+// wall once Compatability_catalog.json passed ~65MB: Vercel enforces a
+// 4.5MB limit on a serverless function's RESPONSE body (infrastructure-
+// level, not configurable) — api/compatibility.js was silently returning a
+// truncated response well under the real data size. No amount of speeding
+// up how that endpoint sourced its data (tried: local file, live GitHub
+// LFS fetch, Supabase REST API, direct Postgres) could fix this, since the
+// limit applies to the function's outbound response regardless of how fast
+// or slow it was to assemble.
+//
+// Fix: read the data directly from Postgres here in chat.js instead of via
+// an intermediate Vercel function response. This is a database read, not
+// one Vercel function returning a response to another, so the 4.5MB
+// response-body limit does not apply. Uses the same Supabase Transaction
+// Pooler connection string (SUPABASE_DB_URL) and `pg` package as
+// scripts/push-compatibility-to-supabase.js and the now-retired
+// api/compatibility.js in the abcp-catalog-proxy repo.
+const { Client } = require('pg');
+const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
+
 let compatibilityCache      = null; // parsed object
 let compatibilityCacheStr   = '{}'; // stringified, for the prompt
 let compatibilityCachedAt   = 0;
 const COMPATIBILITY_TTL_MS  = 6 * 60 * 60 * 1000; // refresh every 6 hours
 
 async function fetchCompatibility() {
-  if (!COMPATIBILITY_API) return { data: {}, str: '{}' };
+  if (!SUPABASE_DB_URL) return { data: {}, str: '{}' };
 
   const now = Date.now();
   if (compatibilityCache && (now - compatibilityCachedAt) < COMPATIBILITY_TTL_MS) {
     return { data: compatibilityCache, str: compatibilityCacheStr };
   }
+
+  const client = new Client({
+    connectionString: SUPABASE_DB_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+
   try {
-    const res = await fetch(COMPATIBILITY_API, { signal: AbortSignal.timeout(8000) });
-    const data = await res.json();
+    await client.connect();
+    const result = await client.query('select data from compatibility_cache where id = 1');
+
+    if (!result.rows.length || !result.rows[0].data) {
+      // Table exists but empty (refresh workflow hasn't run yet) -- degrade
+      // gracefully, same as the old "not configured" fallback.
+      return { data: compatibilityCache || {}, str: compatibilityCacheStr };
+    }
+
+    const data = result.rows[0].data;
     compatibilityCache    = data;
     compatibilityCacheStr = JSON.stringify(data);
     compatibilityCachedAt = now;
     return { data, str: compatibilityCacheStr };
   } catch {
     return { data: compatibilityCache || {}, str: compatibilityCacheStr };
+  } finally {
+    await client.end().catch(() => {});
   }
 }
 
