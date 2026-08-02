@@ -10,9 +10,11 @@ const SUPABASE_URL         = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 // Compatibility data (vendorCode -> compatible vehicles). Read directly
-// from Postgres (SUPABASE_DB_URL, declared near fetchCompatibility() below)
-// rather than via a Vercel function response — see fetchCompatibility()'s
-// comment for why (65MB+ exceeds Vercel's 4.5MB function response limit).
+// from Postgres (SUPABASE_DB_URL, declared near fetchCompatibilityBySeries()
+// below), queried per BMW series rather than pulled as one giant blob — see
+// that function's comment for why (dataset growing toward ~650MB+,
+// previously also hit Vercel's 4.5MB function response limit when served
+// via api/compatibility.js, since retired).
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консультант по автозапчастям компании BMW Club77 (https://bmwclub77.ru/).
@@ -193,74 +195,100 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 {{OIL_PRODUCTS}}
 `;
 
-// ─── COMPATIBILITY CACHE ────────────────────────────────────────────────────
-// Refreshes much less often than the catalog — vehicle fitment data barely
-// changes, unlike price/stock. Degrades gracefully to '{}' if
-// SUPABASE_DB_URL isn't configured yet — the agent will just always treat
-// compatibility as unknown and correctly trigger escalation per the system
-// prompt's instructions.
+// ─── COMPATIBILITY (normalized table, queried by series) ───────────────────
+// UPDATED (2026-08-02): the dataset is growing toward ~10x its current
+// size. Pulling the ENTIRE compatibility dataset into memory on every cold
+// start (the previous approach) doesn't scale — risks Postgres jsonb
+// limits, Vercel function memory limits, and slow reads on Supabase's free
+// Nano compute. Fixed by normalizing into a `compatibility` table (one row
+// per vendorCode+vehicle, indexed by `series` — BMW series like '1','3','X5'
+// extracted from the model string) and querying only the relevant series'
+// rows per conversation, instead of everything.
 //
-// IMPORTANT: this is fetched BEFORE the catalog (see fetchCatalog below)
-// because the catalog is filtered down to only vendorCodes present here.
-// Without that filter, the full ~22k-product catalog blows past Claude's
-// 200k-token context limit by more than 10x (observed: 2.75M tokens) --
-// see the "prompt is too long" incident this fixes.
-// IMPORTANT (2026-08-01): previously fetched via COMPATIBILITY_API_URL
-// (api/compatibility.js in abcp-catalog-proxy). That approach hit a hard
-// wall once Compatability_catalog.json passed ~65MB: Vercel enforces a
-// 4.5MB limit on a serverless function's RESPONSE body (infrastructure-
-// level, not configurable) — api/compatibility.js was silently returning a
-// truncated response well under the real data size. No amount of speeding
-// up how that endpoint sourced its data (tried: local file, live GitHub
-// LFS fetch, Supabase REST API, direct Postgres) could fix this, since the
-// limit applies to the function's outbound response regardless of how fast
-// or slow it was to assemble.
+// This means the compatibility fetch can no longer happen before knowing
+// the vehicle (see handler below) — it now happens AFTER
+// extractVehicleInfo(), once we know which series to query.
 //
-// Fix: read the data directly from Postgres here in chat.js instead of via
-// an intermediate Vercel function response. This is a database read, not
-// one Vercel function returning a response to another, so the 4.5MB
-// response-body limit does not apply. Uses the same Supabase Transaction
-// Pooler connection string (SUPABASE_DB_URL) and `pg` package as
-// scripts/push-compatibility-to-supabase.js and the now-retired
-// api/compatibility.js in the abcp-catalog-proxy repo.
+// Two separate reads:
+//  - fetchCompatibilityVendorCodes(): just the distinct vendor_codes across
+//    ALL series — cheap (one column, one DISTINCT), used only to filter the
+//    catalog down to parts we have ANY fitment data for (independent of
+//    which specific vehicle this conversation is about).
+//  - fetchCompatibilityBySeries(series): the actual vehicle records for one
+//    series — this is the slice matchCompatibility() runs against.
 const { Client } = require('pg');
 const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
 
-let compatibilityCache      = null; // parsed object
-let compatibilityCacheStr   = '{}'; // stringified, for the prompt
-let compatibilityCachedAt   = 0;
-const COMPATIBILITY_TTL_MS  = 6 * 60 * 60 * 1000; // refresh every 6 hours
+// Extracts BMW series from a model string. Works on both shapes in play:
+// the catalog's own "3 (E46)" / "X5 Touring (E70)" style, and Haiku's
+// extracted "3 E46 320i" / "X1 F48 xDrive20i" style — both cases just need
+// the first whitespace-delimited token once any "(...)" is stripped.
+function extractSeries(model) {
+  if (!model) return 'unknown';
+  const beforeParen = model.split('(')[0].trim();
+  const firstToken = beforeParen.split(' ')[0].trim();
+  return firstToken || 'unknown';
+}
 
-async function fetchCompatibility() {
-  if (!SUPABASE_DB_URL) return { data: {}, str: '{}' };
+let vendorCodesCache      = null; // Set
+let vendorCodesCachedAt   = 0;
+const VENDOR_CODES_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function fetchCompatibilityVendorCodes() {
+  if (!SUPABASE_DB_URL) return new Set();
 
   const now = Date.now();
-  if (compatibilityCache && (now - compatibilityCachedAt) < COMPATIBILITY_TTL_MS) {
-    return { data: compatibilityCache, str: compatibilityCacheStr };
+  if (vendorCodesCache && (now - vendorCodesCachedAt) < VENDOR_CODES_TTL_MS) {
+    return vendorCodesCache;
   }
 
-  const client = new Client({
-    connectionString: SUPABASE_DB_URL,
-    ssl: { rejectUnauthorized: false },
-  });
-
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
   try {
     await client.connect();
-    const result = await client.query('select data from compatibility_cache where id = 1');
+    const result = await client.query('select distinct vendor_code from compatibility');
+    const codes = new Set(result.rows.map(r => r.vendor_code));
+    vendorCodesCache    = codes;
+    vendorCodesCachedAt = now;
+    return codes;
+  } catch {
+    return vendorCodesCache || new Set();
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
 
-    if (!result.rows.length || !result.rows[0].data) {
-      // Table exists but empty (refresh workflow hasn't run yet) -- degrade
-      // gracefully, same as the old "not configured" fallback.
-      return { data: compatibilityCache || {}, str: compatibilityCacheStr };
+// Per-series cache — a handful of series get asked about repeatedly within
+// a 6h window (BMW has ~18 series total), so this stays small regardless
+// of total dataset size.
+const seriesCache = new Map(); // series -> { data, cachedAt }
+const SERIES_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function fetchCompatibilityBySeries(series) {
+  if (!SUPABASE_DB_URL || !series) return {};
+
+  const now = Date.now();
+  const cached = seriesCache.get(series);
+  if (cached && (now - cached.cachedAt) < SERIES_TTL_MS) {
+    return cached.data;
+  }
+
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  try {
+    await client.connect();
+    const result = await client.query('select vendor_code, vehicle from compatibility where series = $1', [series]);
+
+    // Reshape back into the { vendorCode: [vehicle, vehicle, ...] } shape
+    // matchCompatibility() already expects — keeps that function unchanged.
+    const data = {};
+    for (const row of result.rows) {
+      if (!data[row.vendor_code]) data[row.vendor_code] = [];
+      data[row.vendor_code].push(row.vehicle);
     }
 
-    const data = result.rows[0].data;
-    compatibilityCache    = data;
-    compatibilityCacheStr = JSON.stringify(data);
-    compatibilityCachedAt = now;
-    return { data, str: compatibilityCacheStr };
+    seriesCache.set(series, { data, cachedAt: now });
+    return data;
   } catch {
-    return { data: compatibilityCache || {}, str: compatibilityCacheStr };
+    return cached ? cached.data : {};
   } finally {
     await client.end().catch(() => {});
   }
@@ -842,10 +870,12 @@ function matchManualProductsByVehicle(products, extracted) {
   });
 }
 
-// Pre-warm caches on cold start -- compatibility first, since catalog
-// filtering depends on it.
-fetchCompatibility()
-  .then(({ data }) => fetchCatalog(new Set(Object.keys(data))))
+// Pre-warm caches on cold start -- vendor codes (lightweight) first, since
+// catalog filtering depends on it. Per-series compatibility data is fetched
+// on-demand per request instead (see handler below), since which series
+// matters isn't known until the conversation is read.
+fetchCompatibilityVendorCodes()
+  .then((codes) => fetchCatalog(codes))
   .catch(() => {});
 
 // ─── CORS HEADERS ──────────────────────────────────────────────────────────────
@@ -889,18 +919,26 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'messages array required' });
     }
 
-    // Compatibility must be fetched first -- catalog filtering depends on
-    // knowing which vendorCodes we actually have fitment data for.
-    const { data: compatibilityData } = await fetchCompatibility();
-    const catalog = await fetchCatalog(new Set(Object.keys(compatibilityData)));
+    // Vendor codes (lightweight, all series) -- used only to filter the
+    // catalog down to parts we have ANY fitment data for. The actual
+    // vehicle-matched compatibility records come later, once we know the
+    // series (see below) -- can't query by series before extraction runs.
+    const vendorCodes = await fetchCompatibilityVendorCodes();
+    const catalog = await fetchCatalog(vendorCodes);
     const catalogParsed = JSON.parse(catalog);
 
     // Deterministic matching layer (see functions above) -- extract vehicle
     // fields cheaply, match them in plain JS, and only send Claude the
-    // already-matched result instead of all ~214 compatibility records.
+    // already-matched result instead of the full dataset.
     const extracted = await extractVehicleInfo(messages);
     console.log("========== VEHICLE ==========");
 console.log(JSON.stringify(extracted, null, 2));
+
+    // Now that we know the vehicle's series, pull just that series' rows
+    // instead of the whole compatibility table.
+    const series = extractSeries(extracted.model);
+    const compatibilityData = await fetchCompatibilityBySeries(series);
+
     const matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
     const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
     const matchedCatalogByVehicle = catalogParsed.filter(p => matchedVendorCodesByVehicle.has(p.article));
