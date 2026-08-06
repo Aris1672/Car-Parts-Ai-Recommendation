@@ -297,7 +297,8 @@
     }
 
     /* Typing indicator */
-    .pc-typing { display: flex; gap: 5px; align-items: center; padding: 14px 16px; }
+    .pc-typing-wrap { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
+    .pc-typing { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
     .pc-typing span {
       width: 7px; height: 7px; border-radius: 50%; background: #c0c0c0;
       animation: pc-dot 1.3s infinite ease-in-out;
@@ -308,6 +309,15 @@
       0%,80%,100% { transform: scale(1); background: #c0c0c0; }
       40% { transform: scale(1.5); background: #999; }
     }
+    /* Status text only appears once the request has been running a while
+       (see startTypingStatus) -- fades in so it doesn't flash on fast
+       replies, and fades between messages rather than hard-cutting. */
+    .pc-typing-status {
+      font-size: 13px; color: #999; opacity: 0;
+      transition: opacity 0.3s ease;
+      white-space: nowrap;
+    }
+    .pc-typing-status.pc-visible { opacity: 1; }
 
     /* ── Quick action buttons ── */
     .pc-buttons-wrap { display: flex; flex-wrap: wrap; gap: 7px; padding: 2px 0; max-width: 100%; }
@@ -910,6 +920,28 @@
     appendMsg(el);
   }
 
+  // Rotating reassurance messages shown once a reply is taking a while --
+  // the compatibility lookup against the full parts database can take
+  // 10-12s, and with nothing on screen that reads as "stuck" rather than
+  // "working". Kept generic (no fake specificity about what's happening
+  // server-side) since the client-side timer has no real visibility into
+  // which backend stage is actually running.
+  const TYPING_STATUS_MESSAGES = [
+    'Ищу подходящие запчасти…',
+    'Проверяю совместимость с вашим автомобилем…',
+    'Сверяю по каталогу…',
+    'Почти готово…',
+  ];
+  const TYPING_STATUS_DELAY_MS   = 2500; // don't show text on fast replies
+  const TYPING_STATUS_ROTATE_MS  = 3000;
+
+  let typingStatusTimers = [];
+
+  function clearTypingStatusTimers() {
+    typingStatusTimers.forEach(t => clearTimeout(t) || clearInterval(t));
+    typingStatusTimers = [];
+  }
+
   function addTypingIndicator() {
     const el = document.createElement('div');
     el.className = 'pc-msg pc-msg-bot';
@@ -917,14 +949,42 @@
     el.innerHTML = `
       <div class="pc-msg-icon"><img src="${BASE_URL}/AI_Agent.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
       <div class="pc-bubble" style="padding:0;">
-        <div class="pc-typing"><span></span><span></span><span></span></div>
+        <div class="pc-typing-wrap">
+          <div class="pc-typing"><span></span><span></span><span></span></div>
+          <div class="pc-typing-status" id="pc-typing-status"></div>
+        </div>
       </div>
     `;
     appendMsg(el);
+
+    // Start the rotation after a delay so a fast reply never shows text
+    // that immediately gets ripped away -- only kicks in once the wait
+    // is long enough to actually need reassurance.
+    const startTimer = setTimeout(() => {
+      const statusEl = document.getElementById('pc-typing-status');
+      if (!statusEl) return;
+      let i = 0;
+      statusEl.textContent = TYPING_STATUS_MESSAGES[i];
+      statusEl.classList.add('pc-visible');
+      const rotateInterval = setInterval(() => {
+        i = (i + 1) % TYPING_STATUS_MESSAGES.length;
+        statusEl.classList.remove('pc-visible');
+        setTimeout(() => {
+          const el2 = document.getElementById('pc-typing-status');
+          if (!el2) return;
+          el2.textContent = TYPING_STATUS_MESSAGES[i];
+          el2.classList.add('pc-visible');
+        }, 300);
+      }, TYPING_STATUS_ROTATE_MS);
+      typingStatusTimers.push(rotateInterval);
+    }, TYPING_STATUS_DELAY_MS);
+    typingStatusTimers.push(startTimer);
+
     return el;
   }
 
   function removeTypingIndicator() {
+    clearTypingStatusTimers();
     const el = document.getElementById('pc-typing');
     if (el) el.remove();
   }
