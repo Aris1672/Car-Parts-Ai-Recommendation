@@ -230,6 +230,40 @@ function extractSeries(model) {
   return firstToken || 'unknown';
 }
 
+// Pulls the chassis/generation code out of a model string's parentheses,
+// e.g. "X5 (E70)" -> "E70", "X5 (F15, F85)" -> "F15, F85". Used only for
+// the ambiguity check below -- not part of the actual matching logic.
+function extractGeneration(model) {
+  if (!model) return null;
+  const m = model.match(/\(([^)]*)\)/);
+  return m ? m[1].trim() : null;
+}
+
+// Detects the specific scenario that was costing real money for no
+// product recommendation: a matched vendorCode set that spans MULTIPLE
+// distinct generations of the same model (e.g. BMW X5's E70/F15/G05),
+// with neither year nor engine code known yet to narrow it down. In that
+// state the agent can never confidently recommend a product this turn --
+// it can only ask which generation the customer has -- so there's no
+// reason to pay for a full Sonnet 5 call carrying the entire matched
+// catalog + compatibility blob just to arrive at a clarifying question.
+// See the handler's short-circuit below, which uses this to skip straight
+// to a cheap Haiku-only clarification instead. Returns an array of
+// {generation, years} for each distinct generation found (deduped), so
+// the caller can list concrete options rather than a vague "tell me your
+// year" -- capped by the caller, not here.
+function detectGenerationAmbiguity(matchedCompatibility) {
+  const generations = new Map();
+  for (const hits of Object.values(matchedCompatibility)) {
+    for (const r of hits) {
+      const gen = extractGeneration(r.model);
+      if (!gen) continue; // no parenthetical chassis info -- can't offer it as an option
+      if (!generations.has(gen)) generations.set(gen, { generation: gen, years: r.years || null });
+    }
+  }
+  return [...generations.values()];
+}
+
 let vendorCodesCache      = null; // Set
 let vendorCodesCachedAt   = 0;
 const VENDOR_CODES_TTL_MS = 6 * 60 * 60 * 1000;
@@ -1087,6 +1121,76 @@ console.log(JSON.stringify(extracted, null, 2));
 
     const compatibility = JSON.stringify(matchedCompatibility);
     const catalogForPrompt = JSON.stringify(matchedCatalog);
+
+    // ─── COST SHORT-CIRCUIT: generation ambiguity ───────────────────────────
+    // If the customer named a part and a model, but hasn't given a year or
+    // engine code, AND the matched vendorCodes span more than one distinct
+    // generation of that model (e.g. BMW X5's E70/F15/G05), the main agent
+    // can never confidently recommend a product this turn -- the ONLY
+    // useful thing it can do is ask which generation the customer has.
+    // Previously that still went through the full path: entire matched
+    // catalog + compatibility blob (all generations at once) sent to
+    // Sonnet 5, just to conclude "please tell me your year" -- confirmed
+    // real incident, $0.38 for a single clarifying question with zero
+    // products shown. Short-circuit here instead: skip Sonnet and the
+    // catalog/compatibility payload entirely, ask a cheap Haiku call to
+    // phrase the clarifying question using ONLY the small list of detected
+    // generations (a few dozen tokens, not the full matched dataset).
+    if (partFilterApplied && extracted.model && !extracted.year && !extracted.engineCode) {
+      const generationOptions = detectGenerationAmbiguity(matchedCompatibility);
+      if (generationOptions.length > 1) {
+        const optionsForPrompt = generationOptions.slice(0, 6);
+        console.log('DIAG generation-ambiguity-shortcut', JSON.stringify({
+          brand: extracted.brand, model: extracted.model, partKeywords: extracted.partKeywords,
+          generationCount: optionsForPrompt.length,
+          skippedSonnetCall: true,
+        }));
+
+        const CLARIFY_PROMPT = `Ты — дружелюбный ИИ-консультант по автозапчастям BMW Club77, отвечаешь ТОЛЬКО по-русски, кратко и по делу.
+Клиент ищет деталь "${(extracted.partKeywords || []).join(', ')}" для ${extracted.brand || ''} ${extracted.model || ''}, но для этой модели есть несколько поколений с разными деталями:
+${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`).join('\n')}
+Кратко объясни, что для точного подбора нужно уточнить поколение (код кузова) или год выпуска, и перечисли перечисленные варианты. НЕ упоминай товары, цены или артикулы -- их в этом ответе быть не должно.`;
+
+        try {
+          const clarifyRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type':      'application/json',
+              'x-api-key':         ANTHROPIC_API_KEY,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model:       'claude-haiku-4-5-20251001',
+              max_tokens:  300,
+              temperature: 0.3,
+              messages:    [{ role: 'user', content: CLARIFY_PROMPT }],
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+
+          if (clarifyRes.ok) {
+            const clarifyData = await clarifyRes.json();
+            const clarifyBlock = (clarifyData.content || []).find(b => b.type === 'text');
+            const clarifyText = clarifyBlock?.text
+              || `Для BMW ${extracted.model} есть несколько поколений с разными деталями. Уточните, пожалуйста, год выпуска или код кузова (${optionsForPrompt.map(g => g.generation).join(', ')}).`;
+
+            const buttonLabels = optionsForPrompt.map(g => g.generation);
+            const buttonsBlock = buttonLabels.length
+              ? `\n<<<BUTTONS>>>\n${JSON.stringify(buttonLabels)}\n<<<END_BUTTONS>>>`
+              : '';
+
+            Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+            res.setHeader('Content-Type', 'application/json');
+            return res.status(200).json({ reply: clarifyText + buttonsBlock });
+          }
+          // Haiku call itself failed -- fall through to the normal full
+          // path below rather than leaving the customer with no response.
+        } catch (err) {
+          console.error('generation-ambiguity clarify call failed, falling back to full path:', err.message);
+          // fall through
+        }
+      }
+    }
 
     // Manual-products matching, two independent paths merged together:
     // 1) Oil/fluid cross-sell (Tier 1: exact approval code match). Tier 2
