@@ -679,11 +679,40 @@ async function logMissingArticles(vendorCodes, extracted) {
   }
 }
 
+// Collapses near-duplicate vehicle records down to unique
+// (model, modificationName, engineCode, powerHp) combinations, and caps
+// the result as a safety net. Added 2026-08-12 after the compatibility
+// table grew from ~180k rows (2026-08-02) to ~15.9M rows: matchCompatibility()
+// below was never bounded per vendorCode, so a single matched part can now
+// legitimately carry hundreds of rows for the same series (small date-range
+// splits, LHD/RHD variants, trim-only differences) that add nothing the
+// agent actually needs -- it only needs to tell DIFFERENT engines apart,
+// not see every row that produced the same engine. This is the primary
+// fix for the ~3x prompt-token increase observed after the data grew:
+// the catalog side is already capped at 40 items (MAX_UNFILTERED_CATALOG_ITEMS
+// below), but this "hits" array had no equivalent cap and scaled directly
+// with raw compatibility-row count.
+const MAX_HITS_PER_VENDOR_CODE = 15;
+function dedupeVehicleHits(hits) {
+  const seen = new Map();
+  for (const r of hits) {
+    const key = [
+      (r.model || '').trim(),
+      (r.modificationName || '').trim(),
+      (r.engineCode || '').trim(),
+      r.powerHp ?? '',
+    ].join('|');
+    if (!seen.has(key)) seen.set(key, r);
+  }
+  return [...seen.values()];
+}
+
 function matchCompatibility(compatibilityData, extracted) {
   const matched = {};
 
   if (extracted.vendorCode && compatibilityData[extracted.vendorCode]) {
-    matched[extracted.vendorCode] = compatibilityData[extracted.vendorCode];
+    matched[extracted.vendorCode] = dedupeVehicleHits(compatibilityData[extracted.vendorCode])
+      .slice(0, MAX_HITS_PER_VENDOR_CODE);
     return matched;
   }
 
@@ -738,7 +767,7 @@ console.log("Normalized:", userModelNorm);
 
     return true;
   });
-    if (hits.length) matched[vendorCode] = hits;
+    if (hits.length) matched[vendorCode] = dedupeVehicleHits(hits).slice(0, MAX_HITS_PER_VENDOR_CODE);
   }
 
   return matched;
@@ -940,6 +969,13 @@ console.log(JSON.stringify(extracted, null, 2));
     const compatibilityData = await fetchCompatibilityBySeries(series);
 
     const matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
+    // Sanity-check counter for the 2026-08-12 dedupe fix -- compares how many
+    // raw rows matchCompatibility() actually scanned in this series against
+    // how many survived into matchedCompatibilityByVehicle after dedupe+cap,
+    // to confirm (and later re-confirm) that the row-explosion hypothesis
+    // was the real driver of the token increase, not just an assumption.
+    const matchedRowCountAfterDedupe = Object.values(matchedCompatibilityByVehicle)
+      .reduce((sum, hits) => sum + hits.length, 0);
     const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
     const matchedCatalogByVehicle = catalogParsed.filter(p => matchedVendorCodesByVehicle.has(p.article));
 
@@ -1036,6 +1072,10 @@ console.log(JSON.stringify(extracted, null, 2));
       finalMatchedCount: matchedCatalog.length,
       compatibilityPromptChars: compatibility.length,
       catalogPromptChars: catalogForPrompt.length,
+      seriesQueried: series,
+      seriesRowCount: Object.values(compatibilityData).reduce((sum, hits) => sum + hits.length, 0),
+      matchedVendorCodeCount: Object.keys(matchedCompatibility).length,
+      matchedRowCountAfterDedupe,
       totalOilProducts: oilProducts.length,
       matchedOilProductCount: matchedOilProducts.length,
     }));
