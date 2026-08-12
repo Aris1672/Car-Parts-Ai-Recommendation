@@ -765,6 +765,24 @@ console.log("Normalized:", userModelNorm);
 
       const modelOk = userModelTokens.every(tok => {
         const tokenCompact = tok.replace(/\s+/g, '');
+        // Short/bare series tokens ("3", "5", "X1"...) are too easy to
+        // accidentally substring-match against unrelated digits elsewhere
+        // in the compacted record string once trim/engine suffixes are
+        // squashed together (e.g. token "3" matching inside "530D" from
+        // a completely different 5-series record). Confirmed real
+        // incident: a customer who'd only said "BMW 3" so far (no
+        // chassis/trim yet) was matching 5-series and other unrelated
+        // records purely because their model number contained a "3"
+        // somewhere. For tokens this short, require an exact match
+        // against the record's OWN series (its model string before any
+        // "(" or trim) instead of an anywhere-substring check. Longer
+        // tokens (chassis codes, merged trim numbers like "320I") keep
+        // the substring check, since that's what makes "320i"=="320 i"
+        // matching work in the first place.
+        if (tokenCompact.length <= 2) {
+          const recordSeriesToken = normalizeModel(extractSeries(r.model)).replace(/\s+/g, '');
+          return recordSeriesToken === tokenCompact;
+        }
         return recordCompact.includes(tokenCompact);
       });
 
@@ -908,7 +926,19 @@ function matchManualProductsByVehicle(products, extracted) {
         // fitment entry's own field names.
         const recordSearchNorm = normalizeModel(`${f.series || ''} ${f.modification || ''}`);
         const recordCompact    = recordSearchNorm.replace(/\s+/g, '');
-        const modelOk = userModelTokens.every(tok => recordCompact.includes(tok.replace(/\s+/g, '')));
+        // Same fix as matchCompatibility (see its comment) -- short bare
+        // tokens ("3", "5", "X1") must match this entry's OWN series
+        // exactly, not substring-match anywhere in the compacted string,
+        // or e.g. token "3" would match any fitment entry whose
+        // modification happens to contain a "3" somewhere (like "530d").
+        const modelOk = userModelTokens.every(tok => {
+          const tokenCompact = tok.replace(/\s+/g, '');
+          if (tokenCompact.length <= 2) {
+            const recordSeriesToken = normalizeModel(f.series || '').replace(/\s+/g, '');
+            return recordSeriesToken === tokenCompact;
+          }
+          return recordCompact.includes(tokenCompact);
+        });
         if (!modelOk) return false;
       }
 
