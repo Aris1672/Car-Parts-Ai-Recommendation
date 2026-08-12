@@ -544,6 +544,51 @@ function engineCodesOverlap(userCode, recordCode) {
   return recordCodes.some(rc => userCodes.some(uc => uc === rc || uc.includes(rc) || rc.includes(uc)));
 }
 
+// Parses the compatibility table's `years` field, e.g. "2004/04 - 2006/09"
+// (also tolerates an open-ended side, e.g. "2015/04 -" for a still-in-
+// production model, or a missing/malformed value). Only the YEAR portion
+// is used -- the model doesn't need month precision, and customers/Haiku's
+// extraction never provide a production month anyway. Returns null if the
+// string can't be parsed at all (record is then treated as "no year data",
+// i.e. NOT filtered out -- see yearOverlaps below -- since an unparseable
+// value is a data-quality gap, not evidence the vehicle doesn't fit).
+function parseYearRange(yearsStr) {
+  if (!yearsStr) return null;
+  const parts = String(yearsStr).split('-').map(s => s.trim());
+  const parseYear = (s) => {
+    const m = s && s.match(/(\d{4})/);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const from = parseYear(parts[0]);
+  const to   = parts.length > 1 ? parseYear(parts[1]) : from;
+  if (from === null && to === null) return null;
+  return { from: from ?? -Infinity, to: to ?? Infinity };
+}
+
+// True if the customer's stated year falls inside the record's production
+// range -- this is what actually distinguishes BMW's X5 generations (E53
+// 1999-2006, E70 2006-2013, F15 2013-2018, G05 2018+) from each other,
+// since normalizeModel()'s substring match on "X5" alone matches all of
+// them equally (chassis code is rarely present in what the customer says).
+// Added 2026-08-12 after confirming via production logs that a single
+// "BMW X5 2008" + one part-category query was matching 137 vendorCodes/
+// ~130k compatibility rows -- almost entirely different X5 generations
+// that were never actually asked about. Deliberately permissive when data
+// is missing on EITHER side (no user year, or an unparseable/absent
+// `years` field) -- absence of information should fall through to the
+// existing brand/model/engine filters rather than silently drop a
+// possibly-correct match.
+function yearOverlaps(userYear, recordYearsStr) {
+  if (!userYear) return true;
+  const range = parseYearRange(recordYearsStr);
+  if (!range) return true;
+  const y = parseInt(userYear, 10);
+  if (isNaN(y)) return true;
+  return y >= range.from && y <= range.to;
+}
+
+
+
 // Crude Russian stemming: truncates a word to tolerate case/gender/number
 // endings (тормозНЫЕ/тормозНАЯ/тормозНОГО/тормозНОЙ all share the root
 // "тормоз"). NOT linguistically rigorous -- just chops a fixed number of
@@ -679,40 +724,11 @@ async function logMissingArticles(vendorCodes, extracted) {
   }
 }
 
-// Collapses near-duplicate vehicle records down to unique
-// (model, modificationName, engineCode, powerHp) combinations, and caps
-// the result as a safety net. Added 2026-08-12 after the compatibility
-// table grew from ~180k rows (2026-08-02) to ~15.9M rows: matchCompatibility()
-// below was never bounded per vendorCode, so a single matched part can now
-// legitimately carry hundreds of rows for the same series (small date-range
-// splits, LHD/RHD variants, trim-only differences) that add nothing the
-// agent actually needs -- it only needs to tell DIFFERENT engines apart,
-// not see every row that produced the same engine. This is the primary
-// fix for the ~3x prompt-token increase observed after the data grew:
-// the catalog side is already capped at 40 items (MAX_UNFILTERED_CATALOG_ITEMS
-// below), but this "hits" array had no equivalent cap and scaled directly
-// with raw compatibility-row count.
-const MAX_HITS_PER_VENDOR_CODE = 15;
-function dedupeVehicleHits(hits) {
-  const seen = new Map();
-  for (const r of hits) {
-    const key = [
-      (r.model || '').trim(),
-      (r.modificationName || '').trim(),
-      (r.engineCode || '').trim(),
-      r.powerHp ?? '',
-    ].join('|');
-    if (!seen.has(key)) seen.set(key, r);
-  }
-  return [...seen.values()];
-}
-
 function matchCompatibility(compatibilityData, extracted) {
   const matched = {};
 
   if (extracted.vendorCode && compatibilityData[extracted.vendorCode]) {
-    matched[extracted.vendorCode] = dedupeVehicleHits(compatibilityData[extracted.vendorCode])
-      .slice(0, MAX_HITS_PER_VENDOR_CODE);
+    matched[extracted.vendorCode] = compatibilityData[extracted.vendorCode];
     return matched;
   }
 
@@ -765,9 +781,17 @@ console.log("Normalized:", userModelNorm);
       return false;
     }
 
+    // Production-year match -- see yearOverlaps() above. Without this,
+    // "X5" (or any model name) matches every generation of that model
+    // equally, since chassis codes are rarely present in what the
+    // customer actually says.
+    if (extracted.year && !yearOverlaps(extracted.year, r.years)) {
+      return false;
+    }
+
     return true;
   });
-    if (hits.length) matched[vendorCode] = dedupeVehicleHits(hits).slice(0, MAX_HITS_PER_VENDOR_CODE);
+    if (hits.length) matched[vendorCode] = hits;
   }
 
   return matched;
@@ -969,13 +993,6 @@ console.log(JSON.stringify(extracted, null, 2));
     const compatibilityData = await fetchCompatibilityBySeries(series);
 
     const matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
-    // Sanity-check counter for the 2026-08-12 dedupe fix -- compares how many
-    // raw rows matchCompatibility() actually scanned in this series against
-    // how many survived into matchedCompatibilityByVehicle after dedupe+cap,
-    // to confirm (and later re-confirm) that the row-explosion hypothesis
-    // was the real driver of the token increase, not just an assumption.
-    const matchedRowCountAfterDedupe = Object.values(matchedCompatibilityByVehicle)
-      .reduce((sum, hits) => sum + hits.length, 0);
     const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
     const matchedCatalogByVehicle = catalogParsed.filter(p => matchedVendorCodesByVehicle.has(p.article));
 
@@ -1072,10 +1089,6 @@ console.log(JSON.stringify(extracted, null, 2));
       finalMatchedCount: matchedCatalog.length,
       compatibilityPromptChars: compatibility.length,
       catalogPromptChars: catalogForPrompt.length,
-      seriesQueried: series,
-      seriesRowCount: Object.values(compatibilityData).reduce((sum, hits) => sum + hits.length, 0),
-      matchedVendorCodeCount: Object.keys(matchedCompatibility).length,
-      matchedRowCountAfterDedupe,
       totalOilProducts: oilProducts.length,
       matchedOilProductCount: matchedOilProducts.length,
     }));
