@@ -662,11 +662,61 @@ function stemRu(word) {
 // above) together close this specific gap; stemming alone also helps
 // generically with other Russian case-ending mismatches we haven't hit
 // yet.
+// RU->EN part-keyword translations. Confirmed real incident (2026-08-14):
+// a customer asked for "лобовое стекло" (windshield) on a BMW X6 E71 --
+// vehicle matching correctly found the vendorCode, but the ABCP feed names
+// this specific product entirely in English ("Green windshield, shade
+// band+rain sensor"), so the Russian keyword tokens never shared a
+// substring with the (Latin-only) haystack tokens and the real match was
+// silently dropped. The ABCP feed mixes Russian- and English-named
+// products, so this isn't a one-off -- any English-named item is invisible
+// to Russian keyword search without this.
+// Kept as a small hardcoded map rather than a translation API call: cheap,
+// deterministic, no added latency/cost per request. Part-type vocabulary
+// is a closed, slow-growing list -- extend as new gaps are confirmed via
+// missing_articles / production logs, same as the накладки synonym above.
+const PART_KEYWORD_RU_EN = {
+  'СТЕКЛО':      ['GLASS', 'WINDSHIELD', 'WINDOW'],
+  'ЛОБОВОЕ':     ['WINDSHIELD', 'FRONT'],
+  'БАМПЕР':      ['BUMPER'],
+  'ФАРА':        ['HEADLIGHT', 'HEADLAMP'],
+  'ФОНАРЬ':      ['LIGHT', 'LAMP', 'TAILLIGHT'],
+  'ЗЕРКАЛО':     ['MIRROR'],
+  'КАПОТ':       ['HOOD', 'BONNET'],
+  'ДВЕРЬ':       ['DOOR'],
+  'РЕШЕТКА':     ['GRILLE', 'GRILL'],
+  'РАДИАТОР':    ['RADIATOR'],
+  'АМОРТИЗАТОР': ['SHOCK', 'ABSORBER', 'STRUT'],
+  'ТОРМОЗНОЙ':   ['BRAKE'],
+  'КОЛОДКИ':     ['PAD', 'PADS'],
+  'ДИСК':        ['DISC', 'DISK', 'ROTOR'],
+  'ФИЛЬТР':      ['FILTER'],
+  'РЕМЕНЬ':      ['BELT'],
+  'ПОДШИПНИК':   ['BEARING'],
+  'ГЛУШИТЕЛЬ':   ['MUFFLER', 'EXHAUST'],
+  'СВЕЧА':       ['SPARK', 'PLUG'],
+  'ДАТЧИК':      ['SENSOR'],
+  'НАСОС':       ['PUMP'],
+  'ФИЛЬТРУЮЩИЙ': ['FILTER'],
+};
+
+// Expands a keyword word with any known EN equivalents (see
+// PART_KEYWORD_RU_EN above), alongside its normal stemmed form. Looked up
+// against the raw uppercase word (not the stemmed one) since the
+// dictionary keys are full words -- stemming Cyrillic first and matching
+// that against a dictionary keyed on full words would just add another
+// way to miss.
+function expandWithEnglish(rawWord) {
+  const enMatches = PART_KEYWORD_RU_EN[rawWord];
+  return enMatches ? [stemRu(rawWord), ...enMatches] : [stemRu(rawWord)];
+}
+
 function filterCatalogByPartKeyword(catalogArray, partKeywords) {
   if (!partKeywords || !partKeywords.length) return catalogArray; // nothing to narrow by yet -- caller decides whether that's safe to send as-is
   const keywordTokenLists = partKeywords
-    .map(k => (k || '').toUpperCase().trim().split(/\s+/).filter(Boolean).map(stemRu))
-    .filter(tokens => tokens.length);
+    .map(k => (k || '').toUpperCase().trim().split(/\s+/).filter(Boolean))
+    .filter(words => words.length)
+    .map(words => words.flatMap(expandWithEnglish));
   if (!keywordTokenLists.length) return catalogArray;
   return catalogArray.filter(p => {
     const haystackWords = `${p.name || ''} ${p.category || ''}`
