@@ -847,7 +847,7 @@ console.log("Normalized:", userModelNorm);
       // 740Li == 740 Li
       const recordCompact = recordSearchNorm.replace(/\s+/g, '');
 
-      const modelOk = userModelTokens.every(tok => {
+      const modelOk = userModelTokens.every((tok, idx) => {
         const tokenCompact = tok.replace(/\s+/g, '');
         // Short/bare series tokens ("3", "5", "X1"...) are too easy to
         // accidentally substring-match against unrelated digits elsewhere
@@ -863,7 +863,21 @@ console.log("Normalized:", userModelNorm);
         // tokens (chassis codes, merged trim numbers like "320I") keep
         // the substring check, since that's what makes "320i"=="320 i"
         // matching work in the first place.
-        if (tokenCompact.length <= 2) {
+        //
+        // IMPORTANT: only apply this strict check to the FIRST token
+        // (idx === 0) -- the series identifier always comes first in
+        // userModelTokens. Applying it to every short token also caught
+        // engine-displacement fragments that end up isolated after
+        // normalizeModel()'s "." -> " " punctuation step, e.g. "4.4i"
+        // becomes tokens ["4", "4I"] -- that bare "4" was being compared
+        // as if it were a series number and (correctly) never equaled
+        // the record's actual series ("X5"), silently rejecting genuine
+        // matches for the customer's own vehicle. Confirmed real
+        // incident: BMW X5 E53 4.4i (N62B44) matched zero compatibility
+        // rows despite an exact record existing, purely because of this.
+        // Non-leading short tokens now fall through to the plain
+        // substring check instead, same as longer tokens.
+        if (idx === 0 && tokenCompact.length <= 2) {
           const recordSeriesToken = normalizeModel(extractSeries(r.model)).replace(/\s+/g, '');
           return recordSeriesToken === tokenCompact;
         }
