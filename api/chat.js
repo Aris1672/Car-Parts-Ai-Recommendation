@@ -328,6 +328,49 @@ async function fetchCompatibilityBySeries(series) {
   }
 }
 
+// Direct vendor_code lookup, independent of series/brand/model.
+//
+// WHY THIS EXISTS: fetchCompatibilityBySeries() requires knowing the
+// vehicle's series first (extractSeries(extracted.model)) -- but a pure
+// "what car does part 61319483006 fit?" question often comes with NO
+// brand/model at all (the customer is asking BECAUSE they don't know, or
+// is asking on someone else's behalf). In that case extracted.model is
+// null, extractSeries(null) returns 'unknown', and
+// fetchCompatibilityBySeries('unknown') returns {} -- there's no
+// series='unknown' row in Postgres. matchCompatibility() already has a
+// vendorCode-first short-circuit (see below) that would happily answer
+// from just the vendorCode, but it never gets the chance because the
+// compatibility data for that code was never fetched in the first place.
+// This function fetches it directly by vendor_code so that path actually
+// has data to work with, regardless of whether a vehicle was ever
+// mentioned. Confirmed real gap: this silently returned "no compatibility
+// data" for any vendor-code-only compatibility question.
+const vendorCodeCompatCache = new Map(); // vendorCode -> { vehicles, cachedAt }
+const VENDOR_CODE_COMPAT_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function fetchCompatibilityByVendorCode(vendorCode) {
+  if (!SUPABASE_DB_URL || !vendorCode) return [];
+
+  const now = Date.now();
+  const cached = vendorCodeCompatCache.get(vendorCode);
+  if (cached && (now - cached.cachedAt) < VENDOR_CODE_COMPAT_TTL_MS) {
+    return cached.vehicles;
+  }
+
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  try {
+    await client.connect();
+    const result = await client.query('select vehicle from compatibility where vendor_code = $1', [vendorCode]);
+    const vehicles = result.rows.map(r => r.vehicle);
+    vendorCodeCompatCache.set(vendorCode, { vehicles, cachedAt: now });
+    return vehicles;
+  } catch {
+    return cached ? cached.vehicles : [];
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 // ─── CATALOG CACHE (module-level, survives warm Vercel instances) ──────────────
 // Filtered down to only vendorCodes that appear in the compatibility data --
 // there is no reason to send Claude pricing/description info for a part we
@@ -1118,7 +1161,36 @@ console.log(JSON.stringify(extracted, null, 2));
     // Now that we know the vehicle's series, pull just that series' rows
     // instead of the whole compatibility table.
     const series = extractSeries(extracted.model);
-    const compatibilityData = await fetchCompatibilityBySeries(series);
+    let compatibilityData = await fetchCompatibilityBySeries(series);
+
+    // If the customer named a specific vendorCode, make sure ITS
+    // compatibility rows are available regardless of whether the series
+    // lookup above found anything -- e.g. no brand/model was ever
+    // mentioned (series === 'unknown', fetchCompatibilityBySeries returns
+    // {}), or the part's series differs from whatever vehicle info was
+    // extracted. Without this, a pure "what car does 61319483006 fit?"
+    // question with no stated vehicle silently gets no compatibility data
+    // at all, even though matchCompatibility() below is fully able to
+    // answer from the vendorCode alone. Skipped when the series fetch
+    // already has this code, to avoid a redundant DB round-trip on the
+    // common case (customer gave both a vehicle and a part number).
+    if (extracted.vendorCode && !compatibilityData[extracted.vendorCode]) {
+      const directVehicles = await fetchCompatibilityByVendorCode(extracted.vendorCode);
+      if (directVehicles.length) {
+        compatibilityData = { ...compatibilityData, [extracted.vendorCode]: directVehicles };
+      }
+      // TEMPORARY DIAGNOSTIC LOGGING -- confirms this path actually fires
+      // in production and how often the direct fetch finds something the
+      // series fetch missed (e.g. no vehicle mentioned at all, or a
+      // cross-series part). Same style as the existing DIAG match-check
+      // block further down.
+      console.log('DIAG vendor-code-direct-compat', JSON.stringify({
+        vendorCode: extracted.vendorCode,
+        series,
+        seriesHadIt: false, // guaranteed false here -- we only reach this branch when it didn't
+        directHitCount: directVehicles.length,
+      }));
+    }
 
     const matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
     const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
