@@ -4,8 +4,16 @@
  * Keeps the API key secret on the server side.
  */
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const CATALOG_API       = process.env.CATALOG_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/catalog';
+const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
+// Direct Russia -> api.anthropic.com access is blocked (same constraint as
+// the AI Senior Auditor project). Routes through the existing Kazakhstan
+// Nginx reverse proxy (audit.assistant24info.ru) by default -- it's a
+// generic passthrough, not tied to any one project, so it's safe to reuse
+// here as-is. Defaults to the real API directly so this still works
+// unchanged in any environment that CAN reach Anthropic directly (e.g. if
+// this is ever run somewhere other than the Russian VPS).
+const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
+const CATALOG_API        = process.env.CATALOG_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/catalog';
 const SUPABASE_URL         = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
@@ -475,7 +483,7 @@ async function extractVehicleInfo(messages) {
     .join('\n');
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type':      'application/json',
@@ -1288,7 +1296,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 Кратко объясни, что для точного подбора нужно уточнить поколение (код кузова) или год выпуска, и перечисли перечисленные варианты. НЕ упоминай товары, цены или артикулы -- их в этом ответе быть не должно.`;
 
         try {
-          const clarifyRes = await fetch('https://api.anthropic.com/v1/messages', {
+          const clarifyRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
             method: 'POST',
             headers: {
               'Content-Type':      'application/json',
@@ -1368,7 +1376,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt);
 
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+    const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type':      'application/json',

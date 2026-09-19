@@ -14,7 +14,10 @@
  *    even if Supabase isn't set up)
  */
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
+// See chat.js for the full rationale -- same Kazakhstan reverse-proxy
+// reuse, since direct Russia -> api.anthropic.com access is blocked.
+const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_KEY;
 
@@ -66,7 +69,7 @@ async function generateSummary(messages) {
     .map(m => `${m.role === 'user' ? 'Клиент' : 'ИИ'}: ${m.content}`)
     .join('\n');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
     method: 'POST',
     headers: {
       'Content-Type':      'application/json',
