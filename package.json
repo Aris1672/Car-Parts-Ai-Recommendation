@@ -2,8 +2,15 @@
   "name": "car-parts-ai-recommendation",
   "version": "1.0.0",
   "private": true,
-  "description": "Car parts AI recommendation chat agent + dashboard (Vercel serverless functions).",
+  "description": "Car parts AI recommendation chat agent + dashboard (self-hosted Express server, migrated from Vercel serverless functions).",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
+    "express": "^4.19.2",
     "pg": "^8.11.3",
     "web-push": "^3.6.7"
   }
