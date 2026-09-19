@@ -9,7 +9,74 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-09-19 (session 8) — **Infrastructure decision made: migrating off Vercel + Supabase Cloud to self-hosted Russian VPS infrastructure, for 152-FZ/242-FZ data-residency compliance** (Russian personal-data-localization law — customer phone numbers collected by this agent for manager handoff are personal data, and Vercel/Supabase Cloud are both foreign-hosted; not previously addressed). **This app is the FIRST of three internal projects to migrate — start here.** No code changes made this session; this was infrastructure planning only, across all three projects together (this one, `AI Senior Auditor`, and `АвтоСтрой` equipment rental) — decisions below apply to all three, but this file only tracks this app's own migration.
+**Last updated:** 2026-09-19 (session 9) — **Both apps migrated off Vercel and confirmed working live on the new Coolify VPS.** This picks up directly from session 8's plan below (read session 8's block too — it's still the source of truth for *why* this migration is happening and what's left legally/architecturally).
+
+**What's done as of session 9:**
+- Both VPS provisioned via spaceweb.ru: `assistant_vps_3` (DB VPS — 6 vCPU/12GB RAM/80GB NVMe, IP `77.222.47.140`) and `assistant_vps_4` (Coolify VPS — 4 vCPU/8GB RAM/80GB NVMe, IP `168.222.202.222`), both Saint Petersburg datacenter, both with SSH-key-only access (private keys held locally, not committed anywhere).
+- Coolify v4.3.23 installed on `assistant_vps_4` via the one-line installer, GitHub App connected (name: "My-Git-Hub"), dashboard reachable at `http://168.222.202.222:8000`. `.env` backup saved locally per Coolify's own warning at install time.
+- **`car-parts-ai-recommendation`** deployed as a Coolify app (Dockerfile build pack — Railpack does NOT work for this repo's Vercel-serverless-function shape, must be set explicitly every time a Coolify app is created from this repo). Both Vercel-only source files (`server.js`, `Dockerfile`) added to the repo; `package.json` updated with `express` dependency + `start` script; `api/Safe/chat.js` backup folder deleted. `server.js` auto-discovers and mounts every `api/**/*.js` handler by walking the directory (skips `_lib/` and `Safe/`) — no per-route hand-wiring, so new `api/` files just work on next deploy without touching `server.js`.
+- **`abcp-catalog-proxy`** deployed the same way, own Coolify project. Same `server.js`/`Dockerfile`/`package.json` pattern (skips `Safe/` only, no `_lib/` in this repo). Confirmed serving real data: `/api/catalog` returns `"success":true,"total":19803` products from the Supabase `catalog_cache` table.
+- **Service-to-service networking**: `car-parts-ai-recommendation`'s `CATALOG_API_URL` now points at `abcp-catalog-proxy`'s **internal Docker hostname** (`http://<internal-hostname>:3000/api/catalog`, both apps on Coolify's shared `coolify` Docker network) — no longer a public internet round-trip to Vercel. Internal hostname is per-deploy (visible on the app's Access tab in Coolify), re-check if `abcp-catalog-proxy` is ever redeployed under a different container ID.
+- **Anthropic reachability confirmed as expected from session 8's note**: direct `api.anthropic.com` access from this Russian VPS IS blocked (confirmed by testing), same as the other two projects. Fixed by adding `ANTHROPIC_BASE_URL` (defaults to `https://api.anthropic.com`, overridden via env var) in both `chat.js` and `session/manager.js`, and reusing the **existing** `audit.assistant24info.ru` Kazakhstan Nginx reverse-proxy vhost (`AI Senior Auditor` project's proxy, generic passthrough to `api.anthropic.com`, not project-specific) rather than standing up a new one. Set as `ANTHROPIC_BASE_URL=https://audit.assistant24info.ru` in `car-parts-ai-recommendation`'s Coolify env vars. **`abcp-catalog-proxy` does NOT call Anthropic at all** (confirmed by code review) — no equivalent fix needed there.
+- **Vercel reachability confirmed NOT blocked** — plain HTTPS to `*.vercel.app` works fine from this Russian VPS (tested via Node's native `fetch` from inside the container before migrating `abcp-catalog-proxy`, got a clean `STATUS 200`). Only Anthropic's specific endpoint is blocked, not all foreign traffic — don't assume every external call needs the Kazakhstan proxy treatment; test each one.
+- **Public traffic routing**: the existing `bmwclub77.assistant24info.ru` Nginx vhost (on the same KZ box, `199.189.249.4`) — previously `proxy_pass`-ing to the old Vercel deployment — now points at Coolify's Traefik on `http://168.222.202.222:80` (NOT directly at the app's port 3000 — Coolify's Traefik is the only thing actually listening on the host's public ports; hitting 3000 directly gives a 502, Traefik has to route by `Host` header). The domain `bmwclub77.assistant24info.ru` was added under this app's Domains tab in Coolify so Traefik has a matching route — **this requires a redeploy after adding the domain** to regenerate the container's Traefik labels, adding a domain alone doesn't update a running container. Coolify's own "Redirect HTTP to HTTPS" was disabled for this domain (Traefik only ever receives plain-HTTP internally from Nginx in this setup; leaving its own HTTPS-redirect on caused an infinite redirect loop — Nginx already handles the real public-facing HTTPS/SSL termination, Traefik doesn't need to enforce it again for internally-forwarded traffic).
+- Live widget embed on `bmwclub77.ru` updated to point at `https://bmwclub77.assistant24info.ru` (was already this domain pre-migration, just now resolving to Coolify instead of Vercel underneath — no widget-embed-code change needed once the Nginx/Traefik/domain plumbing above was correct).
+- **Root cause of "agent can't find any compatibility data" bug** (main chunk of this session's debugging time): `chat.js` connects **directly to Postgres** (`pg` library, `SUPABASE_DB_URL`, NOT the Supabase REST API — different from `abcp-catalog-proxy`, which does use the REST API/`SUPABASE_SERVICE_KEY` pattern) for all compatibility lookups (`fetchCompatibilityVendorCodes()`, `fetchCompatibilityBySeries()`, and a third one around line 352). **`SUPABASE_DB_URL` was never added to this app's Coolify env vars** (missed in the initial 12-var list copied over from Vercel) — and because all three of those functions' `catch` blocks are silent (no `console.error`), the failure was completely invisible in logs; the agent just always returned empty compatibility data and told customers it couldn't confirm fitment. Fixed by adding `SUPABASE_DB_URL` (direct Postgres connection string, currently still pointing at **Supabase Cloud**, not yet self-hosted) + redeploying. **Consider adding logging to those three catch blocks** before the self-hosted Supabase cutover below, so a similar failure mode surfaces immediately next time instead of silently degrading.
+- End-to-end live test successful: real widget conversation (BMW X5 F15 xDrive30d, N57D30C 258hp/2013) returned correct compatibility-filtered product carousel with real ABCP prices/images/stock status and working action buttons.
+
+**Full env var lists actually needed in Coolify (confirmed working), for reference if either app is ever redeployed fresh:**
+
+`car-parts-ai-recommendation`:
+```
+ANTHROPIC_API_KEY
+ANTHROPIC_BASE_URL=https://audit.assistant24info.ru
+SUPABASE_URL
+SUPABASE_SERVICE_KEY
+SUPABASE_DB_URL          ← the one that was missing, caused the compatibility bug above
+CATALOG_API_URL=http://<abcp-catalog-proxy internal hostname>:3000/api/catalog
+DASHBOARD_ADMIN_PASSWORD
+DASHBOARD_CLIENT_PASSWORD
+WEBPUSH_VAPID_PUBLIC_KEY
+WEBPUSH_VAPID_PRIVATE_KEY
+WEBPUSH_VAPID_SUBJECT
+PORT=3000
+```
+
+`abcp-catalog-proxy`:
+```
+ABCP_EXPORT_URL
+SUPABASE_URL
+SUPABASE_SERVICE_KEY
+REFRESH_SECRET
+PORT=3000
+```
+
+**Standing gotchas worth remembering for the next session (all cost real debugging time this session, will recur on any future Coolify app in this setup):**
+1. New Coolify app defaults to **Railpack** build pack even when Dockerfile was selected during initial setup — always double-check/re-set to **Dockerfile** in the app's Build Pipeline settings before first deploy.
+2. **Env vars added/changed in Coolify do NOT apply to the currently-running container** — a redeploy is required every time. Same is true for **domains added after the first deploy** (Traefik labels are baked in at deploy time).
+3. Coolify apps only expose their port to Traefik internally — anything proxying to a Coolify app from outside (like the KZ Nginx vhosts here) must target **port 80/443 with the correct `Host` header**, never the app's raw container port directly.
+4. `docker exec`'d containers in this `node:18-slim` image have neither `curl` nor `wget` — use `node -e "fetch(...)"` for quick in-container network tests instead.
+
+---
+
+## NEXT STEP (not started yet) — self-hosted Supabase on `assistant_vps_3`
+
+This is the actual 152-FZ data-residency fix — everything above moved compute to Russia, but the database is still Supabase **Cloud** (foreign-hosted) for both apps; `SUPABASE_URL`/`SUPABASE_SERVICE_KEY`/`SUPABASE_DB_URL` all still point there. `assistant_vps_3` (77.222.47.140, 6 vCPU/12GB/80GB) is provisioned and idle, nothing installed on it yet.
+
+Per session 8's plan (still valid, nothing below contradicts it):
+- Install self-hosted Supabase via their official Docker Compose method
+- `pg_dump` from Supabase Cloud → `pg_restore` into the new instance, including the `bump_missing_article()` RPC function and all indexes (the `compatibility` table alone is ~15.9M rows — expect this to take a while and to need enough free disk for both the dump file and the restored data simultaneously)
+- Re-verify pooling/connection-string behavior — confirm whether self-hosted Supabase's bundled PgBouncer needs the same IPv4-vs-IPv6 handling that Vercel's old Transaction Pooler setup needed, or whether Coolify's networking sidesteps that constraint entirely (untested, don't assume)
+- Once migrated, update `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `SUPABASE_DB_URL` in both apps' Coolify env vars to point at the new self-hosted instance, redeploy both
+- `abcp-catalog-proxy`'s `REFRESH_SECRET`-protected `/api/refresh-catalog` endpoint is still being triggered by GitHub Actions (`refresh-catalog.yml`) pointed at the **old Vercel URL** — needs repointing to the new Coolify address as part of this same cleanup pass (not strictly blocked on the Supabase migration, could be done anytime, just hasn't been yet)
+- Same for `refresh-compatibility.yml`, though per session 7's notes its schedule is already disabled (`workflow_dispatch`-only) — low urgency
+- Add logging to the three silent `catch` blocks in `chat.js`'s compatibility-fetch functions (see bug writeup above) before cutting over the DB connection, so any connection issue during/after the Supabase migration is immediately visible rather than silently degrading the agent's answers again
+- Old Vercel deployments for both apps: keep live as rollback option for now, don't decommission yet
+- Still fully unresolved: the pseudonymization/legal question in session 8's block below — self-hosting the DB doesn't touch this
+
+---
+
+**Previous update:** 2026-09-19 (session 8) — **Infrastructure decision made: migrating off Vercel + Supabase Cloud to self-hosted Russian VPS infrastructure, for 152-FZ/242-FZ data-residency compliance** (Russian personal-data-localization law — customer phone numbers collected by this agent for manager handoff are personal data, and Vercel/Supabase Cloud are both foreign-hosted; not previously addressed). **This app is the FIRST of three internal projects to migrate — start here.** No code changes made this session; this was infrastructure planning only, across all three projects together (this one, `AI Senior Auditor`, and `АвтоСтрой` equipment rental) — decisions below apply to all three, but this file only tracks this app's own migration.
 
 **Two new VPS being ordered now** (Russian hosting provider: spaceweb.ru, already have an account there running another project on their Serverless beta):
 
