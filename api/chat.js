@@ -882,8 +882,12 @@ console.log("Normalized:", userModelNorm);
   const userModelTokens = userModelNorm.split(' ').filter(Boolean);
 
   for (const [vendorCode, records] of Object.entries(compatibilityData)) {
+  const isTraceTarget = vendorCode === '11428507683';
   const hits = records.filter(r => {
+    if (isTraceTarget) console.log('TRACE record', JSON.stringify({ model: r.model, trim: r.modificationName, engine: r.engineCode, hp: r.powerHp }));
+
     if (userBrand && r.brand?.toUpperCase().trim() !== userBrand) {
+      if (isTraceTarget) console.log('TRACE -> rejected on brand', r.brand, 'vs', userBrand);
       return false;
     }
 
@@ -941,6 +945,8 @@ console.log("Normalized:", userModelNorm);
         return recordCompact.includes(tokenCompact);
       });
 
+      if (isTraceTarget) console.log('TRACE model check', JSON.stringify({ userModelTokens, recordCompact, modelOk }));
+
       if (!modelOk) {
         return false;
       }
@@ -951,6 +957,7 @@ console.log("Normalized:", userModelNorm);
       extracted.engineCode &&
       !engineCodesOverlap(extracted.engineCode, r.engineCode)
     ) {
+      if (isTraceTarget) console.log('TRACE -> rejected on engine', extracted.engineCode, 'vs', r.engineCode);
       return false;
     }
 
@@ -959,9 +966,11 @@ console.log("Normalized:", userModelNorm);
     // equally, since chassis codes are rarely present in what the
     // customer actually says.
     if (extracted.year && !yearOverlaps(extracted.year, r.years)) {
+      if (isTraceTarget) console.log('TRACE -> rejected on year', extracted.year, 'vs', r.years);
       return false;
     }
 
+    if (isTraceTarget) console.log('TRACE -> PASSED ALL CHECKS');
     return true;
   });
     if (hits.length) matched[vendorCode] = hits;
@@ -1179,8 +1188,10 @@ console.log(JSON.stringify(extracted, null, 2));
     console.log('DIAG compatibilityData-fetch', JSON.stringify({
       series,
       vendorCodeCount: Object.keys(compatibilityData).length,
-      hasTargetVendorCode: !!compatibilityData['01292333679'],
-      targetVendorCodeSample: compatibilityData['01292333679'] ? compatibilityData['01292333679'].slice(0, 2) : null,
+      hasTargetVendorCode: !!compatibilityData['11428507683'],
+      targetVendorCodeF15Entries: compatibilityData['11428507683']
+        ? compatibilityData['11428507683'].filter(v => (v.model || '').includes('F15'))
+        : null,
     }));
 
     // If the customer named a specific vendorCode, make sure ITS
