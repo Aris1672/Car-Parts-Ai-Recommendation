@@ -572,7 +572,7 @@ function normalizeModel(s) {
     // across both spellings, drop it from both sides -- a false positive
     // (occasionally matching a non-xDrive variant) is far less costly
     // than a false negative (telling a customer a real part isn't there).
-    .replace(/\bXDRIVE\b/g, ' ')
+    .replace(/\bXDRIVE/g, ' ')
 
     // Merge BMW style names:
     // 320 I -> 320I
