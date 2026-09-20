@@ -7,9 +7,67 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 
 ---
 
+## 🔭 Future direction — multi-tenant platform
+
+This app is currently single-client (BMW parts only, `bmwclub77.ru`). **Planned direction: evolve this into a shared multi-tenant recommendation platform** serving many different clients across different product verticals (car parts, mosaic tiles, furniture, etc.) from one codebase — not a separate deployment per client.
+
+Core idea: everything client-specific (system prompt, matching strategy, catalog source) becomes **data in a `clients` table, loaded at request time**, not hardcoded in `chat.js`. A client's custom prompt, for example, would be stored in the DB and fetched automatically based on which client the incoming request belongs to — no redeploy needed to onboard a new client or change their instructions.
+
+Full architecture reasoning (pluggable matching strategies, pluggable catalog connectors, request routing by client, how this relates to the multi-tenant-via-RLS infrastructure decision) is captured separately in **`Multi-Tenant-Platform-Architecture-Plan.md`** — read that alongside this README before starting that work. **Not started yet** — this app remains fully car-parts/BMW-specific until that work begins.
+
+**Planned rename:** once the multi-tenant platform work begins, this project should be renamed **"Recommendation Agent"** (dropping the car-parts-specific name, since it'll no longer be tied to one vertical). Not renamed yet — still `car-parts-ai-recommendation` today.
+
+---
+
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-09-20 (session 11) — **Compatibility matching fully fixed and confirmed working end-to-end in production, with real matched parts, prices, and stock status surfacing correctly.** This closes out the self-hosted Supabase migration saga started in session 10. Read session 11's block first, then session 10 for the migration itself, then session 9/8 for earlier context.
+**Last updated:** 2026-09-20 (session 13) — **Compatibility catalog's local push-to-Supabase process fixed and confirmed working (1,208,806 rows pushed successfully).** Read session 13's block first, then session 12 for the catalog-refresh scheduler change, then session 11 for the compatibility-matching bug chain.
+
+**Session 13 — fixed and confirmed the compatibility catalog's real update process (`scripts/push-compatibility-to-supabase.js`):**
+
+Investigated "how does the compatibility catalog get updated when I push to GitHub" — the honest answer turned out to be **it doesn't, and that's fine by design**. Found:
+
+1. **`.github/workflows/refresh-compatibility.yml`'s schedule is already disabled**, with a comment explaining why: `Compatability_catalog.json` is no longer committed to git/LFS, so the workflow has nothing to check out even if manually triggered via `workflow_dispatch`. **Confirmed via direct user testimony: this workflow, and the automatic-refresh approach in general, has never actually worked.** Real updates happen by running `scripts/push-compatibility-to-supabase.js` **locally**, which connects directly to Supabase Postgres and replaces the whole `compatibility` table in one transaction — this was always the real (manual, not automated) process, just not written down anywhere until now.
+
+2. **`.github/workflows/refresh-catalog.yml`** (the *catalog*, not compatibility, workflow — easy to confuse the two similarly-named files) was found to still be calling the **old Vercel URL** (`https://abcp-catalog-proxy-delta.vercel.app/api/refresh-catalog`), confirming it's been non-functional since the Coolify migration. Fully superseded by session 12's in-process scheduler regardless. **Both `refresh-catalog.yml` and `refresh-compatibility.yml` are candidates for deletion** — recommended, not yet done as of this session, since neither does anything useful in its current form and their presence is more likely to confuse a future session than help one.
+
+3. **`scripts/push-compatibility-to-supabase.js` had the identical SSL bug** as `chat.js` (session 10) and the catalog refresh scripts — hardcoded `ssl: { rejectUnauthorized: false }`, incompatible with self-hosted Postgres. **Fixed:** changed to `ssl: false`.
+
+4. **`env.local` (the project's local-only env file) was missing `SUPABASE_DB_URL` entirely** — only had `ABCP_EXPORT_URL`. Added the missing line, pointing at the self-hosted instance:
+   ```
+   SUPABASE_DB_URL=postgresql://postgres.your-tenant-id:h7QXHfD40buenTZ9kdptHr45WJWcTAX@77.222.47.140:6543/postgres
+   ```
+
+5. **Plain `node scripts/...` does NOT read `env.local` automatically** — the script has no `dotenv`-style auto-loader. Node's built-in `--env-file` flag (Node 20.6+) is required:
+   ```powershell
+   node --env-file=env.local scripts/push-compatibility-to-supabase.js
+   ```
+
+**Confirmed working end-to-end:** ran successfully, `Flattened 63681 vendor codes into 1208806 rows` → `Successfully replaced compatibility table with 1208806 rows`. Notably, this local catalog has **grown significantly** since the original migration (63,681 vendor codes vs. 21,554 seen in a live fetch shortly after migration) and now includes non-BMW brands (Audi, Mercedes, Land Rover, VW models) alongside BMW — confirms the local editing workflow has been actively used and is genuinely the live source of truth.
+
+**The real, confirmed-working process going forward, no automation involved (by design, this data doesn't change often enough to need it):**
+1. Edit `Compatability_catalog.json` locally
+2. Run `merge-compatibility.js` if that's still part of the flow (merges/dedupes before pushing)
+3. `node --env-file=env.local scripts/push-compatibility-to-supabase.js`
+4. Optionally `git push` afterward — purely for backup/version history of the JSON file, does not trigger anything on its own
+
+**Contrast with the catalog/pricelist refresh (session 12):** that one genuinely needed automation (live feed, changes constantly) and got the in-process 6h scheduler. This one (compatibility data) is a manual, deliberate curation process and correctly stays that way — don't rebuild automation for it without a real reason to.
+
+**Session 12 — replaced abcp-catalog-proxy's GitHub Actions refresh cron with an in-process scheduler:**
+
+`abcp-catalog-proxy` was refreshing its `catalog_cache` table (populated from the live ABCP YML export at `https://bmwclub77.ru/get_price?...`) via a GitHub Actions cron job calling `api/refresh-catalog.js` every 6h — a pattern inherited from when the app ran as Vercel serverless functions with no persistent process to schedule its own work.
+
+**Two problems with this, both real:**
+1. **Confirmed risk (not yet confirmed as having actually happened, but plausible and worth checking):** the GitHub Action authenticates via its own separate GitHub Actions Secrets store, completely independent of Coolify's env vars. When `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` were updated in Coolify during the self-hosted Supabase migration (session 10), there's no guarantee the GitHub Actions secrets were updated to match — they could have been silently still writing to the old Cloud Supabase's `catalog_cache` table instead of the new self-hosted one. **Not fully verified whether this actually occurred; worth checking GitHub Actions run history/logs from around the migration date if catalog staleness is ever suspected.**
+2. **Unnecessary now that the app is self-hosted on Coolify as a persistent container** — it doesn't need an external scheduler poking an HTTP endpoint anymore; it can just schedule its own recurring work in-process.
+
+**Fixed:** extracted the fetch-XML/parse/upsert-to-Supabase logic out of `api/refresh-catalog.js` into a new shared module, `lib/refreshCatalogCore.js` (deliberately placed *outside* `api/` so `server.js`'s auto-mount-every-file-as-a-route logic never turns it into an accidental endpoint). `server.js` now calls this directly on startup (so a fresh deploy/restart doesn't serve a stale or empty cache while waiting for the first scheduled tick) and then every 6 hours via `setInterval`. `api/refresh-catalog.js` still exists, slimmed down to a thin `REFRESH_SECRET`-protected HTTP wrapper around the same shared function — kept intentionally as a manual/backup trigger (forcing an immediate refresh without waiting up to 6h, or as a fallback if the in-process scheduler is ever disabled).
+
+**Confirmed working:** first deploy's logs showed the startup refresh firing immediately and succeeding — `[catalog-refresh] Done: 19803 products, source updated=null` (the `updated=null` is the ABCP feed's own `shop.date` field not being present/parsed, unrelated to this change, not investigated further).
+
+**Follow-up, not yet done:** the GitHub Actions workflow (`.github/workflows/refresh-catalog.yml`) in the `abcp-catalog-proxy` repo can now be disabled/deleted — it's fully redundant with the in-process scheduler. `REFRESH_SECRET` env var must stay in Coolify though, since the manual-trigger endpoint still needs it.
+
+**Pattern worth reusing for future apps:** any app migrated from Vercel that had a GitHub Actions cron job calling one of its own endpoints on a schedule should get this same treatment once self-hosted as a persistent container — extract the core logic to a shared module, call it via `setInterval` from `server.js`, keep the original endpoint (if any) as an optional manual/backup trigger. Removes an entire class of secrets-drift risk between two separate config stores (GitHub Actions Secrets vs. Coolify env vars).
 
 **Session 11 — found and fixed the remaining zero-match bug (4 stacked, independent causes):**
 
