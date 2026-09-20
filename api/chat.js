@@ -1176,6 +1176,12 @@ console.log(JSON.stringify(extracted, null, 2));
     // instead of the whole compatibility table.
     const series = extractSeries(extracted.model);
     let compatibilityData = await fetchCompatibilityBySeries(series);
+    console.log('DIAG compatibilityData-fetch', JSON.stringify({
+      series,
+      vendorCodeCount: Object.keys(compatibilityData).length,
+      hasTargetVendorCode: !!compatibilityData['01292333679'],
+      targetVendorCodeSample: compatibilityData['01292333679'] ? compatibilityData['01292333679'].slice(0, 2) : null,
+    }));
 
     // If the customer named a specific vendorCode, make sure ITS
     // compatibility rows are available regardless of whether the series
