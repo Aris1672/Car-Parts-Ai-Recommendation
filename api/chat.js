@@ -284,7 +284,7 @@ async function fetchCompatibilityVendorCodes() {
     return vendorCodesCache;
   }
 
-  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
   try {
     await client.connect();
     const result = await client.query('select distinct vendor_code from compatibility');
@@ -316,7 +316,7 @@ async function fetchCompatibilityBySeries(series) {
     return cached.data;
   }
 
-  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
   try {
     await client.connect();
     const result = await client.query('select vendor_code, vehicle from compatibility where series = $1', [series]);
@@ -369,7 +369,7 @@ async function fetchCompatibilityByVendorCode(vendorCode) {
     return cached.vehicles;
   }
 
-  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
   try {
     await client.connect();
     const result = await client.query('select vehicle from compatibility where vendor_code = $1', [vendorCode]);
