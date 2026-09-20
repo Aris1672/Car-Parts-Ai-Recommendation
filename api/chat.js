@@ -292,7 +292,9 @@ async function fetchCompatibilityVendorCodes() {
     vendorCodesCache    = codes;
     vendorCodesCachedAt = now;
     return codes;
-  } catch {
+  } catch (err) {
+    console.error('fetchCompatibilityVendorCodes DB error:', err.message, '— falling back to',
+      vendorCodesCache ? `stale cache (${vendorCodesCache.size} codes)` : 'empty Set (no cache yet)');
     return vendorCodesCache || new Set();
   } finally {
     await client.end().catch(() => {});
@@ -329,7 +331,9 @@ async function fetchCompatibilityBySeries(series) {
 
     seriesCache.set(series, { data, cachedAt: now });
     return data;
-  } catch {
+  } catch (err) {
+    console.error('fetchCompatibilityBySeries DB error:', 'series=', series, err.message, '— falling back to',
+      cached ? `stale cache (${Object.keys(cached.data).length} vendorCodes)` : 'empty {} (no cache yet)');
     return cached ? cached.data : {};
   } finally {
     await client.end().catch(() => {});
@@ -372,7 +376,9 @@ async function fetchCompatibilityByVendorCode(vendorCode) {
     const vehicles = result.rows.map(r => r.vehicle);
     vendorCodeCompatCache.set(vendorCode, { vehicles, cachedAt: now });
     return vehicles;
-  } catch {
+  } catch (err) {
+    console.error('fetchCompatibilityByVendorCode DB error:', 'vendorCode=', vendorCode, err.message, '— falling back to',
+      cached ? `stale cache (${cached.vehicles.length} vehicles)` : 'empty [] (no cache yet)');
     return cached ? cached.vehicles : [];
   } finally {
     await client.end().catch(() => {});
