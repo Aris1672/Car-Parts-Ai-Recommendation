@@ -360,6 +360,28 @@ async function fetchCompatibilityBySeries(series) {
 const vendorCodeCompatCache = new Map(); // vendorCode -> { vehicles, cachedAt }
 const VENDOR_CODE_COMPAT_TTL_MS = 6 * 60 * 60 * 1000;
 
+// ─── CACHE INVALIDATION ──────────────────────────────────────────────────
+// All the compatibility/catalog caches above are module-level and now live
+// as long as this Coolify container does (unlike the old Vercel serverless
+// setup, where a cold start naturally reset them often). That means
+// push-compatibility-to-supabase.js's `truncate + reinsert` can silently go
+// unnoticed for up to VENDOR_CODES_TTL_MS/SERIES_TTL_MS (6h) after a push,
+// since nothing here ever told this running process the DB changed.
+// clearCaches() resets every cache that reads from the `compatibility`
+// table (plus the derived catalog cache, since fetchCatalog() filters by
+// the vendor-codes cache) so a push takes effect immediately instead of
+// waiting out the TTL. Called via the /api/admin/clear-cache endpoint --
+// see api/admin/clear-cache.js.
+function clearCaches() {
+  vendorCodesCache    = null;
+  vendorCodesCachedAt = 0;
+  seriesCache.clear();
+  vendorCodeCompatCache.clear();
+  catalogCache    = null;
+  catalogCachedAt = 0;
+  console.log('clearCaches(): vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache all cleared');
+}
+
 async function fetchCompatibilityByVendorCode(vendorCode) {
   if (!SUPABASE_DB_URL || !vendorCode) return [];
 
@@ -1130,7 +1152,7 @@ function corsHeaders() {
 }
 
 // ─── MAIN HANDLER ──────────────────────────────────────────────────────────────
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   const headers = corsHeaders();
 
   if (req.method === 'OPTIONS') {
@@ -1447,4 +1469,12 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
     return res.status(500).json({ error: err.message });
   }
-};
+}
+
+// Exported as a plain function (unchanged from before, so
+// `require('./api/chat.js')` and however server.js mounts it keeps working
+// exactly as-is) with clearCaches attached as a property -- functions are
+// objects in JS, so this is safe and doesn't change the default export's
+// shape or behavior at all.
+module.exports = handler;
+module.exports.clearCaches = clearCaches;
