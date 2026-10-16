@@ -214,6 +214,17 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 {{COMPATIBILITY}}
 
 ═══════════════════════════════════════════
+ОРИГИНАЛЬНЫЕ НОМЕРА ПО VIN, КОТОРЫХ НЕТ В КАТАЛОГЕ:
+═══════════════════════════════════════════
+Здесь детали, которые оригинальный каталог BMW нашёл для VIN клиента, но которых сейчас нет в КАТАЛОГЕ ТОВАРОВ выше (их нельзя показать карточкой). Если раздел пуст — пропусти его.
+Если подходящего товара в КАТАЛОГЕ ТОВАРОВ нет, а здесь есть номер для запрошенной детали:
+- Назови клиенту оригинальный номер BMW (OEM) и название детали — это точный номер для его машины.
+- Объясни, что сейчас этой позиции нет в наличии на сайте, но менеджер может проверить наличие и срок поставки именно по этому номеру. Предложи оставить телефон или нажать кнопку менеджера.
+- Если для одной детали несколько номеров — перечисли их (до 5) как альтернативы/замены; если у номера есть условие в "notes", укажи его.
+- НЕ добавляй эти номера в блок <<<PRODUCTS>>>, НЕ называй цену и наличие — их нет в данных. НЕ говори, что деталь «не найдена» или «не подтверждена» — номер подтверждён по VIN.
+{{LAXIMO_NOT_IN_CATALOG}}
+
+═══════════════════════════════════════════
 ТОВАРЫ ИЗ РУЧНОГО КАТАЛОГА (масла/жидкости, подобранные по допуску производителя, И/ИЛИ запчасти, подобранные по совместимости с автомобилем клиента — оба типа уже проверены ниже, доверяй результату):
 ═══════════════════════════════════════════
 {{OIL_PRODUCTS}}
@@ -1404,6 +1415,25 @@ console.log(JSON.stringify(extracted, null, 2));
     const missingVendorCodes = [...matchedVendorCodesByVehicle].filter(
       code => !matchedCatalogByVehicle.some(p => p.article === code)
     );
+    // VIN path: OEM numbers the original catalog found for this exact car
+    // but that aren't in the catalog feed. Instead of the agent only saying
+    // "not found", it gives the customer the exact BMW part number and
+    // offers a manager to check availability/order by that number (the
+    // client sells original parts and can usually order them). Capped so a
+    // broad search can't flood the prompt.
+    const MAX_LAXIMO_NOT_IN_CATALOG = 15;
+    const laximoNotInCatalog = laximoUsed
+      ? missingVendorCodes.slice(0, MAX_LAXIMO_NOT_IN_CATALOG).map(code => {
+          const r = (matchedCompatibilityByVehicle[code] || [])[0] || {};
+          return {
+            oem: code,
+            name: r.partName || null,
+            ...(r.unit ? { unit: r.unit } : {}),
+            ...(r.notes && Object.keys(r.notes).length ? { notes: r.notes } : {}),
+          };
+        })
+      : [];
+
     if (missingVendorCodes.length) {
       logMissingArticles(missingVendorCodes, extracted).catch(err =>
         // Node's top-level "fetch failed" message hides the real cause
@@ -1556,6 +1586,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // full-blob approach.
     console.log('DIAG match-check', JSON.stringify({
       source: laximoUsed ? 'laximo' : 'compatibility-table',
+      laximoNotInCatalogCount: laximoNotInCatalog.length,
       partKeywords: extracted.partKeywords || null,
       partFilterApplied,
       vehicleMatchedCount: matchedCatalogByVehicle.length,
@@ -1570,6 +1601,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       .replace('{{CATALOG}}', catalogForPrompt)
       .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
+      .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
       .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt);
 
     const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
