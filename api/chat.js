@@ -572,8 +572,11 @@ async function lookupLaximo(extracted, messages) {
     mode = 'model';
     // Everything the customer wrote (incl. clicked clarification buttons like
     // "220i" or "Правый руль") plus the extracted model/engine strings.
+    // The extracted fields get a label so their line never equals an option
+    // exactly -- only the customer's own messages count as "answers" (a
+    // clicked button); see pickWizardOption() in lib/laximo.js.
     customerText = [
-      extracted.model, extracted.engineCode,
+      `модель: ${extracted.model}`, extracted.engineCode ? `двигатель: ${extracted.engineCode}` : null,
       ...(messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').map(m => m.content),
     ].filter(Boolean).join(' \n ');
   }
