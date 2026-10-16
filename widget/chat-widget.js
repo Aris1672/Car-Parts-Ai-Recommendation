@@ -1191,6 +1191,12 @@
       text = text.replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '').trim();
     }
 
+    // Removing the blocks above leaves the blank lines that surrounded them
+    // (e.g. "...масляный фильтр:\n\n<<<PRODUCTS>>>...\n\nЭтот артикул...").
+    // Every \n renders as <br>, so those show up as a large empty gap in the
+    // bubble. Collapse any run of blank lines to a single blank line.
+    text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+
     return { text, products, buttons, showManager, autoHandoff };
   }
 
