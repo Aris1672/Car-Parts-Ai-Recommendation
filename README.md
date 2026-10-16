@@ -41,6 +41,16 @@ Safeguards (because of the July 2026 lockout):
 - Anti-bot cookie handling (manual redirects plus a cookie jar), ported from `abcp-catalog-proxy/scripts/crawl-compatibility.js`.
 - ⚠️ The site's `robots.txt` disallows `/laximo` for bots. This is the client's own site: **get the client's OK and ask them to whitelist the Coolify VPS IP (168.222.202.222)** in their anti-bot settings before enabling this in production.
 
+**Model path, no VIN (added later in session 14):** when a BMW customer names a model and a part but gives no VIN, the bot fills in the site's parameter search ("Поиск автомобиля по параметрам") itself:
+- The series list comes from the `<select>` on `/laximo?lp=catalog&c=…`. Every later step is a JSON request, `/laximo?lp=wizard&c=…&ssd=<option token>&ajax=1`, returning `{wizardSteps:[{name, determined, options:[{key, value}]}], vehicles}`. The final vehicle list is `…&searchNow=1`, in the same table layout as the VIN result. The vehicle page and part-name search are the same as on the VIN path.
+- `pickWizardOption()` picks each dropdown from the customer's words. It uses exact option names (longest match wins), chassis codes for the series ("G42" → "2' G42"; only letter+2–3 digits count as a code), body-type synonyms (touring → универсал), and defaults of **left-hand drive** and market **ЕЭК**.
+- When a step can't be decided, the bot asks with the catalog's own options as buttons, skipping Sonnet. Examples: "M240i" vs "M240i B58C" / "B58D" (a short name that prefixes other options is never auto-picked, since those are different engines), "X5" with no generation, and "F20" vs "F20 LCI". The clicked button comes back as text and is matched on the next turn.
+- **Option tokens differ on every request**, even for the same option (seen in real responses). So the cache is keyed by the chosen values (`wiz:<catalog>:2' G42|220i|Левый руль|ЕЭК`), never by token.
+- The prompt marks these results `matchedBy: "model"`. The agent doesn't re-ask the model, presents several numbers for one part as variants (production date or equipment), and suggests a VIN for an exact match.
+- First lookup for a new model plus a maintenance request takes about 11 site requests (≈15–20 s at 1.5 s pacing); a repeat takes 0. A vague model ("3 серия 320i" with no chassis code, too many generations for buttons) falls back to the old path, where the agent asks in its own words.
+- Only BMW (`extracted.brand` matches bmw/бмв). Other brands still use the compatibility table.
+- **Not yet verified live:** the step JSON *after* a model or steering choice (only the step after the series was seen), and series whose steps differ (e.g. with a transmission step). Watch `DIAG laximo` (`"mode":"model"`, `path`) and `DIAG laximo-needs-choice`.
+
 New env vars (all optional): `LAXIMO_ENABLED` (set `false` to switch off without a deploy), `LAXIMO_CATALOG` (default `BMW202601`; **update it when the site's `c=` value changes** after a catalog release), `LAXIMO_SITE_URL`, `LAXIMO_MIN_INTERVAL_MS`, `LAXIMO_MAX_QUERIES`, `LAXIMO_BUDGET_MS`, `LAXIMO_CACHE_TTL_DAYS`, `LAXIMO_REQUEST_TIMEOUT_MS`.
 
 New dependency: `cheerio`, **pinned to 1.0.0**, the last version that supports Node 18 (the Docker image is `node:18-slim`). Newer versions need Node ≥20.18.

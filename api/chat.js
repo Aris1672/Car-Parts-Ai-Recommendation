@@ -64,7 +64,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 2. Модель (например: Camry, 3 Series, Focus, Веста)
 3. Год выпуска
 4. Какая именно запчасть нужна (название детали или описание проблемы)
-Для BMW ЛУЧШИЙ способ — VIN-номер (17 символов, указан в СТС/ПТС): по нему детали подбираются по оригинальному каталогу BMW точно для этой машины, без уточнения поколения и двигателя. Поэтому для BMW в первую очередь попроси VIN; если клиент не может его дать — продолжай по шагам ниже.
+Для BMW ЛУЧШИЙ способ — VIN-номер (17 символов, указан в СТС/ПТС): по нему детали подбираются по оригинальному каталогу BMW точно для этой машины, без уточнения поколения и двигателя. Поэтому для BMW в первую очередь попроси VIN; если клиент не может его дать — продолжай по шагам ниже. НО если раздел "АВТОМОБИЛЬ ИЗ ОРИГИНАЛЬНОГО КАТАЛОГА BMW" уже заполнен с "matchedBy": "model" (автомобиль найден по модели) — НЕ требуй VIN и не переспрашивай модель/год/двигатель: сразу покажи найденные детали и лишь предложи прислать VIN для максимальной точности.
 5. **Код двигателя или мощность (л.с.)** — ОБЯЗАТЕЛЬНО уточни, если для указанных марки/модели/года в разделе "ДАННЫЕ О СОВМЕСТИМОСТИ" присутствует НЕСКОЛЬКО записей с разными engineCode или powerHp. Одна и та же модель и даже один и тот же диапазон годов выпуска часто включает несколько разных двигателей (например, у Audi A4 (8K2, B8) 2011-2015 могут быть модификации и с кодом CJEB 170 л.с., и с другими кодами — это РАЗНЫЕ двигатели с разными запчастями). Двигателеспецифичные детали — воздушный/масляный/топливный фильтр, ремень/цепь ГРМ, свечи зажигания, прокладки двигателя, датчики (кислородный, коленвала, распредвала) и т.п. — НЕЛЬЗЯ рекомендовать без уточнения кода двигателя или мощности, если по данным совместимости видно больше одной модификации. Спроси прямо: "Уточните код двигателя (обычно указан на табличке под капотом или в ПТС) или мощность в л.с. — для вашей модели есть несколько вариантов двигателя с разными запчастями."
    Для деталей, НЕ зависящих от двигателя (кузовные элементы, подвеска, элементы салона, некоторые детали кузова) — уточнение двигателя необязательно, ориентируйся на здравый смысл.
 Когда собрал достаточно — верни JSON с подходящими товарами (см. формат ниже).
@@ -72,7 +72,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ## ПОИСК ПО АРТИКУЛУ / VIN (Search)
 Если пользователь называет артикул или VIN-номер:
 - По артикулу — найди точное совпадение в каталоге и верни карточку.
-- По VIN — если раздел "АВТОМОБИЛЬ ПО VIN" ниже заполнен, автомобиль уже точно определён по оригинальному каталогу BMW: НЕ переспрашивай модель, год, поколение или двигатель — сразу уточни, какая деталь нужна (если ещё не назвал), или покажи найденные товары. Если раздел пуст или там написано, что VIN не найден — попроси проверить VIN (17 символов, без букв O, I, Q) или назвать модель и год.
+- По VIN — если раздел "АВТОМОБИЛЬ ИЗ ОРИГИНАЛЬНОГО КАТАЛОГА BMW" ниже заполнен с "matchedBy": "vin", автомобиль уже точно определён по оригинальному каталогу BMW: НЕ переспрашивай модель, год, поколение или двигатель — сразу уточни, какая деталь нужна (если ещё не назвал), или покажи найденные товары. Если раздел пуст или там написано, что VIN не найден — попроси проверить VIN (17 символов, без букв O, I, Q) или назвать модель и год.
 Верни JSON с товарами (см. формат ниже).
 
 ## КАТАЛОГ ПО КАТЕГОРИИ (Browse)
@@ -204,14 +204,14 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 {{CATALOG}}
 
 ═══════════════════════════════════════════
-АВТОМОБИЛЬ ПО VIN (оригинальный каталог BMW):
+АВТОМОБИЛЬ ИЗ ОРИГИНАЛЬНОГО КАТАЛОГА BMW (по VIN или по модели):
 ═══════════════════════════════════════════
 {{VIN_VEHICLE}}
 
 ═══════════════════════════════════════════
 ДАННЫЕ О СОВМЕСТИМОСТИ (артикул → автомобили, если есть):
 ═══════════════════════════════════════════
-Записи с полем "source": "laximo" взяты из оригинального каталога BMW для VIN клиента — совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Обрати внимание на поле "notes": если там есть условие (например, "Для автомобилей с ..."), упомяни его клиенту. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали.
+Записи с полем "source": "laximo" взяты из оригинального каталога BMW. Если "matchedBy": "vin" — подобрано по VIN клиента, совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Если "matchedBy": "model" — подобрано по модели БЕЗ VIN (модель уже уточнена, НЕ переспрашивай её): эти детали подходят для этой модели по каталогу BMW, но если на одну деталь найдено несколько номеров, они могут отличаться по дате выпуска или комплектации — перечисли их как варианты и предложи прислать VIN, чтобы выбрать точный; если номер один — можно уверенно предлагать, коротко упомянув, что по VIN подбор ещё точнее. Обрати внимание на поле "notes": если там есть условие (например, "Для автомобилей с ..."), упомяни его клиенту. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали.
 {{COMPATIBILITY}}
 
 ═══════════════════════════════════════════
@@ -546,40 +546,84 @@ async function fetchCatalogIndex() {
 }
 
 /**
- * VIN path: ask Laximo for this exact car's OEM numbers for the requested
- * parts, within a time budget. Returns null whenever the regular
- * compatibility-table path should be used instead -- never throws.
+ * Ask Laximo (original BMW catalog) for the OEM numbers of the requested
+ * parts, within a time budget:
+ *   - VIN given    -> exact car via the VIN search            (matchedBy 'vin')
+ *   - no VIN, BMW model + part named -> the site's parameter
+ *     wizard, filled from the customer's own words           (matchedBy 'model')
+ *     -- may come back with { needsChoice } when a dropdown
+ *     can't be decided (e.g. "M240i" vs "M240i B58C")
+ * Returns null whenever the regular compatibility-table path should be used
+ * instead -- never throws.
  */
-async function lookupLaximo(extracted) {
+async function lookupLaximo(extracted, messages) {
   if (!LAXIMO_ENABLED) return null;
   const vin = laximo.normalizeVin(extracted.vin);
-  if (!vin) return null;
+
+  let mode = null;
+  let customerText = '';
+  if (vin) {
+    mode = 'vin';
+  } else if (
+    /bmw|бмв/i.test(extracted.brand || '') &&
+    extracted.model &&
+    Array.isArray(extracted.partKeywords) && extracted.partKeywords.length
+  ) {
+    mode = 'model';
+    // Everything the customer wrote (incl. clicked clarification buttons like
+    // "220i" or "Правый руль") plus the extracted model/engine strings.
+    customerText = [
+      extracted.model, extracted.engineCode,
+      ...(messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').map(m => m.content),
+    ].filter(Boolean).join(' \n ');
+  }
+  if (!mode) return null;
 
   const started = Date.now();
   let timer;
   try {
+    const work = mode === 'vin'
+      ? laximo.findPartsByVin(vin, extracted.partKeywords || [])
+      : laximo.findPartsByModel(customerText, extracted.partKeywords);
     const result = await Promise.race([
-      laximo.findPartsByVin(vin, extracted.partKeywords || []),
+      work,
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`budget ${LAXIMO_BUDGET_MS}ms exceeded`)), LAXIMO_BUDGET_MS); }),
     ]);
     console.log('DIAG laximo', JSON.stringify({
-      vin,
-      found: !!result,
+      mode,
+      vin: vin || null,
+      model: mode === 'model' ? extracted.model : undefined,
+      found: !!result?.vehicle,
+      needsChoice: result?.needsChoice ? result.needsChoice.step : undefined,
       vehicle: result?.vehicle?.name || null,
+      path: result?.vehicle?.path ? result.vehicle.path.join(' › ') : undefined,
       partKeywords: extracted.partKeywords || null,
       oemCount: result?.parts?.length ?? 0,
       ms: Date.now() - started,
     }));
-    return result ? { ...result, vin } : { vin, notFound: true };
+    if (mode === 'vin') return result ? { ...result, vin, matchedBy: 'vin' } : { vin, notFound: true, matchedBy: 'vin' };
+    return result ? { ...result, matchedBy: 'model' } : null;
   } catch (err) {
     // Budget exceeded: the scrape keeps running in the background and its
     // results land in the cache, so the customer's NEXT message is fast.
-    console.error('lookupLaximo failed, using compatibility table instead:', err.message, `(${Date.now() - started}ms)`);
+    console.error(`lookupLaximo (${mode}) failed, using compatibility table instead:`, err.message, `(${Date.now() - started}ms)`);
     return null;
   } finally {
     clearTimeout(timer);
   }
 }
+
+// Wording for the clarifying question when the model wizard can't decide a
+// dropdown on its own. Keys are Laximo's step names.
+const WIZARD_STEP_QUESTIONS = {
+  'Серия': 'поколение (кузов) вашего BMW',
+  'Тип кузова': 'тип кузова',
+  'Модель': 'точную модификацию (модель/двигатель)',
+  'Рулевое управление': 'расположение руля',
+  'Трансмиссия': 'тип коробки передач',
+  'Рынок': 'для какого рынка выпущен автомобиль',
+  'Вариант автомобиля': 'какой из вариантов ваш',
+};
 
 // ─── DETERMINISTIC VEHICLE MATCHING ─────────────────────────────────────────
 // Two models (Haiku AND Sonnet 5) both failed to correctly match
@@ -1324,13 +1368,38 @@ console.log(JSON.stringify(extracted, null, 2));
     // parts, it REPLACES the compatibility-table matching below; otherwise
     // (no VIN, VIN not found, no part named yet, scraper failed or slow)
     // we fall through to the table path exactly as before.
-    const laximoResult = await lookupLaximo(extracted);
+    const laximoResult = await lookupLaximo(extracted, messages);
+
+    // Model path couldn't decide a dropdown (e.g. "M240i" -> B58C or B58D?).
+    // Ask the customer directly with the catalog's own options as buttons --
+    // their click comes back as text the wizard can match on the next turn.
+    // Cheap: no Sonnet call, no catalog payload.
+    if (laximoResult?.needsChoice) {
+      const { step, options } = laximoResult.needsChoice;
+      const what = WIZARD_STEP_QUESTIONS[step] || String(step).toLowerCase();
+      const buttons = options.slice(0, 16);
+      const reply = `Чтобы подобрать детали по оригинальному каталогу BMW, уточните, пожалуйста, ${what}:` +
+        `\n\nЛибо пришлите VIN (17 символов, указан в СТС) — по нему подбор будет точнее.` +
+        `\n<<<BUTTONS>>>\n${JSON.stringify(buttons)}\n<<<END_BUTTONS>>>`;
+      console.log('DIAG laximo-needs-choice', JSON.stringify({ step, optionCount: options.length }));
+      Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(200).json({ reply });
+    }
     let vinVehicleForPrompt = 'Нет данных (клиент не назвал VIN).';
     if (laximoResult?.notFound) {
       vinVehicleForPrompt = `VIN ${laximoResult.vin} не найден в оригинальном каталоге BMW. Попроси клиента проверить VIN или назвать модель и год.`;
+    } else if (laximoResult?.vehicle && laximoResult.matchedBy === 'model') {
+      const v = laximoResult.vehicle;
+      vinVehicleForPrompt = JSON.stringify({
+        matchedBy: 'model',
+        note: 'Подобрано по модели, без VIN',
+        catalogPath: (v.path || []).join(' › '),
+        model: v.name, modelCode: v.modelCode, ...v.options,
+      });
     } else if (laximoResult?.vehicle) {
       const v = laximoResult.vehicle;
-      vinVehicleForPrompt = JSON.stringify({ vin: laximoResult.vin, model: v.name, modelCode: v.modelCode, ...v.options });
+      vinVehicleForPrompt = JSON.stringify({ matchedBy: 'vin', vin: laximoResult.vin, model: v.name, modelCode: v.modelCode, ...v.options });
     }
     const laximoUsed = !!(laximoResult?.parts && laximoResult.parts.length);
 
@@ -1344,8 +1413,9 @@ console.log(JSON.stringify(extracted, null, 2));
       for (const p of laximoResult.parts) {
         const record = {
           source:    'laximo',
+          matchedBy: laximoResult.matchedBy, // 'vin' = exact car; 'model' = by model, no VIN
           brand:     'BMW',
-          vin:       laximoResult.vin,
+          vin:       laximoResult.vin || null,
           model:     v.name,
           chassis:   v.options?.['Код модели'] || null,
           engine:    v.options?.['Двигатель'] || null,
