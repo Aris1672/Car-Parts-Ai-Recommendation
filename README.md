@@ -21,7 +21,39 @@ Full architecture reasoning (pluggable matching strategies, pluggable catalog co
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-16 (session 14) — **VIN lookup via the client's Laximo catalog (original BMW ETK data) added; built and tested against saved pages, NOT yet deployed or tested against the live site.** Read session 14's block first, then session 13 for the compatibility catalog push process.
+**Last updated:** 2026-10-17 ~01:30 MSK (end of session 14). **Laximo is currently SWITCHED OFF** (`LAXIMO_ENABLED=false` in Coolify). The site's bot protection blocks our server, and we're waiting on ABCP and Laximo. Read "Where we stopped" first, then the rest of session 14, then session 13 for the compatibility catalog push process.
+
+### ⏸️ Where we stopped (session 14, night of Oct 16→17) — start here tomorrow
+
+**Built and live on `main` (latest commits `2a404ae` → `8c86806`):**
+- **VIN path:** VIN → client's Laximo catalog on bmwclub77.ru → exact OEM numbers → catalog cards, or the OEM number offered via a manager when not in the price feed. **Confirmed working live** before the block: XM G09 (`11429453682`), and E70 40d with oil filter, a full maintenance set, cards, and correct "под заказ" wording.
+- **Model path (no VIN):** fills in the site's parameter search (Серия → Тип кузова → Модель → Руль → Рынок) from the customer's words, with clarification buttons. Built and tested against mocks only. On the live site it hit 403s: first a stale-token bug (fixed in `d098591`), then the bot protection below.
+- **Safeguards** (`8c86806`): browser-check detection with a 6 h pause, an hourly request budget of 60, 3 s pacing, separate breakers. While Laximo is off, the agent doesn't ask for a VIN.
+
+**Why it's off:** from about 00:00 MSK on 17.10, every `/laximo` page (VIN search included) returns **HTTP 403 "Мы проверяем ваш браузер"** to our server (168.222.202.222). This is ABCP's platform-level JavaScript browser check. Real browsers pass it automatically; we don't run JS and **must not try to get around it**. It most likely escalated because of the evening's test volume. **The client's site settings have no IP whitelist for it:** ABCP admin → Настройка → Система → "Защита от ботов" only chooses the captcha type (Ввод цифр / reCAPTCHA / SmartCaptcha). Leave that page as is.
+
+**Waiting on (requests prepared in Russian in the chat; check whether they were actually sent):**
+1. **ABCP support:** exempt 168.222.202.222 from the browser check for `/laximo`, and ask about official Laximo API access. Support hours: Mon–Fri 08–19, Sat–Sun 09–18 MSK.
+2. **Laximo support (laximo.ru):** does the client's Laximo account include **web-service/API** access, is there an IP restriction (add 168.222.202.222), what are the request limits, and where are the API docs? ⚠️ This message was drafted for Laximo. Don't send it through the ABCP form, since ABCP can't grant Laximo API access.
+
+**Findings in the ABCP admin, important for the next step:**
+- **ABCP admin → Настройка → Каталоги → Laximo** shows the client's **own Laximo account** (login + password from Laximo). ABCP's servers use it to load the catalog from Laximo. **If that account has API access, the best fix is to call Laximo's API directly** (`FindVehicleByVin`, wizard/`FindVehicleByWizard2`, `ListUnits`, `ListDetailByUnit`, `ListQuickGroup`/`ListQuickDetail`, `FindReplacements`; PHP/Ruby client libraries exist). That means no site scraping, no bot check, no robots.txt issue, and structured data. Plan: keep the chat flow and rewrite only the data layer in `lib/laximo.js`. **Credentials go ONLY into Coolify env vars** (`LAXIMO_LOGIN`, `LAXIMO_PASSWORD`), never into code or this README.
+- Same page: **"Доступ: Только для зарегистрированных…"**, meaning the catalog on the site is for logged-in customers only. It's unclear whether this was set recently. Ask the client. While it's set, guests can't use the catalog on the site, and the scraper (not logged in) couldn't either, even after an ABCP exemption.
+- **ABCP server IPs** for outgoing requests to suppliers/catalogs: **188.127.248.138 / .142 / .155 / .163** (ABCP help article "IP-адреса для онлайн проценки"). The client's Laximo account is probably restricted to these, so our IP would need adding at Laximo.
+- **ABCP's own API** ("Данные для доступа к API" in ABCP help) is the client's shop data: article search, prices, availability. Possible future use: price and availability for **any OEM number**, not just the ~20k products with photos in the feed. Example: service kit `88005B65469`, 11 900 ₽ "под заказ", which isn't in the feed because it has no photo.
+
+**Next steps, in order:**
+1. Check the ABCP and Laximo replies.
+2. **If Laximo grants API access:** rebuild `lib/laximo.js` on the API (same `findPartsByVin` / `findPartsByModel` interface, so `chat.js` barely changes), then test live with the VINs below.
+3. **If only ABCP exempts the IP:** run the 2-request container test (command below; both must return 200), then set `LAXIMO_ENABLED=true` and redeploy. Test carefully, a few messages only.
+4. Open ideas: search **"сервисный комплект"** first for maintenance requests (BMW sells oil + cabin filter kits like `88005B65469`); ask the client to add photos to service kits; possibly the ABCP API for price/availability of any OEM.
+
+**Test data:** VIN `WBS11CS0609158489` (XM 50e G09; also the site's own example VIN) and VIN `X4XZW61140L560928` (X5 40dX E70 LCI, N57S, 29.09.2010; Avtotor-built, works in Laximo). Model test: "Набор на ТО, BMW 2" → 2' G42 → 220i.
+
+**Lessons from tonight's live testing:**
+- The part-name search page uses a *different* table from the unit page. Always get real page sources before writing parsers; the saved samples were essential.
+- Parameter-search tokens are single-use per session. Never cache them.
+- Even with pacing, an evening of testing was enough to get the server challenged. Keep live tests few, and prefer an official API over scraping.
 
 **Session 14 — on-demand Laximo scraper (VIN → exact OEM numbers):**
 
