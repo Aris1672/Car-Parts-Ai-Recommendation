@@ -17,6 +17,15 @@ const CATALOG_API        = process.env.CATALOG_API_URL || 'https://abcp-catalog-
 const SUPABASE_URL         = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
+// Laximo (original BMW catalog, scraped on demand from the client's own
+// /laximo pages) -- see lib/laximo.js. When the customer gives a VIN, this
+// replaces the compatibility-table lookup with exact OEM numbers for that
+// car; without a VIN (or if Laximo fails) the table path below is used.
+// LAXIMO_ENABLED=false turns it off without a code change.
+const laximo = require('../lib/laximo');
+const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
+const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
+
 // Compatibility data (vendorCode -> compatible vehicles). Read directly
 // from Postgres (SUPABASE_DB_URL, declared near fetchCompatibilityBySeries()
 // below), queried per BMW series rather than pulled as one giant blob — see
@@ -55,6 +64,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 2. Модель (например: Camry, 3 Series, Focus, Веста)
 3. Год выпуска
 4. Какая именно запчасть нужна (название детали или описание проблемы)
+Для BMW ЛУЧШИЙ способ — VIN-номер (17 символов, указан в СТС/ПТС): по нему детали подбираются по оригинальному каталогу BMW точно для этой машины, без уточнения поколения и двигателя. Поэтому для BMW в первую очередь попроси VIN; если клиент не может его дать — продолжай по шагам ниже.
 5. **Код двигателя или мощность (л.с.)** — ОБЯЗАТЕЛЬНО уточни, если для указанных марки/модели/года в разделе "ДАННЫЕ О СОВМЕСТИМОСТИ" присутствует НЕСКОЛЬКО записей с разными engineCode или powerHp. Одна и та же модель и даже один и тот же диапазон годов выпуска часто включает несколько разных двигателей (например, у Audi A4 (8K2, B8) 2011-2015 могут быть модификации и с кодом CJEB 170 л.с., и с другими кодами — это РАЗНЫЕ двигатели с разными запчастями). Двигателеспецифичные детали — воздушный/масляный/топливный фильтр, ремень/цепь ГРМ, свечи зажигания, прокладки двигателя, датчики (кислородный, коленвала, распредвала) и т.п. — НЕЛЬЗЯ рекомендовать без уточнения кода двигателя или мощности, если по данным совместимости видно больше одной модификации. Спроси прямо: "Уточните код двигателя (обычно указан на табличке под капотом или в ПТС) или мощность в л.с. — для вашей модели есть несколько вариантов двигателя с разными запчастями."
    Для деталей, НЕ зависящих от двигателя (кузовные элементы, подвеска, элементы салона, некоторые детали кузова) — уточнение двигателя необязательно, ориентируйся на здравый смысл.
 Когда собрал достаточно — верни JSON с подходящими товарами (см. формат ниже).
@@ -62,7 +72,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ## ПОИСК ПО АРТИКУЛУ / VIN (Search)
 Если пользователь называет артикул или VIN-номер:
 - По артикулу — найди точное совпадение в каталоге и верни карточку.
-- По VIN — объясни, что VIN (17 символов) определяет комплектацию; предложи уточнить марку/модель/год для подбора по каталогу.
+- По VIN — если раздел "АВТОМОБИЛЬ ПО VIN" ниже заполнен, автомобиль уже точно определён по оригинальному каталогу BMW: НЕ переспрашивай модель, год, поколение или двигатель — сразу уточни, какая деталь нужна (если ещё не назвал), или покажи найденные товары. Если раздел пуст или там написано, что VIN не найден — попроси проверить VIN (17 символов, без букв O, I, Q) или назвать модель и год.
 Верни JSON с товарами (см. формат ниже).
 
 ## КАТАЛОГ ПО КАТЕГОРИИ (Browse)
@@ -193,8 +203,14 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 {{CATALOG}}
 
 ═══════════════════════════════════════════
+АВТОМОБИЛЬ ПО VIN (оригинальный каталог BMW):
+═══════════════════════════════════════════
+{{VIN_VEHICLE}}
+
+═══════════════════════════════════════════
 ДАННЫЕ О СОВМЕСТИМОСТИ (артикул → автомобили, если есть):
 ═══════════════════════════════════════════
+Записи с полем "source": "laximo" взяты из оригинального каталога BMW для VIN клиента — совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Обрати внимание на поле "notes": если там есть условие (например, "Для автомобилей с ..."), упомяни его клиенту. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали.
 {{COMPATIBILITY}}
 
 ═══════════════════════════════════════════
@@ -379,7 +395,9 @@ function clearCaches() {
   vendorCodeCompatCache.clear();
   catalogCache    = null;
   catalogCachedAt = 0;
-  console.log('clearCaches(): vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache all cleared');
+  catalogIndexCache    = null;
+  catalogIndexCachedAt = 0;
+  console.log('clearCaches(): vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache, catalogIndexCache all cleared');
 }
 
 async function fetchCompatibilityByVendorCode(vendorCode) {
@@ -460,6 +478,85 @@ async function fetchCatalog(compatibilityKeys) {
   }
 }
 
+// ─── FULL CATALOG INDEX (for the Laximo/VIN path) ────────────────────────────
+// fetchCatalog() above deliberately keeps only products that appear in the
+// compatibility table. Laximo returns OEM numbers straight from the original
+// BMW catalog, many of which were never in that table -- so the VIN path
+// needs the WHOLE catalog, looked up by article. Kept as a Map (normalized
+// article -> compact product) and never put into the prompt wholesale; only
+// the handful of Laximo-matched products are.
+let catalogIndexCache    = null; // Map
+let catalogIndexCachedAt = 0;
+
+async function fetchCatalogIndex() {
+  const now = Date.now();
+  if (catalogIndexCache && (now - catalogIndexCachedAt) < CATALOG_TTL_MS) {
+    return catalogIndexCache;
+  }
+  try {
+    const res = await fetch(CATALOG_API, { signal: AbortSignal.timeout(25000) });
+    const data = await res.json();
+    if (!data.products) return catalogIndexCache || new Map();
+
+    const index = new Map();
+    for (const p of data.products) {
+      index.set(laximo.normalizeOem(p.vendorCode), {
+        article:  p.vendorCode,
+        name:     p.name,
+        brand:    p.vendor,
+        category: p.category,
+        price:    p.price,
+        stock:    p.available,
+        url:      p.url     ? p.url.replace('http://', 'https://')     : null,
+        picture:  p.picture ? p.picture.replace('http://', 'https://') : null,
+      });
+    }
+    catalogIndexCache    = index;
+    catalogIndexCachedAt = now;
+    return index;
+  } catch (err) {
+    console.error('fetchCatalogIndex fetch error:', err.message, '— CATALOG_API:', CATALOG_API, '— falling back to',
+      catalogIndexCache ? 'stale index' : 'empty Map (no index yet)');
+    return catalogIndexCache || new Map();
+  }
+}
+
+/**
+ * VIN path: ask Laximo for this exact car's OEM numbers for the requested
+ * parts, within a time budget. Returns null whenever the regular
+ * compatibility-table path should be used instead -- never throws.
+ */
+async function lookupLaximo(extracted) {
+  if (!LAXIMO_ENABLED) return null;
+  const vin = laximo.normalizeVin(extracted.vin);
+  if (!vin) return null;
+
+  const started = Date.now();
+  let timer;
+  try {
+    const result = await Promise.race([
+      laximo.findPartsByVin(vin, extracted.partKeywords || []),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`budget ${LAXIMO_BUDGET_MS}ms exceeded`)), LAXIMO_BUDGET_MS); }),
+    ]);
+    console.log('DIAG laximo', JSON.stringify({
+      vin,
+      found: !!result,
+      vehicle: result?.vehicle?.name || null,
+      partKeywords: extracted.partKeywords || null,
+      oemCount: result?.parts?.length ?? 0,
+      ms: Date.now() - started,
+    }));
+    return result ? { ...result, vin } : { vin, notFound: true };
+  } catch (err) {
+    // Budget exceeded: the scrape keeps running in the background and its
+    // results land in the cache, so the customer's NEXT message is fast.
+    console.error('lookupLaximo failed, using compatibility table instead:', err.message, `(${Date.now() - started}ms)`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── DETERMINISTIC VEHICLE MATCHING ─────────────────────────────────────────
 // Two models (Haiku AND Sonnet 5) both failed to correctly match
 // "AUDI A4 Allroad" against a compatibility record literally containing
@@ -474,7 +571,7 @@ async function fetchCatalog(compatibilityKeys) {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"накладки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
+{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"накладки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -1197,6 +1294,63 @@ async function handler(req, res) {
     console.log("========== VEHICLE ==========");
 console.log(JSON.stringify(extracted, null, 2));
 
+    // ─── VIN PATH (Laximo / original BMW catalog) ─────────────────────────
+    // If the customer gave a VIN, resolve the exact car and its OEM numbers
+    // for the requested parts from the original catalog. When this yields
+    // parts, it REPLACES the compatibility-table matching below; otherwise
+    // (no VIN, VIN not found, no part named yet, scraper failed or slow)
+    // we fall through to the table path exactly as before.
+    const laximoResult = await lookupLaximo(extracted);
+    let vinVehicleForPrompt = 'Нет данных (клиент не назвал VIN).';
+    if (laximoResult?.notFound) {
+      vinVehicleForPrompt = `VIN ${laximoResult.vin} не найден в оригинальном каталоге BMW. Попроси клиента проверить VIN или назвать модель и год.`;
+    } else if (laximoResult?.vehicle) {
+      const v = laximoResult.vehicle;
+      vinVehicleForPrompt = JSON.stringify({ vin: laximoResult.vin, model: v.name, modelCode: v.modelCode, ...v.options });
+    }
+    const laximoUsed = !!(laximoResult?.parts && laximoResult.parts.length);
+
+    let matchedCompatibilityByVehicle;
+    let matchedCatalogByVehicle;
+
+    if (laximoUsed) {
+      const catalogIndex = await fetchCatalogIndex();
+      const v = laximoResult.vehicle;
+      matchedCompatibilityByVehicle = {};
+      for (const p of laximoResult.parts) {
+        const record = {
+          source:    'laximo',
+          brand:     'BMW',
+          vin:       laximoResult.vin,
+          model:     v.name,
+          chassis:   v.options?.['Код модели'] || null,
+          engine:    v.options?.['Двигатель'] || null,
+          productionDate: v.options?.['Дата выпуска'] || null,
+          partName:  p.name,
+          unit:      p.unit,
+          position:  p.position,
+          qty:       p.qty,
+          notes:     Object.fromEntries(Object.entries(p.notes || {}).filter(([k]) => k !== 'Количество')),
+        };
+        (matchedCompatibilityByVehicle[p.oem] ||= []).push(record);
+      }
+      // Laximo returns normalized OEMs; catalog articles are looked up the
+      // same way, then keyed back by the catalog's own article string so the
+      // rest of the handler (missing-articles logging, prompt) is unchanged.
+      matchedCatalogByVehicle = [];
+      const remapped = {};
+      for (const [oem, records] of Object.entries(matchedCompatibilityByVehicle)) {
+        const product = catalogIndex.get(oem);
+        if (product) {
+          matchedCatalogByVehicle.push(product);
+          remapped[product.article] = records;
+        } else {
+          remapped[oem] = records;
+        }
+      }
+      matchedCompatibilityByVehicle = remapped;
+    } else {
+
     // Now that we know the vehicle's series, pull just that series' rows
     // instead of the whole compatibility table.
     const series = extractSeries(extracted.model);
@@ -1231,9 +1385,12 @@ console.log(JSON.stringify(extracted, null, 2));
       }));
     }
 
-    const matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
+    matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
+    const vendorCodesMatched = new Set(Object.keys(matchedCompatibilityByVehicle));
+    matchedCatalogByVehicle = catalogParsed.filter(p => vendorCodesMatched.has(p.article));
+    } // end compatibility-table path (non-VIN)
+
     const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
-    const matchedCatalogByVehicle = catalogParsed.filter(p => matchedVendorCodesByVehicle.has(p.article));
 
     // Parts that genuinely fit this vehicle (per the compatibility data)
     // but have no entry at all in catalogParsed -- almost always because
@@ -1272,7 +1429,12 @@ console.log(JSON.stringify(extracted, null, 2));
     const MAX_UNFILTERED_CATALOG_ITEMS = 40;
     let matchedCatalog;
     let partFilterApplied = false;
-    if (extracted.partKeywords && extracted.partKeywords.length) {
+    if (laximoUsed) {
+      // Laximo results already come from a part-NAME search for exactly
+      // these keywords, so a second keyword filter would only drop real
+      // matches whose catalog names are worded differently. Just cap it.
+      matchedCatalog = matchedCatalogByVehicle.slice(0, MAX_UNFILTERED_CATALOG_ITEMS);
+    } else if (extracted.partKeywords && extracted.partKeywords.length) {
       matchedCatalog = filterCatalogByPartKeyword(matchedCatalogByVehicle, extracted.partKeywords);
       partFilterApplied = true;
       // Safety net: an imperfect extraction shouldn't turn a real result
@@ -1311,7 +1473,8 @@ console.log(JSON.stringify(extracted, null, 2));
     // catalog/compatibility payload entirely, ask a cheap Haiku call to
     // phrase the clarifying question using ONLY the small list of detected
     // generations (a few dozen tokens, not the full matched dataset).
-    if (partFilterApplied && extracted.model && !extracted.year && !extracted.engineCode) {
+    // (Never needed on the VIN path -- the VIN already pins the generation.)
+    if (!laximoResult?.vehicle && partFilterApplied && extracted.model && !extracted.year && !extracted.engineCode) {
       const generationOptions = detectGenerationAmbiguity(matchedCompatibility);
       if (generationOptions.length > 1) {
         const optionsForPrompt = generationOptions.slice(0, 6);
@@ -1392,6 +1555,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // found, plus payload size for cost comparison against the old
     // full-blob approach.
     console.log('DIAG match-check', JSON.stringify({
+      source: laximoUsed ? 'laximo' : 'compatibility-table',
       partKeywords: extracted.partKeywords || null,
       partFilterApplied,
       vehicleMatchedCount: matchedCatalogByVehicle.length,
@@ -1404,6 +1568,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
     const systemWithData = SYSTEM_PROMPT
       .replace('{{CATALOG}}', catalogForPrompt)
+      .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt);
 

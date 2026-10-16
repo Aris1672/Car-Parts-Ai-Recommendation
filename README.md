@@ -21,7 +21,36 @@ Full architecture reasoning (pluggable matching strategies, pluggable catalog co
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-09-20 (session 13) — **Compatibility catalog's local push-to-Supabase process fixed and confirmed working (1,208,806 rows pushed successfully).** Read session 13's block first, then session 12 for the catalog-refresh scheduler change, then session 11 for the compatibility-matching bug chain.
+**Last updated:** 2026-10-16 (session 14) — **VIN lookup via the client's Laximo catalog (original BMW ETK data) added; built and tested against saved pages, NOT yet deployed or tested against the live site.** Read session 14's block first, then session 13 for the compatibility catalog push process.
+
+**Session 14 — on-demand Laximo scraper (VIN → exact OEM numbers):**
+
+The client connected a **Laximo** original-parts catalog to the site (`https://bmwclub77.ru/laximo`, catalog code `BMW202601`). For a VIN it shows the exact car and every OEM number from BMW's own catalog — far more reliable than the compatibility table. Decision: use it **by scraping on demand** (only when a customer gives a VIN), not via a paid Laximo API account and never as a bulk crawl (see the July crawler lockout below).
+
+How it works (`lib/laximo.js` + changes in `api/chat.js`):
+1. Haiku extraction now also returns `vin`. The system prompt tells the agent to ask BMW customers for their VIN first (СТС/ПТС).
+2. With a valid VIN, `lookupLaximo()` runs **3 page loads**: `/laximo?vin=…&lp=findByVIN` → the vehicle page (reads the inline `const data = {vid, ssd, …}`) → the site's own part-name search, `lp=details&detailsQuery=<keyword>` (one per part keyword, max `LAXIMO_MAX_QUERIES`=4).
+3. The OEM numbers are looked up in a **new full-catalog index** (`fetchCatalogIndex()`). The old `fetchCatalog()` only keeps products already in the compatibility table, so it can't be used for this. The matched products and their fitment records (`source: "laximo"`, plus `notes` like "Для автомобилей с … = да") replace the compatibility-table result for that turn. Missing-articles logging, product cards and oil cross-sell are unchanged.
+4. **Fallback:** no VIN, VIN not found, no part named yet, a scraper error, or more than `LAXIMO_BUDGET_MS` (30s) → the normal compatibility-table path runs exactly as before. `DIAG laximo` and `DIAG match-check` (`source:` field) log which path ran.
+
+Safeguards (because of the July 2026 lockout):
+- One global request queue with a minimum gap of `LAXIMO_MIN_INTERVAL_MS` (1.5s) between requests to the site.
+- Cache in memory and in a new Postgres table **`laximo_cache`** (created automatically on first use; 30-day TTL). Repeat questions about the same VIN and part cost **zero** site requests.
+- Circuit breaker: after 3 consecutive failures, all Laximo requests stop for 30 min and chat falls back to the table.
+- Anti-bot cookie handling (manual redirects plus a cookie jar), ported from `abcp-catalog-proxy/scripts/crawl-compatibility.js`.
+- ⚠️ The site's `robots.txt` disallows `/laximo` for bots. This is the client's own site: **get the client's OK and ask them to whitelist the Coolify VPS IP (168.222.202.222)** in their anti-bot settings before enabling this in production.
+
+New env vars (all optional): `LAXIMO_ENABLED` (set `false` to switch off without a deploy), `LAXIMO_CATALOG` (default `BMW202601`; **update it when the site's `c=` value changes** after a catalog release), `LAXIMO_SITE_URL`, `LAXIMO_MIN_INTERVAL_MS`, `LAXIMO_MAX_QUERIES`, `LAXIMO_BUDGET_MS`, `LAXIMO_CACHE_TTL_DAYS`, `LAXIMO_REQUEST_TIMEOUT_MS`.
+
+New dependency: `cheerio`, **pinned to 1.0.0**, the last version that supports Node 18 (the Docker image is `node:18-slim`). Newer versions need Node ≥20.18.
+
+**Not yet verified, check these first:**
+- The **details (part-name) search results page** was never seen. Its parser (`parsePartRows`) was written against the unit page's OEM table and assumes the same row markup (rows linking to `/search/BMW/<OEM>`). Save one search result page (Ctrl+U → Ctrl+S) and run `node scripts/test-laximo-parsers.js <folder>` with it named `details.html`.
+- How well Laximo's name search matches our Russian keywords (e.g. "масляный фильтр" vs the catalog's "К-т сменного элемента масляного фильтра").
+- The first live run from the VPS: watch for `DIAG laximo` lines and `[laximo]` errors.
+- The parameter wizard path (no VIN) isn't supported yet. Units that need an equipment option ("Уточнение параметров автомобиля", e.g. S8TFA) only appear on that path.
+
+To check the parsers after a site redesign: `node scripts/test-laximo-parsers.js <folder with vin.html, vehicle.html, unit.html, details.html>`.
 
 **Session 13 — fixed and confirmed the compatibility catalog's real update process (`scripts/push-compatibility-to-supabase.js`):**
 
