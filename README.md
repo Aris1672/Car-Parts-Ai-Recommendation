@@ -53,7 +53,19 @@ Safeguards (because of the July 2026 lockout):
 - Only BMW (`extracted.brand` matches bmw/бмв). Other brands still use the compatibility table.
 - **Not yet verified live:** the step JSON *after* a model or steering choice (only the step after the series was seen), and series whose steps differ (e.g. with a transmission step). Watch `DIAG laximo` (`"mode":"model"`, `path`) and `DIAG laximo-needs-choice`.
 
-New env vars (all optional): `LAXIMO_ENABLED` (set `false` to switch off without a deploy), `LAXIMO_CATALOG` (default `BMW202601`; **update it when the site's `c=` value changes** after a catalog release), `LAXIMO_SITE_URL`, `LAXIMO_MIN_INTERVAL_MS`, `LAXIMO_MAX_QUERIES`, `LAXIMO_BUDGET_MS`, `LAXIMO_CACHE_TTL_DAYS`, `LAXIMO_REQUEST_TIMEOUT_MS`.
+**⚠️ Oct 16 late evening: the site's bot protection started challenging this server.** After an evening of testing (several hundred requests plus 403 retries), every `/laximo` page, VIN search included, returned HTTP 403 with *"Мы проверяем ваш браузер…"*. That's ABCP's platform-level JavaScript browser check: real browsers pass it automatically, we don't run JS, and we must not try to get around it. The client's own IP whitelist evidently doesn't cover it. **Laximo was switched off with `LAXIMO_ENABLED=false`** (Coolify, then redeploy). **To do: the client asks ABCP support to exempt 168.222.202.222 from the browser check for `/laximo`.** Before switching back on, test once from the container (2 requests; both should return 200):
+```bash
+docker exec $(docker ps -q --filter "name=v2vsk2hijmk0nvgeubrzmkjj" | head -1) node -e "for (const u of ['https://bmwclub77.ru/laximo?lp=catalog&c=BMW202601','https://bmwclub77.ru/laximo?vin=X4XZW61140L560928&lp=findByVIN&c=BMW202601']) fetch(u).then(r=>console.log(r.status,u))"
+```
+
+**Safeguards added afterwards** (`lib/laximo.js`):
+- **Browser-check pause:** if any response contains "Мы проверяем ваш браузер", ALL Laximo requests stop for `LAXIMO_CHALLENGE_PAUSE_HOURS` (6). The log shows `[laximo] BROWSER CHECK detected`. The pause is stored in `laximo_cache` (`state:pause-until`), so a redeploy doesn't lift it; `/api/admin/clear-cache` does. Normal pages never contain the phrase (checked on all saved sources).
+- **Hourly budget:** at most `LAXIMO_MAX_REQUESTS_PER_HOUR` (60) requests to the site in any rolling hour; beyond that, lookups are skipped and the chat uses the table.
+- **Pacing:** `LAXIMO_MIN_INTERVAL_MS` default raised from 1500 to **3000**. Trade-off: a first-time maintenance request by *model* (~11 requests ≈ 33 s) exceeds `LAXIMO_BUDGET_MS` (30 s). That one message falls back to the table while the lookup finishes in the background, and the next message is served from cache.
+- Skips (pause, budget, breaker) never count as site failures, so they don't feed the breakers.
+- While Laximo is disabled, paused or over budget, the agent **doesn't ask for a VIN**. If the customer gives one, the agent says the VIN lookup is temporarily unavailable and offers to pass the VIN to a manager. It does **not** say "VIN not found": `findPartsByVin` returns `{ unavailable }`, which is distinct from `null` (not found).
+
+New env vars (all optional): `LAXIMO_ENABLED` (set `false` to switch off; needs a redeploy), `LAXIMO_MAX_REQUESTS_PER_HOUR` (60), `LAXIMO_CHALLENGE_PAUSE_HOURS` (6), `LAXIMO_CATALOG` (default `BMW202601`; **update it when the site's `c=` value changes** after a catalog release), `LAXIMO_SITE_URL`, `LAXIMO_MIN_INTERVAL_MS`, `LAXIMO_MAX_QUERIES`, `LAXIMO_BUDGET_MS`, `LAXIMO_CACHE_TTL_DAYS`, `LAXIMO_REQUEST_TIMEOUT_MS`.
 
 New dependency: `cheerio`, **pinned to 1.0.0**, the last version that supports Node 18 (the Docker image is `node:18-slim`). Newer versions need Node ≥20.18.
 

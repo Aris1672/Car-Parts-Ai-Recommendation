@@ -26,6 +26,12 @@ const laximo = require('../lib/laximo');
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
 const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
 
+// Find-part advice about VINs, depending on whether the VIN lookup can run
+// right now (LAXIMO_ENABLED, and not paused/over budget -- see lib/laximo.js).
+// When it can't, the agent must not push customers for a VIN it can't use.
+const VIN_ADVICE_ON = 'Для BMW ЛУЧШИЙ способ — VIN-номер (17 символов, указан в СТС/ПТС): по нему детали подбираются по оригинальному каталогу BMW точно для этой машины, без уточнения поколения и двигателя. Поэтому для BMW в первую очередь попроси VIN; если клиент не может его дать — продолжай по шагам ниже. НО если раздел \"АВТОМОБИЛЬ ИЗ ОРИГИНАЛЬНОГО КАТАЛОГА BMW\" уже заполнен с \"matchedBy\": \"model\" (автомобиль найден по модели) — НЕ требуй VIN и не переспрашивай модель/год/двигатель: сразу покажи найденные детали и лишь предложи прислать VIN для максимальной точности.';
+const VIN_ADVICE_OFF = 'Подбор по VIN сейчас недоступен — НЕ проси клиента прислать VIN. Подбирай по марке/модели/году по шагам ниже. Если клиент сам прислал VIN — поблагодари и предложи передать его менеджеру для точного подбора (кнопка менеджера), а сам подбирай по модели/году.';
+
 // Compatibility data (vendorCode -> compatible vehicles). Read directly
 // from Postgres (SUPABASE_DB_URL, declared near fetchCompatibilityBySeries()
 // below), queried per BMW series rather than pulled as one giant blob — see
@@ -64,7 +70,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 2. Модель (например: Camry, 3 Series, Focus, Веста)
 3. Год выпуска
 4. Какая именно запчасть нужна (название детали или описание проблемы)
-Для BMW ЛУЧШИЙ способ — VIN-номер (17 символов, указан в СТС/ПТС): по нему детали подбираются по оригинальному каталогу BMW точно для этой машины, без уточнения поколения и двигателя. Поэтому для BMW в первую очередь попроси VIN; если клиент не может его дать — продолжай по шагам ниже. НО если раздел "АВТОМОБИЛЬ ИЗ ОРИГИНАЛЬНОГО КАТАЛОГА BMW" уже заполнен с "matchedBy": "model" (автомобиль найден по модели) — НЕ требуй VIN и не переспрашивай модель/год/двигатель: сразу покажи найденные детали и лишь предложи прислать VIN для максимальной точности.
+{{VIN_ADVICE}}
 5. **Код двигателя или мощность (л.с.)** — ОБЯЗАТЕЛЬНО уточни, если для указанных марки/модели/года в разделе "ДАННЫЕ О СОВМЕСТИМОСТИ" присутствует НЕСКОЛЬКО записей с разными engineCode или powerHp. Одна и та же модель и даже один и тот же диапазон годов выпуска часто включает несколько разных двигателей (например, у Audi A4 (8K2, B8) 2011-2015 могут быть модификации и с кодом CJEB 170 л.с., и с другими кодами — это РАЗНЫЕ двигатели с разными запчастями). Двигателеспецифичные детали — воздушный/масляный/топливный фильтр, ремень/цепь ГРМ, свечи зажигания, прокладки двигателя, датчики (кислородный, коленвала, распредвала) и т.п. — НЕЛЬЗЯ рекомендовать без уточнения кода двигателя или мощности, если по данным совместимости видно больше одной модификации. Спроси прямо: "Уточните код двигателя (обычно указан на табличке под капотом или в ПТС) или мощность в л.с. — для вашей модели есть несколько вариантов двигателя с разными запчастями."
    Для деталей, НЕ зависящих от двигателя (кузовные элементы, подвеска, элементы салона, некоторые детали кузова) — уточнение двигателя необязательно, ориентируйся на здравый смысл.
 Когда собрал достаточно — верни JSON с подходящими товарами (см. формат ниже).
@@ -409,7 +415,8 @@ function clearCaches() {
   catalogCachedAt = 0;
   catalogIndexCache    = null;
   catalogIndexCachedAt = 0;
-  console.log('clearCaches(): vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache, catalogIndexCache all cleared');
+  laximo.resetPause().catch(() => {});
+  console.log('clearCaches(): laximo pause lifted; vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache, catalogIndexCache all cleared');
 }
 
 async function fetchCompatibilityByVendorCode(vendorCode) {
@@ -604,6 +611,7 @@ async function lookupLaximo(extracted, messages) {
       oemCount: result?.parts?.length ?? 0,
       ms: Date.now() - started,
     }));
+    if (result?.unavailable) return null; // paused / over budget / breaker -- not "VIN not found"
     if (mode === 'vin') return result ? { ...result, vin, matchedBy: 'vin' } : { vin, notFound: true, matchedBy: 'vin' };
     return result ? { ...result, matchedBy: 'model' } : null;
   } catch (err) {
@@ -1390,6 +1398,11 @@ console.log(JSON.stringify(extracted, null, 2));
       return res.status(200).json({ reply });
     }
     let vinVehicleForPrompt = 'Нет данных (клиент не назвал VIN).';
+    const laximoDownReason = !LAXIMO_ENABLED ? 'disabled' : await laximo.unavailableReason().catch(() => null);
+    const givenVin = laximo.normalizeVin(extracted.vin);
+    if (givenVin && !laximoResult) {
+      vinVehicleForPrompt = `Клиент указал VIN ${givenVin}, но подбор по VIN сейчас недоступен. НЕ обещай подбор по VIN и не проси VIN повторно: предложи передать VIN менеджеру для точного подбора (кнопка менеджера) и подбирай по марке/модели/году, если клиент их назвал.`;
+    }
     if (laximoResult?.notFound) {
       vinVehicleForPrompt = `VIN ${laximoResult.vin} не найден в оригинальном каталоге BMW. Попроси клиента проверить VIN или назвать модель и год.`;
     } else if (laximoResult?.vehicle && laximoResult.matchedBy === 'model') {
@@ -1685,6 +1698,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
     const systemWithData = SYSTEM_PROMPT
       .replace('{{CATALOG}}', catalogForPrompt)
+      .replace('{{VIN_ADVICE}}', (laximoDownReason && !laximoResult) ? VIN_ADVICE_OFF : VIN_ADVICE_ON)
       .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
