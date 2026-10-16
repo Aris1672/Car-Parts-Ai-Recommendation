@@ -183,7 +183,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 Показывай от 3 до 6 товаров. ТОЛЬКО реальные товары из каталога (используй данные ниже).
 НИКОГДА не выдумывай артикулы, цены или характеристики.
 ВАЖНО: поле "compatibility" — указывай ТОЛЬКО ту запись из ДАННЫЕ О СОВМЕСТИМОСТИ, которая реально совпадает с маркой/моделью/двигателем пользователя. НИКОГДА не переноси данные о другой модели (например, с A6 на A4) или другом двигателе на автомобиль пользователя, даже если это тот же артикул. Если совпадающей записи нет — ставь null и не утверждай совместимость в тексте ответа.
-ВАЖНО: наличие в тексте ответа описывай так же, как его покажет карточка товара: если "stock" больше 0 — «в наличии (N шт.)»; если "stock" равен 0, пуст или отсутствует — «доступен под заказ» (менеджер уточнит срок поставки). НИКОГДА не пиши про товар из каталога «отсутствует на складе», «нет в наличии» или «недоступен» — его можно заказать, и такие слова отпугивают покупателя.
+ВАЖНО: наличие товара называй ТОЛЬКО словами из его поля "availability" ("в наличии (N шт.)" или "под заказ") — дословно, ничего не добавляя. Для товара "под заказ" можно добавить, что менеджер уточнит срок поставки. ЗАПРЕЩЕНО писать про товары из каталога «нет в наличии», «в наличии нет», «отсутствует», «недоступен» в любом порядке слов — товар можно заказать, и такие слова отпугивают покупателя.
 ВАЖНО: поле "picture" — копируй ТОЧНО как есть из каталога, не изменяй URL.
 ВАЖНО: все URL и picture должны начинаться с https:// (не http://).
 
@@ -444,6 +444,16 @@ async function fetchCompatibilityByVendorCode(vendorCode) {
 // recommend it anyway. This is what keeps the prompt size bounded as the
 // catalog grows (currently ~22k products; only ~a few hundred have
 // confirmed compatibility so far).
+// Same wording the widget's product card shows (widget/chat-widget.js:
+// stock > 0 -> "В наличии: N шт.", otherwise "Под заказ"). Given to the
+// agent as a ready-made label so its text can't contradict the card --
+// a prompt rule alone wasn't enough: in a live test the model still wrote
+// "в наличии нет, доступны под заказ" for stock 0.
+function availabilityLabel(stock) {
+  const n = Number(stock);
+  return n > 0 ? `в наличии (${n} шт.)` : 'под заказ';
+}
+
 let catalogCache     = null;
 let catalogCachedAt  = 0;
 const CATALOG_TTL_MS = 30 * 60 * 1000; // refresh every 30 minutes
@@ -477,6 +487,7 @@ async function fetchCatalog(compatibilityKeys) {
         category: p.category,
         price:    p.price,
         stock:    p.available,
+        availability: availabilityLabel(p.available),
         url:      p.url     ? p.url.replace('http://', 'https://')     : null,
         picture:  p.picture ? p.picture.replace('http://', 'https://') : null,
       }));
@@ -519,6 +530,7 @@ async function fetchCatalogIndex() {
         category: p.category,
         price:    p.price,
         stock:    p.available,
+        availability: availabilityLabel(p.available),
         url:      p.url     ? p.url.replace('http://', 'https://')     : null,
         picture:  p.picture ? p.picture.replace('http://', 'https://') : null,
       });
