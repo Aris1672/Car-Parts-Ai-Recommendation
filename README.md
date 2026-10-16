@@ -45,8 +45,7 @@ New env vars (all optional): `LAXIMO_ENABLED` (set `false` to switch off without
 New dependency: `cheerio`, **pinned to 1.0.0**, the last version that supports Node 18 (the Docker image is `node:18-slim`). Newer versions need Node ≥20.18.
 
 **Not yet verified, check these first:**
-- The **details (part-name) search results page** was never seen. Its parser (`parsePartRows`) was written against the unit page's OEM table and assumes the same row markup (rows linking to `/search/BMW/<OEM>`). Save one search result page (Ctrl+U → Ctrl+S) and run `node scripts/test-laximo-parsers.js <folder>` with it named `details.html`.
-- How well Laximo's name search matches our Russian keywords (e.g. "масляный фильтр" vs the catalog's "К-т сменного элемента масляного фильтра").
+- ✅ (fixed in a follow-up commit, same session) The **part-name search results page** uses a *different* table from the unit page: columns `OEM | Наименование детали | Схема`, OEM links to `/search?pcode=<OEM>`, and no qty, position, unit or notes. The first version of `parsePartRows` assumed the unit-page layout and would have returned **zero rows** on every search. It now finds columns by header text and handles both layouts, verified against a saved search page. Laximo's search matches by word: "масляный фильтр" found "К-т сменного элемента масляного фильтра" (X5 50iX → `11427583220`). How well other Russian keywords match is still worth watching in the logs (`"oemCount":0` = nothing found).
 - The first live run from the VPS: watch for `DIAG laximo` lines and `[laximo]` errors.
 - The parameter wizard path (no VIN) isn't supported yet. Units that need an equipment option ("Уточнение параметров автомобиля", e.g. S8TFA) only appear on that path.
 
