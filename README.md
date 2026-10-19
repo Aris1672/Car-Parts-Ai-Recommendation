@@ -48,7 +48,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
-### 🌍 Session 15b (Oct 19) — Laximo for ALL brands (not just BMW)
+### 🌍 Session 15b (Oct 19) — Laximo for ALL brands (not just BMW) ✅ confirmed working live by the project owner
 
 The client's Laximo licence shows **~60 brands** on the site (`https://bmwclub77.ru/laximo`, start page with the brand list). Customers increasingly ask about other brands, so the bot now uses Laximo for every brand in that list:
 - **VIN, any brand:** the general VIN search, `/laximo?vin=<VIN>&lp=findByVIN&c=` with **`c=` empty**, exactly what the start page's "Поиск по VIN" box sends. Laximo detects the brand; the result link carries the catalog code (Audi VIN `WAUDACF59SA004478` → `AU1587`). The vehicle page and part-name search have the same markup for all brands (verified on Audi), so the parsers didn't change. Cache key is now `vin:any:<VIN>`. This also fixes a real bug: a non-BMW VIN used to be searched in the BMW catalog only, and the agent told the customer "VIN не найден".
