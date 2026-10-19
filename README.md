@@ -19,6 +19,25 @@ Full architecture reasoning (pluggable matching strategies, pluggable catalog co
 
 ---
 
+## 🔌 WIDGET EMBED CODE (live) — restore this if the chat disappears from the site
+
+The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are required, in this order:
+
+```html
+<script>
+  window.AGENT_URL = 'https://bmwclub77.assistant24info.ru';
+</script>
+<script src="https://bmwclub77.assistant24info.ru/widget/chat-widget.js" defer></script>
+```
+
+- **Where it lives:** ABCP admin → **Внешний вид и контент** → tab **"Инфоблоки"** → **"Блок в подвале"** (the footer block, which appears on every page). This is ABCP's own instruction for adding a counter/consultant code. On the live site the code sits at the end of the footer contact block, next to an old commented-out Vercel version (`<!-- … vercel.app … -->`), which can stay as is.
+- **How to check it's still there:** open bmwclub77.ru. The round consultant icon should appear bottom-right within a few seconds. Or press **Ctrl+U** (page source), then **Ctrl+F**, and search for `chat-widget.js`: it must appear with `bmwclub77.assistant24info.ru`.
+- **If it's gone:** paste the two lines back into "Блок в подвале", save, then reload the site. Nothing needs changing on our server.
+- **Common mistakes:** keeping only the second line (without `AGENT_URL` the widget falls back to the same server, but keep both); using an old `vercel.app` or `api2.o2plus.ru` address; pasting into a block that's only on the home page; editors that turn `'` into curly quotes or strip `<script>` tags. Paste in the HTML/source mode of the editor.
+- Optional: any element on the site can open the chat with `onclick="window.AutoChat && window.AutoChat.open()"`.
+
+---
+
 ## 📍 PROJECT STATUS — read this first if resuming work
 
 **Last updated:** 2026-10-19 (session 15). **Everything below is live on `main` and confirmed working by the project owner:**
@@ -812,31 +831,23 @@ Before deploying, open `api/chat.js` and `widget/chat-widget.js` and replace eve
 
 ---
 
-## Step 5 — Update the widget URL
+## Step 5 — Widget server URL (historical, no action needed)
 
-After deployment, Vercel gives you a URL like:
-`https://car-parts-ai-recommendation.vercel.app`
-
-1. Open `widget/chat-widget.js`
-2. Find this line near the top:
-   ```js
-   const BASE_URL = window.AGENT_URL || 'https://TODO-YOUR-PROJECT.vercel.app';
-   ```
-3. Replace the TODO with your actual Vercel URL
-4. Commit and push — Vercel auto-redeploys
+No longer needed: the widget gets its server address from `window.AGENT_URL` in the embed code (see "🔌 WIDGET EMBED CODE" at the top). The fallback inside `widget/chat-widget.js` is the live server, `https://bmwclub77.assistant24info.ru`, not a placeholder. The app runs on Coolify, not Vercel.
 
 ---
 
 ## Step 6 — Add the widget to the client's landing page
 
-Add before `</body>`:
+Use the **live** code from "🔌 WIDGET EMBED CODE" at the top of this README (ABCP: Внешний вид и контент → Инфоблоки → "Блок в подвале"):
 ```html
 <!-- AI Chat Widget -->
 <script>
-  window.AGENT_URL = 'https://car-parts-ai-recommendation.vercel.app';
+  window.AGENT_URL = 'https://bmwclub77.assistant24info.ru';
 </script>
-<script src="https://car-parts-ai-recommendation.vercel.app/widget/chat-widget.js" defer></script>
+<script src="https://bmwclub77.assistant24info.ru/widget/chat-widget.js" defer></script>
 ```
+⚠️ Older versions of this README showed a `car-parts-ai-recommendation.vercel.app` address here. **Don't use it**; the app moved to Coolify.
 
 Wire up any existing chat button:
 ```html
