@@ -46,6 +46,11 @@ How it works:
 - Tests: an in-memory Postgres emulator (pg-mem) for the endpoints, the real `server.js` on a second origin with headless Chromium (old widget lost the clicks, fixed widget delivers them), and a rendered dashboard with test data. **Confirmed live by the project owner on Oct 19:** opened cards show green with ✓.
 - **Commits:** `cf3bedb` (tab + tracking), `ede2350` (beacon fix), `f70be7b` (teasers once).
 
+**Also session 15: widget clean-up** (`widget/chat-widget.js`):
+- **Removed the "keep warm" ping.** Every open tab with the widget called `GET /api/chat` every 4 minutes, a Vercel-era trick against cold starts. It's useless on the always-running Coolify container, and was just traffic from every visitor tab.
+- **Product card fields are sanitised.** Card data comes from the AI's reply, so `safeUrl()` allows only http(s) links/images (http is upgraded to https; `javascript:`, `data:` etc. are dropped), and all values put into HTML are escaped (`escHtml` now escapes `'` too). Price and stock are converted to numbers. Tested with a reply containing a `javascript:` link, a `data:` image, a quote-injection link and junk price/stock: no script ran, and normal cards and click tracking still work.
+- **Leftover placeholders replaced** (`TODO_COMPANY_NAME`, `TODO-YOUR-PROJECT.vercel.app`, TODO comments). The header now shows the real embed snippet. The `AGENT_URL` fallback is the live server instead of a placeholder.
+
 **Also session 15: teaser bubbles shown only once.** The two greeting bubbles ("Здравствуйте! Я ИИ-консультант…" / "Подберу деталь…") plus the badge used to appear on **every page load**, including each product page opened from a card in a new tab, which was irritating on mobile. Now they show **once per visitor** and then not again for 7 days (`TEASER_REPEAT_DAYS`, localStorage key `pc_teasers_seen_at`, separate from the chat state so the trash icon doesn't reset it). They never show while a conversation exists, and opening the chat also counts as "seen". If localStorage is blocked they're not shown at all, rather than on every page.
 
 ### ✅ Status (session 14, Oct 17 evening) — start here

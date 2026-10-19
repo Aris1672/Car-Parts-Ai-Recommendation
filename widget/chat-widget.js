@@ -1,14 +1,11 @@
 /**
  * chat-widget.js  v3.0  — Full-height slide-out panel
- * AI Chat Widget for TODO_COMPANY_NAME (TODO_SITE.ru)
- * Powered by Claude via Vercel proxy.
+ * AI Chat Widget for BMW Club77 (bmwclub77.ru)
+ * Served by this app (Express on Coolify); talks to /api/chat and /api/session/*.
  *
- * ── ADAPTED FOR CAR PARTS CLIENT ──
- * TODO: Replace all TODO placeholders before deploying.
- *
- * Usage in index.html:
- *   <script>window.AGENT_URL = 'https://YOUR-PROJECT.vercel.app';</script>
- *   <script src="https://YOUR-PROJECT.vercel.app/widget/chat-widget.js" defer></script>
+ * Embed on the site (both lines; AGENT_URL is required):
+ *   <script>window.AGENT_URL = 'https://bmwclub77.assistant24info.ru';</script>
+ *   <script src="https://bmwclub77.assistant24info.ru/widget/chat-widget.js" defer></script>
  *
  * To open programmatically:
  *   window.AutoChat && window.AutoChat.open()
@@ -33,10 +30,12 @@
   window.__pcWidgetInitialized = true;
 
   // ─── CONFIG ─────────────────────────────────────────────────────────────────
-  const BASE_URL    = window.AGENT_URL || 'https://TODO-YOUR-PROJECT.vercel.app'; // TODO: set your Vercel URL
+  // Set by the embed snippet. The fallback is the live server, so a missing
+  // AGENT_URL still works instead of calling a placeholder address.
+  const BASE_URL    = (window.AGENT_URL || 'https://bmwclub77.assistant24info.ru').replace(/\/+$/, '');
   const AGENT_URL   = BASE_URL + '/api/chat';
   const SESSION_URL = BASE_URL + '/api/session';
-  const MANAGER_PHONE = '+79855558675'; // TODO: e.g. '+79991234567'
+  const MANAGER_PHONE = '+79855558675'; // BMW Club77 manager line (tel: link on the manager button)
 
   // BMW Club77 brand colors (BMW's well-known blue palette)
   const BRAND_COLOR      = '#0066b1';
@@ -44,7 +43,7 @@
   const BRAND_DARK       = '#111111';
 
   // ─── PROACTIVE MESSAGES ─────────────────────────────────────────────────────
-  // TODO: Adjust to match company name and tone
+  // Greeting messages shown when the chat panel first opens.
   const PROACTIVE = [
     'Здравствуйте! 👋 Я ИИ-консультант по автозапчастям компании BMW Club77.',
     'Помогу подобрать запчасть по марке и модели автомобиля, проверить совместимость, рассчитать стоимость и ответить на вопросы по установке.',
@@ -1105,20 +1104,25 @@
     let currentIndex = 0;
 
     products.forEach(p => {
-      if (p.picture) p.picture = p.picture.replace('http://', 'https://');
-      if (p.url)     p.url     = p.url.replace('http://', 'https://');
+      // Card fields come from the AI's reply. Only allow real web addresses
+      // (no javascript:, data: etc.) and escape everything put into HTML,
+      // so a manipulated reply can't inject code into the page.
+      p.picture = safeUrl(p.picture);
+      p.url     = safeUrl(p.url);
+      const stockNum = Number(p.stock);
+      const priceNum = Number(p.price);
 
       const card = document.createElement('div');
       card.className = 'pc-product-card';
 
       // ── Stock label: car parts use unit count, not m² ──
-      const stockLabel = (p.stock > 0)
-        ? `В наличии: ${p.stock} шт.`
+      const stockLabel = (stockNum > 0)
+        ? `В наличии: ${stockNum} шт.`
         : '<span style="color:#c00">Под заказ</span>';
 
       card.innerHTML = `
         ${p.picture
-          ? `<img class="pc-product-img" src="${p.picture}" alt="${escHtml(p.article)}" loading="lazy" onerror="this.style.display='none'">`
+          ? `<img class="pc-product-img" src="${escHtml(p.picture)}" alt="${escHtml(p.article)}" loading="lazy" onerror="this.style.display='none'">`
           : `<div class="pc-product-img-ph">🔩</div>`
         }
         <div class="pc-product-body">
@@ -1126,11 +1130,11 @@
           <div class="pc-product-name">${escHtml(p.name || '')}</div>
           <div class="pc-product-meta">${escHtml(p.brand || '')}${p.category ? ' · ' + escHtml(p.category) : ''}</div>
           ${p.compatibility ? `<div class="pc-product-meta">Подходит: ${escHtml(p.compatibility)}</div>` : ''}
-          <div class="pc-product-price">${p.price ? Number(p.price).toLocaleString('ru-RU') + ' ₽' : ''}</div>
+          <div class="pc-product-price">${priceNum > 0 ? priceNum.toLocaleString('ru-RU') + ' ₽' : ''}</div>
           <div class="pc-product-stock">${stockLabel}</div>
           ${p.best_for ? `<div class="pc-product-bestfor">${escHtml(p.best_for)}</div>` : ''}
         </div>
-        ${p.url ? `<a class="pc-product-link" href="${p.url}" target="_blank" rel="noopener">Подробнее →</a>` : ''}
+        ${p.url ? `<a class="pc-product-link" href="${escHtml(p.url)}" target="_blank" rel="noopener">Подробнее →</a>` : ''}
       `;
       const link = card.querySelector('.pc-product-link');
       if (link) link.addEventListener('click', () => logEvent('product_open', cardInfo(p), true));
@@ -1371,19 +1375,27 @@
   }
 
   // ─── UTILS ───────────────────────────────────────────────────────────────────
+  // http(s) URLs only (http upgraded to https); anything else -> null.
+  function safeUrl(u) {
+    if (!u || typeof u !== 'string') return null;
+    const t = u.trim().replace(/^http:\/\//i, 'https://');
+    try {
+      const parsed = new URL(t);
+      return parsed.protocol === 'https:' ? parsed.href : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function escHtml(s) {
     if (!s) return '';
     return String(s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
-
-  // ─── KEEP WARM ───────────────────────────────────────────────────────────────
-  setInterval(() => {
-    fetch(AGENT_URL, { method: 'GET' }).catch(() => {});
-  }, 4 * 60 * 1000);
 
   // ─── PUBLIC API ──────────────────────────────────────────────────────────────
   window.AutoChat = { open, close, toggle };
