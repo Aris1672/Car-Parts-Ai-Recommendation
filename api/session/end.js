@@ -27,7 +27,10 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { session_id, duration_seconds, message_count } = req.body || {};
+    // Beacons arrive as text/plain (see server.js); fetch calls as JSON.
+    let body = req.body;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+    const { session_id, duration_seconds, message_count } = body || {};
 
     if (!session_id) {
       return res.status(400).json({ error: 'session_id required' });

@@ -35,7 +35,10 @@ module.exports = async function handler(req, res) {
   const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
   if (limited(ip)) return res.status(429).json({ error: 'too many events' });
 
-  const ev = validateEvent(req.body);
+  // Beacons arrive as text/plain (see server.js); fetch calls as JSON.
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = null; } }
+  const ev = validateEvent(body);
   if (!ev) return res.status(400).json({ error: 'invalid event' });
 
   try {

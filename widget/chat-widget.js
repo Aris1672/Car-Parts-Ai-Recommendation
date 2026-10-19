@@ -605,7 +605,7 @@
       });
 
       if (useBeacon) {
-        navigator.sendBeacon(`${SESSION_URL}/end`, new Blob([payload], { type: 'application/json' }));
+        navigator.sendBeacon(`${SESSION_URL}/end`, new Blob([payload], { type: 'text/plain' }));
       } else {
         fetch(`${SESSION_URL}/end`, {
           method:  'POST',
@@ -613,7 +613,7 @@
           body:    payload,
           keepalive: true,
         }).catch(() => {
-          navigator.sendBeacon(`${SESSION_URL}/end`, new Blob([payload], { type: 'application/json' }));
+          navigator.sendBeacon(`${SESSION_URL}/end`, new Blob([payload], { type: 'text/plain' }));
         });
       }
     };
@@ -634,7 +634,9 @@
     try {
       const payload = JSON.stringify({ session_id: sessionId, type, data });
       if (useBeacon && navigator.sendBeacon) {
-        navigator.sendBeacon(`${SESSION_URL}/event`, new Blob([payload], { type: 'application/json' }));
+        // text/plain on purpose: an application/json beacon needs a CORS
+        // preflight that fails for credentialed requests -> silently dropped.
+        navigator.sendBeacon(`${SESSION_URL}/event`, new Blob([payload], { type: 'text/plain' }));
       } else {
         fetch(`${SESSION_URL}/event`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true,

@@ -25,6 +25,12 @@ const PORT = process.env.PORT || 3000;
 // Vercel's default body size limit is fine for this app's JSON payloads;
 // bump slightly since some catalog/session payloads can be sizeable.
 app.use(express.json({ limit: '10mb' }));
+// The widget's navigator.sendBeacon calls send text/plain (a JSON string):
+// beacons carry cookies, and a beacon with Content-Type application/json
+// needs a CORS preflight that our "Allow-Origin: *" can't satisfy for
+// credentialed requests -- the browser silently drops it (found live, Oct
+// 2026: card clicks never arrived). text/plain needs no preflight.
+app.use('/api/session', express.text({ type: 'text/plain', limit: '64kb' }));
 
 // ─── Replicate vercel.json's header rules ──────────────────────────────────
 // /api/(.*) — CORS for the widget calling these endpoints cross-origin
