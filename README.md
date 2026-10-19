@@ -40,13 +40,23 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-19 (session 15). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-19 (session 15b: Laximo for all brands, see below). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
 - **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs and the new tab.
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### 🌍 Session 15b (Oct 19) — Laximo for ALL brands (not just BMW)
+
+The client's Laximo licence shows **~60 brands** on the site (`https://bmwclub77.ru/laximo`, start page with the brand list). Customers increasingly ask about other brands, so the bot now uses Laximo for every brand in that list:
+- **VIN, any brand:** the general VIN search, `/laximo?vin=<VIN>&lp=findByVIN&c=` with **`c=` empty**, exactly what the start page's "Поиск по VIN" box sends. Laximo detects the brand; the result link carries the catalog code (Audi VIN `WAUDACF59SA004478` → `AU1587`). The vehicle page and part-name search have the same markup for all brands (verified on Audi), so the parsers didn't change. Cache key is now `vin:any:<VIN>`. This also fixes a real bug: a non-BMW VIN used to be searched in the BMW catalog only, and the agent told the customer "VIN не найден".
+- **Model path, any brand:** brand → catalog code comes from the start page's brand links (`parseBrandList`, cached 7 days as `brands:v1`, so codes update automatically after catalog releases). `resolveBrand` understands Russian/short names (ауди, мерседес/Mercedes → Mercedes-Benz, VW/фольксваген, Range Rover → Land Rover, хендай, …); unknown brands (e.g. Lada) fall back to the compatibility table. The wizard steps differ per brand: **Audi is Рынок → Модель → Год выпуска**, while BMW is Серия → Тип кузова → Модель → Руль → Рынок.
+- **Generic matching** (`pickWizardOption`, step 4/5): model names like "A4/S4/Avant/qu." are matched by shared words. Several equally good options means the customer gets buttons (≤16); no match means the table fallback. A year is matched from the customer's text (chat.js now passes `год: <year>`). With no year, the 16 most recent years are offered as buttons. Market default: ЕЭК → Европа → Россия. BMW keeps its own series/chassis rules. Never guess between models: a wrong model means wrong parts.
+- **Agent wording is brand-neutral** ("оригинальный каталог производителя", field `brand`), and the VIN advice applies to every brand. `DIAG laximo` now logs `brand`.
+- **Not verified live yet:** the Audi wizard JSON *after* a step was simulated from the catalog page's own dropdowns (Рынок/Модель/Год выпуска with options). Other brands' wizards may have other steps (e.g. "Модификация"), which the generic matcher handles by words or buttons. Watch `DIAG laximo` (`"mode":"model"`, `brand`, `path`) and `DIAG laximo-needs-choice` for non-BMW brands.
+- ⚠️ **Quota:** still **1 000 OEM requests/month** for the client's whole licence (all brands, shared with site customers). More brands means more lookups. Check lk.a-motive.ru more often; a monthly bot budget may become necessary.
 
 ### 🛒 Session 15 (Oct 19) — dashboard tab "Подбор" + teaser fix ✅ confirmed live
 
