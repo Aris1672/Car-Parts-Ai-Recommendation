@@ -21,9 +21,15 @@ Full architecture reasoning (pluggable matching strategies, pluggable catalog co
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-17 evening (session 14, final). **Laximo is ON and live.** ABCP exempted our server (168.222.202.222) from its browser check, and VIN and car-model searches were tested live by the project owner and work. **Current phase: observation.** The code stays unchanged for a few days while we watch real customer conversations. Read "Status" first, then the rest of session 14, then session 13 for the compatibility catalog push process.
+**Last updated:** 2026-10-19 (session 15). **Everything below is live on `main` and confirmed working by the project owner:**
+- Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
+- New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
+- Greeting bubbles shown **once per visitor** (7-day repeat).
+- **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs and the new tab.
 
-### 🛒 Session 15 (Oct 19) — dashboard tab "Подбор": first message, shown cards, opened cards
+Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### 🛒 Session 15 (Oct 19) — dashboard tab "Подбор" + teaser fix ✅ confirmed live
 
 New dashboard tab showing, per chat: the customer's **first message**, the **product cards the agent showed**, and **which cards the customer opened** ("Подробнее →"). KPIs: dialogs, cards shown, cards opened, open rate (opened ÷ shown), plus the most-opened products. Period: today / 7 / 30 / 90 days, with search by message text or article. Visible to both dashboard logins; session IDs are admin-only, same as the Analytics tab.
 
@@ -37,7 +43,8 @@ How it works:
 - **Endpoint safety:** strict validation (session-ID format, 3 known types, field length caps, max 12 products, only http(s) URLs) and an in-memory rate limit of 60 events/min per IP. Logging failures never break the chat.
 - **Dashboard data:** `/api/dashboard/product-views` (`POST {password, days}`), joined with `chat_sessions` for date/time and the manager flag. Dates come from `chat_sessions` (UTC, like the Analytics tab).
 - **Data starts from the deploy.** Older chats have no events. Browsers cache the widget for up to 1 h, so the first hour after deploy may miss some events. An "opened" card without a logged "shown" event is still listed, and counts in "opened" but not in the rate.
-- Tests used an in-memory Postgres emulator (pg-mem) for the endpoints, a simulated chat in headless Chromium (all 3 events sent, including the click), and a rendered dashboard with test data.
+- Tests: an in-memory Postgres emulator (pg-mem) for the endpoints, the real `server.js` on a second origin with headless Chromium (old widget lost the clicks, fixed widget delivers them), and a rendered dashboard with test data. **Confirmed live by the project owner on Oct 19:** opened cards show green with ✓.
+- **Commits:** `cf3bedb` (tab + tracking), `ede2350` (beacon fix), `f70be7b` (teasers once).
 
 **Also session 15: teaser bubbles shown only once.** The two greeting bubbles ("Здравствуйте! Я ИИ-консультант…" / "Подберу деталь…") plus the badge used to appear on **every page load**, including each product page opened from a card in a new tab, which was irritating on mobile. Now they show **once per visitor** and then not again for 7 days (`TEASER_REPEAT_DAYS`, localStorage key `pc_teasers_seen_at`, separate from the chat state so the trash icon doesn't reset it). They never show while a conversation exists, and opening the chat also counts as "seen". If localStorage is blocked they're not shown at all, rather than on every page.
 
@@ -699,15 +706,24 @@ Car-Parts-Ai-Recommendation/
 ├── api/
 │   ├── dashboard/
 │   │   ├── sessions.js         ← Sessions data endpoint for dashboard (Аналитика tab)
-│   │   └── products.js         ← Manual cross-sell products endpoint (Товары tab) — list/add/delete, paste-HTML extraction + manual price
+│   │   ├── products.js         ← Manual cross-sell products endpoint (Товары tab) — list/add/delete, paste-HTML extraction + manual price
+│   │   ├── product-views.js    ← "Подбор" tab: first message, shown & opened cards per chat (session 15)
+│   │   ├── missing-articles.js ← "Нет фото" tab
+│   │   └── billing.js          ← "Тариф" tab
 │   ├── session/
-│   │   ├── end.js              ← Ends a user session
+│   │   ├── event.js            ← Public: records first_message / products_shown / product_open (session 15)
+│   │   ├── end.js              ← Ends a user session (accepts text/plain beacons)
 │   │   ├── manager.js          ← Bitrix24 lead creation + Claude-generated summary
 │   │   └── start.js            ← Starts a new user session
 │   ├── chat.js                 ← Vercel serverless function (Claude proxy) — deterministic compatibility + oil matching, then Sonnet 5
 │   └── image.js                ← Image handling endpoint
+├── lib/
+│   ├── laximo.js               ← Laximo scraper: VIN + model (wizard) paths, cache, safeguards (session 14)
+│   └── chatEvents.js           ← chat_events table: validation, insert, per-session grouping (session 15)
+├── scripts/
+│   └── test-laximo-parsers.js  ← Checks Laximo parsers against saved page sources
 ├── dashboard/
-│   └── index.html               ← Admin dashboard (Аналитика + Товары tabs)
+│   └── index.html               ← Admin dashboard (Аналитика, Товары, Подбор, Нет фото, Тариф tabs)
 ├── widget/
 │   └── chat-widget.js           ← Chat UI loaded by the client's landing page (localStorage persistence, product card carousels)
 ├── apple-touch-icon.png        ← PWA / bookmark icon
@@ -730,7 +746,7 @@ abcp-catalog-proxy/               ← separate repo, mirrors pixmosaic-proxy's s
     └── refresh-catalog.yml       ← GitHub Actions cron (every 6h + manual trigger)
 ```
 
-**Supabase tables** (shared project across both repos): `chat_sessions` (session logging), `catalog_cache` (price/stock, refreshed by the cron above), `manual_products` (client-curated oils/fluids/etc. with no vehicle-fitment data on ABCP's platform — see "Compatibility matching architecture" below).
+**Supabase tables** (shared project across both repos): `chat_sessions` (session logging), `chat_events` ("Подбор" tab events, auto-created), `laximo_cache` (Laximo results + pause state, auto-created), `missing_articles`, `catalog_cache` (price/stock, refreshed by the cron above), `manual_products` (client-curated oils/fluids/etc. with no vehicle-fitment data on ABCP's platform — see "Compatibility matching architecture" below).
 
 ---
 
