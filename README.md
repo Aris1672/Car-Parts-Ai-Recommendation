@@ -39,6 +39,8 @@ How it works:
 - **Data starts from the deploy.** Older chats have no events. Browsers cache the widget for up to 1 h, so the first hour after deploy may miss some events. An "opened" card without a logged "shown" event is still listed, and counts in "opened" but not in the rate.
 - Tests used an in-memory Postgres emulator (pg-mem) for the endpoints, a simulated chat in headless Chromium (all 3 events sent, including the click), and a rendered dashboard with test data.
 
+**Also session 15: teaser bubbles shown only once.** The two greeting bubbles ("Здравствуйте! Я ИИ-консультант…" / "Подберу деталь…") plus the badge used to appear on **every page load**, including each product page opened from a card in a new tab, which was irritating on mobile. Now they show **once per visitor** and then not again for 7 days (`TEASER_REPEAT_DAYS`, localStorage key `pc_teasers_seen_at`, separate from the chat state so the trash icon doesn't reset it). They never show while a conversation exists, and opening the chat also counts as "seen". If localStorage is blocked they're not shown at all, rather than on every page.
+
 ### ✅ Status (session 14, Oct 17 evening) — start here
 
 **Live on `main` (Laximo code up to `8c86806`; later commits are README only):**

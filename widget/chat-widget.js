@@ -672,8 +672,31 @@
   }
 
   // ─── TEASER BUBBLES ──────────────────────────────────────────────────────────
+  // Shown ONCE per visitor, then not again for TEASER_REPEAT_DAYS -- and
+  // never while a conversation exists. Before, they reappeared on every page
+  // load, e.g. on each product page opened from a card (a new tab), which
+  // was irritating, especially on mobile. Own localStorage key, so clearing
+  // the chat (trash icon) doesn't bring them back.
+  const TEASER_KEY = 'pc_teasers_seen_at';
+  const TEASER_REPEAT_DAYS = 7;
+
+  function teasersAllowed() {
+    if (messages.some(m => m.role === 'user')) return false; // conversation in progress
+    try {
+      const seen = Number(localStorage.getItem(TEASER_KEY) || 0);
+      return !seen || Date.now() - seen > TEASER_REPEAT_DAYS * 24 * 60 * 60 * 1000;
+    } catch (e) {
+      return false; // storage blocked (private mode): don't risk showing them on every page
+    }
+  }
+
+  function markTeasersSeen() {
+    try { localStorage.setItem(TEASER_KEY, String(Date.now())); } catch (e) {}
+  }
+
   function showTeasers() {
     if (isOpen) return;
+    markTeasersSeen();
     const container = document.createElement('div');
     container.id = 'pc-teasers';
     TEASER_BUBBLES.forEach((text, i) => {
@@ -817,7 +840,7 @@
       // appears the moment the customer taps the launcher.
     }
 
-    setTimeout(() => { if (!isOpen) { showTeasers(); showBadge(2); } }, 2000);
+    setTimeout(() => { if (!isOpen && teasersAllowed()) { showTeasers(); showBadge(2); } }, 2000);
   }
 
   // ─── OPEN / CLOSE / TOGGLE ───────────────────────────────────────────────────
@@ -827,6 +850,7 @@
     if (isOpen) return;
     isOpen = true;
     removeTeasers();
+    markTeasersSeen(); // opened the chat -> no teasers on later pages
     const panel    = document.getElementById('pc-panel');
     const launcher = document.getElementById('pc-launcher');
     const backdrop = document.getElementById('pc-backdrop');
