@@ -414,11 +414,13 @@
     #pc-input {
       flex: 1; border: 1.5px solid rgba(255,255,255,0.14); border-radius: 22px;
       padding: 10px 18px; font-size: 15px; resize: none; outline: none;
-      max-height: 120px; overflow-y: auto; line-height: 1.55; font-family: inherit;
+      max-height: 120px; overflow-y: hidden; line-height: 1.55; font-family: inherit;
       background: #fff; color: var(--pc-dark); transition: border-color 0.2s, background 0.2s;
     }
     #pc-input:focus { border-color: var(--pc-red); background: #fff; }
-    #pc-input::placeholder { color: #999; }
+    /* One line only: a wrapped placeholder in a one-row box got its first
+       line pushed out of view, with a scrollbar (seen on narrow widths). */
+    #pc-input::placeholder { color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #pc-send {
       width: 42px; height: 42px; border-radius: 50%; background: var(--pc-red);
       border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -773,7 +775,7 @@
       </div>
       <div id="pc-messages"></div>
       <div id="pc-input-area">
-        <textarea id="pc-input" rows="1" placeholder="Напишите марку авто или название запчасти…" aria-label="Сообщение"></textarea>
+        <textarea id="pc-input" rows="1" placeholder="Марка авто, VIN или запчасть…" aria-label="Сообщение"></textarea>
         <button id="pc-send" aria-label="Отправить">${ICON_SEND}</button>
       </div>
       <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru" target="_blank">ASSISTANT24</a></div>
@@ -791,6 +793,8 @@
     input.addEventListener('input', () => {
       input.style.height = 'auto';
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+      // Scrollbar only once the text is taller than the max height.
+      input.style.overflowY = input.scrollHeight > 120 ? 'auto' : 'hidden';
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && isOpen) close(); });
 
@@ -1259,6 +1263,7 @@
     if (!text || isLoading) return;
     input.value = '';
     input.style.height = 'auto';
+    input.style.overflowY = 'hidden';
     doSend(text);
   }
 
