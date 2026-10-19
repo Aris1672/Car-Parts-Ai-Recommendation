@@ -598,6 +598,24 @@
     color: var(--text2);
   }
 
+  /* ── Подбор tab ── */
+  .pv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pv-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 9px; border-radius: 8px;
+    background: var(--bg3); border: 1px solid var(--border);
+    font-size: 12px; color: var(--text2); max-width: 320px;
+  }
+  .pv-chip b { font-family: var(--mono); font-weight: 700; color: var(--text); }
+  .pv-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-chip.opened { background: var(--green-dim); border-color: rgba(34,197,94,0.35); color: var(--text); }
+  .pv-chip.opened b { color: var(--green); }
+  .pv-chip a { color: inherit; text-decoration: none; display: inline-flex; gap: 6px; min-width: 0; }
+  .pv-chip a:hover span { text-decoration: underline; }
+  .pv-first { white-space: normal; max-width: 340px; font-size: 13px; line-height: 1.45; }
+  .pv-none { color: var(--text3); font-style: italic; font-size: 12px; }
+  .pv-top { display: flex; flex-wrap: wrap; gap: 8px; }
+
   .expand-icon { font-size: 10px; color: var(--text3); transition: transform 0.2s; }
   tr.expanded .expand-icon { transform: rotate(90deg); }
 
@@ -753,6 +771,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-btn-analytics" data-tab="analytics">📊 Аналитика</button>
       <button class="tab-btn" id="tab-btn-products" data-tab="products">🛢️ Товары</button>
+      <button class="tab-btn" id="tab-btn-views" data-tab="views">🛒 Подбор</button>
       <button class="tab-btn" id="tab-btn-missing" data-tab="missing">🖼️ Нет фото</button>
       <button class="tab-btn" id="tab-btn-billing" data-tab="billing">💳 Тариф</button>
     </div>
@@ -921,6 +940,84 @@
       </div>
 
     </div><!-- /tab-products -->
+
+    <div id="tab-views" class="tab-panel" style="display:none;">
+
+      <div class="section-header">
+        <div class="section-title">Первое сообщение, показанные и открытые карточки</div>
+        <div class="date-filter">
+          <select class="date-input" id="views-days" title="Период">
+            <option value="1">Сегодня</option>
+            <option value="7" selected>7 дней</option>
+            <option value="30">30 дней</option>
+            <option value="90">90 дней</option>
+          </select>
+          <button class="filter-btn" id="views-refresh">Обновить</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card red">
+          <div class="kpi-icon">💬</div>
+          <div class="kpi-label">Диалогов</div>
+          <div class="kpi-value" id="pv-kpi-sessions">—</div>
+          <div class="kpi-sub" id="pv-kpi-sessions-sub">с первым сообщением</div>
+        </div>
+        <div class="kpi-card blue">
+          <div class="kpi-icon">🃏</div>
+          <div class="kpi-label">Показано карточек</div>
+          <div class="kpi-value" id="pv-kpi-shown">—</div>
+          <div class="kpi-sub" id="pv-kpi-shown-sub">в диалогах с подбором</div>
+        </div>
+        <div class="kpi-card green">
+          <div class="kpi-icon">👆</div>
+          <div class="kpi-label">Открыто карточек</div>
+          <div class="kpi-value" id="pv-kpi-opened">—</div>
+          <div class="kpi-sub" id="pv-kpi-opened-sub">нажатий «Подробнее»</div>
+        </div>
+        <div class="kpi-card amber">
+          <div class="kpi-icon">📈</div>
+          <div class="kpi-label">Доля открытий</div>
+          <div class="kpi-value" id="pv-kpi-rate">—</div>
+          <div class="kpi-sub">открыто / показано</div>
+        </div>
+      </div>
+
+      <div class="chart-card" id="pv-top-card" style="display:none;">
+        <div class="chart-title">Чаще всего открывают</div>
+        <div class="pv-top" id="pv-top"></div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-header">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div class="table-title">Диалоги</div>
+            <div class="table-count" id="views-count">0</div>
+          </div>
+          <input type="text" class="table-search" id="views-search" placeholder="🔍  Поиск по сообщению или артикулу…">
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Первое сообщение</th>
+                <th>Показанные карточки <span style="font-weight:400;text-transform:none;letter-spacing:0;">(зелёные — открыты)</span></th>
+                <th>Открыто</th>
+                <th>Менеджер</th>
+                <th id="views-col-session">Сессия</th>
+              </tr>
+            </thead>
+            <tbody id="views-table-body"></tbody>
+          </table>
+          <div id="views-empty" class="state-empty" style="display:none;">
+            <div class="state-empty-icon">🛒</div>
+            <div class="state-empty-text">Нет данных за выбранный период. Данные собираются с момента обновления виджета.</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab-views -->
 
     <div id="tab-missing" class="tab-panel" style="display:none;">
 
@@ -1431,6 +1528,7 @@
   let productsLoaded = false;
   let missingLoaded  = false;
   let billingLoaded  = false;
+  let viewsLoaded    = false;
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1439,6 +1537,7 @@
       document.getElementById('tab-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
       document.getElementById('tab-products').style.display  = tab === 'products'  ? 'block' : 'none';
       document.getElementById('tab-missing').style.display   = tab === 'missing'   ? 'block' : 'none';
+      document.getElementById('tab-views').style.display     = tab === 'views'     ? 'block' : 'none';
       document.getElementById('tab-billing').style.display   = tab === 'billing'   ? 'block' : 'none';
       if (tab === 'products' && !productsLoaded) {
         productsLoaded = true;
@@ -1447,6 +1546,10 @@
       if (tab === 'missing' && !missingLoaded) {
         missingLoaded = true;
         loadMissing();
+      }
+      if (tab === 'views' && !viewsLoaded) {
+        viewsLoaded = true;
+        loadViews();
       }
       if (tab === 'billing' && !billingLoaded) {
         billingLoaded = true;
@@ -1804,6 +1907,96 @@
 
   window.__resolveMissing = resolveMissing;
   window.__deleteMissing  = deleteMissing;
+
+  // ── Подбор (first message, shown & opened cards): state ─────
+  const VIEWS_API_URL = '/api/dashboard/product-views';
+  let allViews = [];
+
+  async function loadViews() {
+    const days = document.getElementById('views-days').value;
+    const tbody = document.getElementById('views-table-body');
+    tbody.innerHTML = '<tr><td colspan="6"><div class="state-empty"><div class="spinner"></div></div></td></tr>';
+    try {
+      const res = await fetch(VIEWS_API_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password, days }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Ошибка загрузки');
+      allViews = data.sessions || [];
+      renderViewsKPIs(data.stats);
+      renderViewsTop(data.topOpened || []);
+      filterViews();
+    } catch (e) {
+      console.error('loadViews error:', e);
+      tbody.innerHTML = `<tr><td colspan="6" class="pv-none" style="padding:16px;">Ошибка загрузки: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  function renderViewsKPIs(st) {
+    if (!st) return;
+    document.getElementById('pv-kpi-sessions').textContent = st.sessions;
+    document.getElementById('pv-kpi-sessions-sub').textContent = `${st.sessionsWithCards} — с подбором карточек`;
+    document.getElementById('pv-kpi-shown').textContent = st.cardsShown;
+    document.getElementById('pv-kpi-opened').textContent = st.cardsOpened;
+    document.getElementById('pv-kpi-opened-sub').textContent = `в ${st.sessionsOpened} диалогах`;
+    document.getElementById('pv-kpi-rate').textContent = st.openRatePct + '%';
+  }
+
+  function renderViewsTop(top) {
+    const card = document.getElementById('pv-top-card');
+    card.style.display = top.length ? '' : 'none';
+    document.getElementById('pv-top').innerHTML = top.map(t =>
+      `<span class="pv-chip opened" title="${esc(t.name)}"><b>${esc(t.article)}</b><span>${esc(t.name || '')}</span> · ${t.opens}×</span>`
+    ).join('');
+  }
+
+  function viewDate(v) {
+    if (v.date) return `${fmtDate(v.date)} <span class="td-time">${fmtTime(v.time)}</span>`;
+    const d = new Date(v.started_at);
+    if (isNaN(d)) return '—';
+    const p = n => String(n).padStart(2, '0');
+    return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} <span class="td-time">${p(d.getHours())}:${p(d.getMinutes())}</span>`;
+  }
+
+  function chip(p) {
+    const label = `<b>${esc(p.article)}</b><span>${esc(p.name || '')}</span>`;
+    const title = [p.name, p.price ? Number(p.price).toLocaleString('ru-RU') + ' ₽' : '', p.opened ? 'открыта' : 'не открыта']
+      .filter(Boolean).join(' · ');
+    const inner = p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${label}</a>` : label;
+    return `<span class="pv-chip${p.opened ? ' opened' : ''}" title="${esc(title)}">${p.opened ? '✓ ' : ''}${inner}</span>`;
+  }
+
+  function filterViews() {
+    const q = document.getElementById('views-search').value.toLowerCase().trim();
+    const list = !q ? allViews : allViews.filter(v =>
+      (v.first_message || '').toLowerCase().includes(q) ||
+      v.shown.some(p => (p.article || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q)));
+    renderViews(list);
+  }
+
+  function renderViews(list) {
+    const tbody = document.getElementById('views-table-body');
+    const empty = document.getElementById('views-empty');
+    document.getElementById('views-count').textContent = list.length;
+    document.getElementById('views-col-session').style.display = role === 'admin' ? '' : 'none';
+    if (!list.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    tbody.innerHTML = list.map(v => `
+      <tr style="cursor:default;">
+        <td class="td-date">${viewDate(v)}</td>
+        <td><div class="pv-first">${v.first_message ? esc(v.first_message) : '<span class="pv-none">—</span>'}</div></td>
+        <td>${v.shown.length ? `<div class="pv-chips">${v.shown.map(chip).join('')}</div>` : '<span class="pv-none">карточки не показывались</span>'}</td>
+        <td class="td-dur">${v.shown.length ? `${v.opened.length} / ${v.shown.filter(p => p.times > 0).length}` : '—'}</td>
+        <td><span class="badge ${v.manager_requested ? 'badge-yes' : 'badge-no'}">${v.manager_requested ? '✓ Да' : '— Нет'}</span></td>
+        ${role === 'admin' ? `<td class="td-session">${esc(v.session_id || '')}</td>` : ''}
+      </tr>`).join('');
+  }
+
+  document.getElementById('views-search').addEventListener('input', filterViews);
+  document.getElementById('views-refresh').addEventListener('click', loadViews);
+  document.getElementById('views-days').addEventListener('change', loadViews);
 
   // ── Billing: state ───────────────────────────────────────────
   const BILLING_API_URL = '/api/dashboard/billing';

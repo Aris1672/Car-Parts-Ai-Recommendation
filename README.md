@@ -23,6 +23,21 @@ Full architecture reasoning (pluggable matching strategies, pluggable catalog co
 
 **Last updated:** 2026-10-17 evening (session 14, final). **Laximo is ON and live.** ABCP exempted our server (168.222.202.222) from its browser check, and VIN and car-model searches were tested live by the project owner and work. **Current phase: observation.** The code stays unchanged for a few days while we watch real customer conversations. Read "Status" first, then the rest of session 14, then session 13 for the compatibility catalog push process.
 
+### 🛒 Session 15 (Oct 19) — dashboard tab "Подбор": first message, shown cards, opened cards
+
+New dashboard tab showing, per chat: the customer's **first message**, the **product cards the agent showed**, and **which cards the customer opened** ("Подробнее →"). KPIs: dialogs, cards shown, cards opened, open rate (opened ÷ shown), plus the most-opened products. Period: today / 7 / 30 / 90 days, with search by message text or article. Visible to both dashboard logins; session IDs are admin-only, same as the Analytics tab.
+
+How it works:
+- **Widget** (`widget/chat-widget.js`, `logEvent()`) posts 3 event types to the new public endpoint **`/api/session/event`**:
+  - `first_message`: sent right after the session is created. The session is created only after the first AI reply, so this is the earliest point.
+  - `products_shown`: new carousels only, not replayed history.
+  - `product_open`: via `sendBeacon` on the card link click, because the click opens a new tab. Also attached to cards replayed from a restored chat.
+- **Storage:** new Postgres table **`chat_events`** (`session_id, type, data jsonb, created_at`), **created automatically** on first use via `SUPABASE_DB_URL`. No migration needed. Code in `lib/chatEvents.js`.
+- **Endpoint safety:** strict validation (session-ID format, 3 known types, field length caps, max 12 products, only http(s) URLs) and an in-memory rate limit of 60 events/min per IP. Logging failures never break the chat.
+- **Dashboard data:** `/api/dashboard/product-views` (`POST {password, days}`), joined with `chat_sessions` for date/time and the manager flag. Dates come from `chat_sessions` (UTC, like the Analytics tab).
+- **Data starts from the deploy.** Older chats have no events. Browsers cache the widget for up to 1 h, so the first hour after deploy may miss some events. An "opened" card without a logged "shown" event is still listed, and counts in "opened" but not in the rate.
+- Tests used an in-memory Postgres emulator (pg-mem) for the endpoints, a simulated chat in headless Chromium (all 3 events sent, including the click), and a rendered dashboard with test data.
+
 ### ✅ Status (session 14, Oct 17 evening) — start here
 
 **Live on `main` (Laximo code up to `8c86806`; later commits are README only):**

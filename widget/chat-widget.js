@@ -625,6 +625,26 @@
     }
   }
 
+  // ─── SESSION: EVENTS (dashboard "Подбор" tab) ───────────────────────────────
+  // first message / product cards shown / product card opened -- see
+  // api/session/event.js. Fire-and-forget: analytics must never affect the
+  // chat. Card clicks use sendBeacon because the click opens a new tab.
+  function logEvent(type, data, useBeacon) {
+    if (!sessionId) return;
+    try {
+      const payload = JSON.stringify({ session_id: sessionId, type, data });
+      if (useBeacon && navigator.sendBeacon) {
+        navigator.sendBeacon(`${SESSION_URL}/event`, new Blob([payload], { type: 'application/json' }));
+      } else {
+        fetch(`${SESSION_URL}/event`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true,
+        }).catch(() => {});
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  const cardInfo = p => ({ article: p.article, name: p.name, brand: p.brand, price: p.price, url: p.url });
+
   // ─── SESSION: MANAGER ────────────────────────────────────────────────────────
   async function triggerManagerHandoff() {
     if (!sessionId) return;
@@ -1086,6 +1106,8 @@
         </div>
         ${p.url ? `<a class="pc-product-link" href="${p.url}" target="_blank" rel="noopener">Подробнее →</a>` : ''}
       `;
+      const link = card.querySelector('.pc-product-link');
+      if (link) link.addEventListener('click', () => logEvent('product_open', cardInfo(p), true));
       track.appendChild(card);
     });
 
@@ -1264,6 +1286,10 @@
 
       if (!sessionStartPromise) {
         await startSession();
+        // The session is created only after the first reply, so the first
+        // message is logged now. It's the first entry in `messages`.
+        const first = messages.find(m => m.role === 'user');
+        if (first) logEvent('first_message', { text: first.content });
       }
 
       if (text) {
@@ -1280,6 +1306,7 @@
       if (products && products.length > 0) {
         addProductCarousel(products);
         displayLog.push({ type: 'products', payload: products });
+        logEvent('products_shown', { products: products.map(cardInfo) });
       }
       if (buttons && buttons.length > 0) {
         addButtonsBubble(buttons);
