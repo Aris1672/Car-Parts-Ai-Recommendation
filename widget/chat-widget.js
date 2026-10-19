@@ -673,31 +673,38 @@
   }
 
   // ─── TEASER BUBBLES ──────────────────────────────────────────────────────────
-  // Shown ONCE per visitor, then not again for TEASER_REPEAT_DAYS -- and
-  // never while a conversation exists. Before, they reappeared on every page
-  // load, e.g. on each product page opened from a card (a new tab), which
-  // was irritating, especially on mobile. Own localStorage key, so clearing
-  // the chat (trash icon) doesn't bring them back.
-  const TEASER_KEY = 'pc_teasers_seen_at';
-  const TEASER_REPEAT_DAYS = 7;
+  // Shown once per VISIT: when the visitor comes to the site after being away
+  // for more than TEASER_IDLE_MINUTES. Within a visit they stay hidden -- so
+  // product pages opened from cards (new tabs) don't show them again, which
+  // was irritating on mobile. "Last seen on the site" is refreshed on every
+  // page load, every minute while a page is visible, and on leaving a page.
+  // (Oct 19: first "once per 7 days" -- too rare; owner asked for 30 min.)
+  const LAST_SEEN_KEY = 'pc_last_seen_at';
+  const TEASER_IDLE_MINUTES = 30;
 
-  function teasersAllowed() {
-    if (messages.some(m => m.role === 'user')) return false; // conversation in progress
+  const isNewVisit = (() => {
     try {
-      const seen = Number(localStorage.getItem(TEASER_KEY) || 0);
-      return !seen || Date.now() - seen > TEASER_REPEAT_DAYS * 24 * 60 * 60 * 1000;
+      const last = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
+      return !last || Date.now() - last > TEASER_IDLE_MINUTES * 60 * 1000;
     } catch (e) {
       return false; // storage blocked (private mode): don't risk showing them on every page
     }
-  }
+  })();
 
-  function markTeasersSeen() {
-    try { localStorage.setItem(TEASER_KEY, String(Date.now())); } catch (e) {}
+  function touchLastSeen() {
+    try { localStorage.setItem(LAST_SEEN_KEY, String(Date.now())); } catch (e) {}
+  }
+  touchLastSeen();
+  setInterval(() => { if (document.visibilityState === 'visible') touchLastSeen(); }, 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') touchLastSeen(); });
+  window.addEventListener('pagehide', touchLastSeen);
+
+  function teasersAllowed() {
+    return isNewVisit;
   }
 
   function showTeasers() {
     if (isOpen) return;
-    markTeasersSeen();
     const container = document.createElement('div');
     container.id = 'pc-teasers';
     TEASER_BUBBLES.forEach((text, i) => {
@@ -853,7 +860,6 @@
     if (isOpen) return;
     isOpen = true;
     removeTeasers();
-    markTeasersSeen(); // opened the chat -> no teasers on later pages
     const panel    = document.getElementById('pc-panel');
     const launcher = document.getElementById('pc-launcher');
     const backdrop = document.getElementById('pc-backdrop');
