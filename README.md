@@ -48,6 +48,13 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
+### 🛡️ Session 16b (Oct 21) — browser check came back; pause now self-recovers
+
+- **Incident 21.10 ~17:12 UTC:** the site showed "Мы проверяем ваш браузер" to the server again, so Laximo paused for 6 h. A customer asking for a generator for an X5 E53 4.4i got "не нашли … ни среди оригинальных номеров производителя". That was wrong: Laximo was never asked. The unit page has 12317540990/992/994, and **12317540994 is in the feed** ("под заказ").
+- **Probe during a pause** (`lib/laximo.js`): one real customer request is let through every `LAXIMO_PROBE_MINUTES` (default 30). If the page comes back without the check, the pause is lifted at once (`probe passed … pause lifted` in the logs). If the check is still there, the 6 h pause restarts. That is at most about 2 requests an hour to the site while blocked. Nothing tries to get around the check; it only looks again later.
+- **Honest wording while paused** (`api/chat.js`): the prompt tells the agent the original catalog is *temporarily unavailable*. It must not claim the part doesn't exist at the manufacturer, and should offer the manager to check by VIN instead.
+- Lift a pause by hand: `POST /api/admin/clear-cache` with header `x-admin-secret: <CACHE_CLEAR_SECRET>`.
+
 ### 🚗 Session 16 (Oct 21) — "Нет фото" tab: filter by car model, no 1000-row cap
 
 - **Car-model dropdown** next to the article search: "BMW X2 F39 (312)" etc., sorted by number of articles. Groups come from each article's `vehicle_examples`, normalised by `vehicleLabel()` in `api/dashboard/missing-articles.js`: brand + model up to the first chassis code ("X2 F39 sDrive20i" → **BMW X2 F39**, "2 G42 220i" → BMW 2 G42, "A4 B8 2.0 TFSI" → Audi A4 B8), with one spelling per brand (Ауди/audi → Audi, бмв → BMW, Mercedes → Mercedes-Benz), the brand stripped from the model text, and codes upper-cased. An article matches if it was ever requested for that car (any stored example). The filter combines with the article search.
