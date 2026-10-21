@@ -1042,9 +1042,9 @@
           <table>
             <thead>
               <tr>
-                <th data-mcol="vendor_code">Артикул</th>
+                <th data-mcol="vendor_code" class="sort-asc">Артикул</th>
                 <th data-mcol="request_count">Запросов</th>
-                <th>Автомобиль (последний запрос)</th>
+                <th id="missing-vehicle-th">Автомобиль (последний запрос)</th>
                 <th data-mcol="last_requested_at">Последний запрос</th>
                 <th></th>
                 <th></th>
@@ -1449,7 +1449,7 @@
       const col = th.dataset.col;
       if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
       else { sortCol = col; sortDir = 'desc'; }
-      document.querySelectorAll('thead th').forEach(t => t.classList.remove('sort-asc','sort-desc'));
+      document.querySelectorAll('thead th[data-col]').forEach(t => t.classList.remove('sort-asc','sort-desc'));
       th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
       renderTable(allSessions);
     });
@@ -1860,8 +1860,52 @@
     const filtered = allMissingArticles.filter(a =>
       (!q || (a.vendor_code || '').toLowerCase().includes(q)) &&
       (!model || (a.models || []).includes(model)));
-    renderMissing(filtered);
+    renderMissing(sortMissing(filtered));
   }
+
+  // ── Missing articles: sorting (click a column header) ────────
+  // Default: article number ascending. Clicking the active column flips
+  // the direction; a new column starts ascending (counts/dates descending).
+  let missingSortCol = 'vendor_code';
+  let missingSortDir = 'asc';
+  try {
+    const saved = JSON.parse(localStorage.getItem('pc_missing_sort') || 'null');
+    if (saved && saved.col && saved.dir) { missingSortCol = saved.col; missingSortDir = saved.dir; }
+  } catch {}
+
+  function sortMissing(list) {
+    const dir = missingSortDir === 'asc' ? 1 : -1;
+    const col = missingSortCol;
+    return [...list].sort((a, b) => {
+      // Open items first, resolved ones at the bottom (as before)
+      if (!!a.resolved !== !!b.resolved) return a.resolved ? 1 : -1;
+      let c;
+      if (col === 'request_count') c = (a.request_count || 0) - (b.request_count || 0);
+      else if (col === 'last_requested_at') c = String(a.last_requested_at || '').localeCompare(String(b.last_requested_at || ''));
+      else { const x = String(a.vendor_code || '').toUpperCase(), y = String(b.vendor_code || '').toUpperCase(); c = x < y ? -1 : x > y ? 1 : 0; }
+      return c * dir;
+    });
+  }
+
+  function markMissingSortHeader() {
+    document.querySelectorAll('#tab-missing thead th[data-mcol]').forEach(t => {
+      t.classList.remove('sort-asc', 'sort-desc');
+      t.style.cursor = 'pointer';
+      if (t.dataset.mcol === missingSortCol) t.classList.add(missingSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    });
+  }
+
+  document.querySelectorAll('#tab-missing thead th[data-mcol]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.mcol;
+      if (missingSortCol === col) missingSortDir = missingSortDir === 'asc' ? 'desc' : 'asc';
+      else { missingSortCol = col; missingSortDir = col === 'vendor_code' ? 'asc' : 'desc'; }
+      try { localStorage.setItem('pc_missing_sort', JSON.stringify({ col: missingSortCol, dir: missingSortDir })); } catch {}
+      markMissingSortHeader();
+      filterMissing();
+    });
+  });
+  markMissingSortHeader();
 
   document.getElementById('missing-search').addEventListener('input', filterMissing);
   document.getElementById('missing-model').addEventListener('change', filterMissing);
@@ -1879,10 +1923,15 @@
     }
     empty.style.display = 'none';
 
+    // With a car filter on, show the request for THAT car, not just the last one.
+    const model = document.getElementById('missing-model').value;
+    document.getElementById('missing-vehicle-th').textContent = model ? 'Автомобиль (запрос)' : 'Автомобиль (последний запрос)';
+
     tbody.innerHTML = '';
     articles.forEach(a => {
       const examples = Array.isArray(a.vehicle_examples) ? a.vehicle_examples : [];
-      const last = examples[0] || {};
+      const mi = model && Array.isArray(a.exampleLabels) ? a.exampleLabels.indexOf(model) : -1;
+      const last = examples[mi >= 0 ? mi : 0] || {};
       const vehicleText = [last.brand, last.model, last.year, last.engineCode].filter(Boolean).join(' ') || '—';
 
       const tr = document.createElement('tr');

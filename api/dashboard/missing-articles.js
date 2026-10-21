@@ -135,9 +135,10 @@ module.exports = async function handler(req, res) {
       const facet = new Map();
       const articles = rows.map(a => {
         const ex = Array.isArray(a.vehicle_examples) ? a.vehicle_examples : [];
-        const models = [...new Set(ex.map(vehicleLabel).filter(Boolean))];
+        const exampleLabels = ex.map(vehicleLabel); // aligned with vehicle_examples
+        const models = [...new Set(exampleLabels.filter(Boolean))];
         for (const m of models) facet.set(m, (facet.get(m) || 0) + 1);
-        return { ...a, models };
+        return { ...a, models, exampleLabels };
       });
       const models = [...facet.entries()].map(([label, count]) => ({ label, count }))
         .sort((x, y) => y.count - x.count || x.label.localeCompare(y.label));
