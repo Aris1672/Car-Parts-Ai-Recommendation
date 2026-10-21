@@ -40,13 +40,19 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-19 (session 15b: Laximo for all brands, see below). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-21 (session 16: "Нет фото" model filter; session 15b: Laximo for all brands). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
 - **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs and the new tab.
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### 🚗 Session 16 (Oct 21) — "Нет фото" tab: filter by car model, no 1000-row cap
+
+- **Car-model dropdown** next to the article search: "BMW X2 F39 (312)" etc., sorted by number of articles. Groups come from each article's `vehicle_examples`, normalised by `vehicleLabel()` in `api/dashboard/missing-articles.js`: brand + model up to the first chassis code ("X2 F39 sDrive20i" → **BMW X2 F39**, "2 G42 220i" → BMW 2 G42, "A4 B8 2.0 TFSI" → Audi A4 B8), with one spelling per brand (Ауди/audi → Audi, бмв → BMW, Mercedes → Mercedes-Benz), the brand stripped from the model text, and codes upper-cased. An article matches if it was ever requested for that car (any stored example). The filter combines with the article search.
+- **Fixed a hidden truncation:** the list came from the REST API, which returns at most **1000 rows**, and the counter showed exactly 1000. `list` now reads the table directly via `SUPABASE_DB_URL` (REST paging as fallback), so all rows are shown. Tested with 1500 rows.
+- Seen in the live list: placeholder-looking codes like `00000000000` and `01104444444` near the top (250+ "requests" each). They come from the old compatibility table, not from Laximo. Consider cleaning them out of the `compatibility` table or deleting them here.
 
 ### 🌍 Session 15b (Oct 19) — Laximo for ALL brands (not just BMW) ✅ confirmed working live by the project owner
 

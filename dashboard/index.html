@@ -1031,7 +1031,12 @@
             <div class="table-title">Артикулы без фото</div>
             <div class="table-count" id="missing-count">0</div>
           </div>
-          <input type="text" class="table-search" id="missing-search" placeholder="🔍  Поиск по артикулу…">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <select class="date-input" id="missing-model" title="Фильтр по автомобилю" style="max-width:260px;">
+              <option value="">Все автомобили</option>
+            </select>
+            <input type="text" class="table-search" id="missing-search" placeholder="🔍  Поиск по артикулу…">
+          </div>
         </div>
         <div class="table-scroll">
           <table>
@@ -1818,6 +1823,7 @@
   // ── Missing articles: state ──────────────────────────────────
   const MISSING_API_URL = '/api/dashboard/missing-articles';
   let allMissingArticles = [];
+  let missingModels = [];
 
   async function loadMissing() {
     try {
@@ -1829,18 +1835,36 @@
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Ошибка загрузки');
       allMissingArticles = data.articles || [];
-      renderMissing(allMissingArticles);
+      missingModels = data.models || [];
+      renderMissingModels();
+      filterMissing();
     } catch (e) {
       console.error('loadMissing error:', e);
     }
   }
 
-  // ── Missing articles: search ─────────────────────────────────
-  document.getElementById('missing-search').addEventListener('input', function () {
-    const q = this.value.toLowerCase();
-    const filtered = allMissingArticles.filter(a => (a.vendor_code || '').toLowerCase().includes(q));
+  // ── Missing articles: car-model filter + search ──────────────
+  // Groups ("BMW X2 F39") come from the server (missing-articles.js,
+  // vehicleLabel); an article matches if it was ever requested for that car.
+  function renderMissingModels() {
+    const sel = document.getElementById('missing-model');
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">Все автомобили</option>' +
+      missingModels.map(m => `<option value="${esc(m.label)}">${esc(m.label)} (${m.count})</option>`).join('');
+    if (keep && missingModels.some(m => m.label === keep)) sel.value = keep;
+  }
+
+  function filterMissing() {
+    const q = document.getElementById('missing-search').value.toLowerCase().trim();
+    const model = document.getElementById('missing-model').value;
+    const filtered = allMissingArticles.filter(a =>
+      (!q || (a.vendor_code || '').toLowerCase().includes(q)) &&
+      (!model || (a.models || []).includes(model)));
     renderMissing(filtered);
-  });
+  }
+
+  document.getElementById('missing-search').addEventListener('input', filterMissing);
+  document.getElementById('missing-model').addEventListener('change', filterMissing);
 
   // ── Missing articles: render table ───────────────────────────
   function renderMissing(articles) {
