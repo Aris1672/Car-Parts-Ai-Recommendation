@@ -52,6 +52,7 @@ Read session 15 first, then session 14's "Status", then session 13 for the compa
 
 - **Case:** "BMW 2 G42 220d, фильтр воздушный, масляный фильтр, колодки". The oil filter and pads were found; the air filter was reported as missing, although **13718594535** is on the site. Laximo's part search matches **names**, and BMW calls the air filter **"Сменный элемент фильтра"**, with no word "воздушный".
 - **Fix** (`searchPartsForVehicle` in `lib/laximo.js`, `FALLBACK_QUERIES`): if the customer's own keyword finds nothing, one more search runs under the catalog's name: "воздушный фильтр" → "элемент фильтра", keeping only "Сменный элемент фильтра" or intake/air-filter rows (so fuel/oil filter elements are dropped); "салонный фильтр" → "микрофильтр". At most 2 extra requests, and only when needed. Logged as `[laximo] "<keyword>" found nothing; catalog name "<query>" -> N part(s)`.
+- Verified live: `"воздушный фильтр" found nothing; catalog name "элемент фильтра" -> 2 part(s)`. The same log showed **214 OEMs** for 4 parts: "накладки" also matches body trim ("Накладка порога"). Now `QUERY_KEEP` keeps only brake rows for "накладки", and the results are **interleaved by keyword** (1st of each, then 2nd of each…), so the prompt caps (40 products / 15 missing OEMs) can't cut off the keyword searched last.
 - Add new pairs to `FALLBACK_QUERIES` when the logs show a part name that finds nothing.
 
 ### 🛡️ Session 16b (Oct 21) — browser check came back; pause now self-recovers
