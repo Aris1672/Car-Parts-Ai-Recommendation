@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-21 (session 16: "Нет фото" model filter; session 15b: Laximo for all brands). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-22 (sessions 16–16c: \"Нет фото\" model filter + sorting, self-recovering Laximo pause, catalog-name fallbacks for air/cabin filters, brake-only \"накладки\").
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -53,6 +53,8 @@ Read session 15 first, then session 14's "Status", then session 13 for the compa
 - **Case:** "BMW 2 G42 220d, фильтр воздушный, масляный фильтр, колодки". The oil filter and pads were found; the air filter was reported as missing, although **13718594535** is on the site. Laximo's part search matches **names**, and BMW calls the air filter **"Сменный элемент фильтра"**, with no word "воздушный".
 - **Fix** (`searchPartsForVehicle` in `lib/laximo.js`, `FALLBACK_QUERIES`): if the customer's own keyword finds nothing, one more search runs under the catalog's name: "воздушный фильтр" → "элемент фильтра", keeping only "Сменный элемент фильтра" or intake/air-filter rows (so fuel/oil filter elements are dropped); "салонный фильтр" → "микрофильтр". At most 2 extra requests, and only when needed. Logged as `[laximo] "<keyword>" found nothing; catalog name "<query>" -> N part(s)`.
 - Verified live: `"воздушный фильтр" found nothing; catalog name "элемент фильтра" -> 2 part(s)`. The same log showed **214 OEMs** for 4 parts: "накладки" also matches body trim ("Накладка порога"). Now `QUERY_KEEP` keeps only brake rows for "накладки", and the results are **interleaved by keyword** (1st of each, then 2nd of each…), so the prompt caps (40 products / 15 missing OEMs) can't cut off the keyword searched last.
+- **Confirmed live 22.10** (same G42 220d request): `oemCount` **214 → 11**, 8 in the feed, 3 given as OEM numbers. The widget showed both air filters (13718580429, 13718594535), the oil filter (11428575211) and the brake pads as cards with price and availability, and listed the 3 missing numbers with the manager offer. Prompt payload dropped to ~2.7k chars of products.
+- **Laximo recovered by itself** after the 21.10 browser-check block: the 30-min probe found the site open overnight and lifted the pause, with no manual reset or redeploy.
 - Add new pairs to `FALLBACK_QUERIES` when the logs show a part name that finds nothing.
 
 ### 🛡️ Session 16b (Oct 21) — browser check came back; pause now self-recovers
