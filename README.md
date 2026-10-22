@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-22 (sessions 16–16c: "Нет фото" model filter + sorting, self-recovering Laximo pause, catalog-name fallbacks for air/cabin filters, brake-only "накладки"). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-22 (sessions 16–16d: "Нет фото" model filter + sorting, self-recovering Laximo pause, catalog-name fallbacks for air/cabin filters, brake-only "накладки", "Открыть деталь" button for typed part numbers). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -53,6 +53,8 @@ Read session 15 first, then session 14's "Status", then session 13 for the compa
 - **Case:** "нужен датчик температуры ОГ БМВ ф15 13628582663". The bot answered "нет данных в каталоге", but the site's search page shows that number (and its replacement 13628573347) with prices and "под заказ". The feed only has items with photos, so the bot couldn't see it.
 - **Now:** when the customer's **latest message** contains a part number (the extracted `vendorCode`; spaces/dashes ignored, never the VIN or the phone number), `api/chat.js` (`partLinksForMessage`) appends `<<<PART_LINKS>>>["13628582663"]<<<END_PART_LINKS>>>`. The widget shows a blue button **"🔎 Открыть деталь 13628582663 — цены и сроки на сайте"** linking to `https://bmwclub77.ru/search?pcode=<номер>`, opened in a new tab so the chat stays open. The button survives page reloads (displayLog type `partlinks`) and clicks are logged as `product_open` (visible in the "Подбор" tab). The site URL can be overridden with `window.PC_SITE_URL`.
 - The prompt gets a short extra section when the button is shown: don't say "нет данных" for a number missing from the feed; point to the button for price/delivery and offer the manager for ordering and fit-check.
+
+- **Confirmed live 22.10** (same F15 sensor message): the button opens the right search page on bmwclub77.ru. The reply no longer says "нет данных"; it points to the button for price/delivery and shows the green manager button plus the VIN suggestion. Possible later tweak (owner: "let it be for the moment"): shorter replies for part-number questions, since the text currently repeats "can't confirm compatibility" twice.
 
 ### 🔎 Session 16c (Oct 22) — catalog names for air & cabin filters
 
