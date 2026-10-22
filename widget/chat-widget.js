@@ -352,6 +352,22 @@
     .pc-manager-btn-title { font-size: 14px; font-weight: 700; }
     .pc-manager-btn-sub { font-size: 11px; opacity: 0.8; font-weight: 400; }
 
+    /* ── Part page button (customer typed a part number) ── */
+    .pc-partlink-wrap { padding: 4px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    .pc-partlink-btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 12px 18px; border-radius: 12px;
+      background: var(--pc-red); color: #fff; text-decoration: none;
+      font-size: 14px; font-weight: 700; font-family: inherit;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+      animation: pc-msg-in 0.22s ease;
+    }
+    .pc-partlink-btn:hover { transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 6px 22px rgba(0,0,0,0.25); }
+    .pc-partlink-btn:active { transform: translateY(0); }
+    .pc-partlink-label { display: flex; flex-direction: column; }
+    .pc-partlink-sub { font-size: 11px; opacity: 0.85; font-weight: 400; }
+
     /* ── Product carousel ── */
     .pc-carousel-outer { width: 100%; max-width: 100%; }
     .pc-carousel-wrap { overflow: hidden; position: relative; border-radius: 14px; }
@@ -524,7 +540,7 @@
   // faithfully rebuild product carousels and button groups, not just text.
   const STORAGE_KEY = 'pc_chat_state_v2';
   const EXPIRY_MS    = 45 * 60 * 1000; // 45 minutes of inactivity -- matches typical "session" semantics
-  let displayLog = []; // [{type: 'dateSep'|'bot'|'user'|'products'|'buttons'|'manager', payload}]
+  let displayLog = []; // [{type: 'dateSep'|'bot'|'user'|'products'|'buttons'|'manager'|'partlinks', payload}]
 
   function saveState() {
     try {
@@ -567,6 +583,7 @@
         case 'products': addProductCarousel(entry.payload); break;
         case 'buttons':  addButtonsBubble(entry.payload); break;
         case 'manager':  addManagerButton(); break;
+        case 'partlinks': addPartLinks(entry.payload); break;
       }
     });
   }
@@ -1091,6 +1108,29 @@
     appendMsg(wrap);
   }
 
+  // ─── PART PAGE BUTTONS ───────────────────────────────────────────────────────
+  // The customer typed a part number: a button to the site's own search page
+  // for it (all offers, prices, delivery times -- including parts that have
+  // no product card in the feed). Opens in a new tab so the chat stays.
+  const SITE_URL = (window.PC_SITE_URL || 'https://bmwclub77.ru').replace(/\/+$/, '');
+  function addPartLinks(codes) {
+    const list = (Array.isArray(codes) ? codes : []).map(c => String(c).toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(c => c.length >= 5).slice(0, 3);
+    if (!list.length) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'pc-partlink-wrap';
+    for (const code of list) {
+      const a = document.createElement('a');
+      a.className = 'pc-partlink-btn';
+      a.href = `${SITE_URL}/search?pcode=${encodeURIComponent(code)}`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.innerHTML = `<span style="font-size:18px;">🔎</span><span class="pc-partlink-label"><span>Открыть деталь ${escHtml(code)}</span><span class="pc-partlink-sub">цены и сроки на сайте</span></span>`;
+      a.addEventListener('click', () => logEvent('product_open', { article: code, name: 'Страница детали (поиск по номеру)', url: a.href }));
+      wrap.appendChild(a);
+    }
+    appendMsg(wrap);
+  }
+
   // ─── PRODUCT CAROUSEL ────────────────────────────────────────────────────────
   function addProductCarousel(products) {
     if (!products || products.length === 0) return;
@@ -1230,6 +1270,7 @@
     let buttons   = null;
     let showManager = false;
     let autoHandoff = false;
+    let partLinks = null;
 
     const prodMatch = text.match(/<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/);
     if (prodMatch) {
@@ -1241,6 +1282,12 @@
     if (btnMatch) {
       try { buttons = JSON.parse(btnMatch[1].trim()); } catch(e) {}
       text = text.replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/, '').trim();
+    }
+
+    const linkMatch = text.match(/<<<PART_LINKS>>>([\s\S]*?)<<<END_PART_LINKS>>>/);
+    if (linkMatch) {
+      try { partLinks = JSON.parse(linkMatch[1].trim()); } catch(e) {}
+      text = text.replace(/<<<PART_LINKS>>>[\s\S]*?<<<END_PART_LINKS>>>/, '').trim();
     }
 
     if (text.includes('<<<MANAGER_BUTTON>>>')) {
@@ -1259,7 +1306,7 @@
     // bubble. Collapse any run of blank lines to a single blank line.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
-    return { text, products, buttons, showManager, autoHandoff };
+    return { text, products, buttons, showManager, autoHandoff, partLinks };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -1323,7 +1370,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, showManager, autoHandoff } = parseBotResponse(raw);
+      const { text, products, buttons, showManager, autoHandoff, partLinks } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -1339,10 +1386,15 @@
         const cleanedForHistory = raw
           .replace(/<<<PRODUCTS>>>[\s\S]*?<<<END_PRODUCTS>>>/g, '[запчасти показаны]')
           .replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/g, '')
+          .replace(/<<<PART_LINKS>>>[\s\S]*?<<<END_PART_LINKS>>>/g, '')
           .replace(/<<<MANAGER_BUTTON>>>/g, '')
           .replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '')
           .trim();
         messages.push({ role: 'assistant', content: cleanedForHistory });
+      }
+      if (partLinks && partLinks.length > 0) {
+        addPartLinks(partLinks);
+        displayLog.push({ type: 'partlinks', payload: partLinks });
       }
       if (products && products.length > 0) {
         addProductCarousel(products);

@@ -48,6 +48,12 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
+### 🔗 Session 16d (Oct 22) — "Открыть деталь" button when the customer types a part number
+
+- **Case:** "нужен датчик температуры ОГ БМВ ф15 13628582663". The bot answered "нет данных в каталоге", but the site's search page shows that number (and its replacement 13628573347) with prices and "под заказ". The feed only has items with photos, so the bot couldn't see it.
+- **Now:** when the customer's **latest message** contains a part number (the extracted `vendorCode`; spaces/dashes ignored, never the VIN or the phone number), `api/chat.js` (`partLinksForMessage`) appends `<<<PART_LINKS>>>["13628582663"]<<<END_PART_LINKS>>>`. The widget shows a blue button **"🔎 Открыть деталь 13628582663 — цены и сроки на сайте"** linking to `https://bmwclub77.ru/search?pcode=<номер>`, opened in a new tab so the chat stays open. The button survives page reloads (displayLog type `partlinks`) and clicks are logged as `product_open` (visible in the "Подбор" tab). The site URL can be overridden with `window.PC_SITE_URL`.
+- The prompt gets a short extra section when the button is shown: don't say "нет данных" for a number missing from the feed; point to the button for price/delivery and offer the manager for ordering and fit-check.
+
 ### 🔎 Session 16c (Oct 22) — catalog names for air & cabin filters
 
 - **Case:** "BMW 2 G42 220d, фильтр воздушный, масляный фильтр, колодки". The oil filter and pads were found; the air filter was reported as missing, although **13718594535** is on the site. Laximo's part search matches **names**, and BMW calls the air filter **"Сменный элемент фильтра"**, with no word "воздушный".

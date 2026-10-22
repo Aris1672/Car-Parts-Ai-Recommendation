@@ -419,6 +419,23 @@ function clearCaches() {
   console.log('clearCaches(): laximo pause lifted; vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache, catalogIndexCache all cleared');
 }
 
+/**
+ * Part numbers to offer as "open the part page" buttons: the extracted
+ * vendorCode, only if the customer typed it in their LATEST message (so the
+ * button doesn't repeat on every later reply). Spaces/dashes ignored, so
+ * "13 62 8 582 663" matches 13628582663. Never a VIN or the phone number.
+ */
+function partLinksForMessage(extracted, messages) {
+  const code = String(extracted?.vendorCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length < 5 || code.length > 20 || !/\d/.test(code)) return [];
+  if (code === String(extracted?.vin || '').toUpperCase()) return [];
+  const phone = String(extracted?.contactPhone || '').replace(/\D/g, '');
+  if (phone && phone.endsWith(code.slice(-10))) return [];
+  const lastUser = [...(messages || [])].reverse().find(m => m.role === 'user');
+  const typed = String(lastUser?.content || '').toUpperCase().replace(/[\s\-.]/g, '');
+  return typed.includes(code) ? [code] : [];
+}
+
 async function fetchCompatibilityByVendorCode(vendorCode) {
   if (!SUPABASE_DB_URL || !vendorCode) return [];
 
@@ -1705,13 +1722,21 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       matchedOilProductCount: matchedOilProducts.length,
     }));
 
+    // Part number typed by the customer IN THIS MESSAGE -> the widget shows a
+    // button to the site's search page for it (all offers incl. "под заказ",
+    // prices, delivery times -- also for parts with no card in the feed).
+    const partLinkCodes = partLinksForMessage(extracted, messages);
+    const partLinkNote = partLinkCodes.length
+      ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных" или "нет в наличии": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ и проверит совместимость с автомобилем клиента. Саму кнопку и ссылку в тексте НЕ дублируй.`
+      : '';
+
     const systemWithData = SYSTEM_PROMPT
       .replace('{{CATALOG}}', catalogForPrompt)
       .replace('{{VIN_ADVICE}}', (laximoDownReason && !laximoResult) ? VIN_ADVICE_OFF : VIN_ADVICE_ON)
       .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
-      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt);
+      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + partLinkNote;
 
     const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
@@ -1765,6 +1790,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     if (extracted.contactPhone || extracted.contactEmail) {
       text = `${text}\n<<<AUTO_MANAGER_HANDOFF>>>`;
     }
+    if (partLinkCodes.length) {
+      text = `${text}\n<<<PART_LINKS>>>\n${JSON.stringify(partLinkCodes)}\n<<<END_PART_LINKS>>>`;
+    }
 
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
     res.setHeader('Content-Type', 'application/json');
@@ -1783,4 +1811,5 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 // objects in JS, so this is safe and doesn't change the default export's
 // shape or behavior at all.
 module.exports = handler;
+module.exports.partLinksForMessage = partLinksForMessage;
 module.exports.clearCaches = clearCaches;
