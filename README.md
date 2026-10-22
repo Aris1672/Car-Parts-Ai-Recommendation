@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-22 (sessions 16–16c: \"Нет фото\" model filter + sorting, self-recovering Laximo pause, catalog-name fallbacks for air/cabin filters, brake-only \"накладки\").
+**Last updated:** 2026-10-22 (sessions 16–16c: "Нет фото" model filter + sorting, self-recovering Laximo pause, catalog-name fallbacks for air/cabin filters, brake-only "накладки"). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
