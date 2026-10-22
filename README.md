@@ -48,6 +48,12 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
+### 🔎 Session 16c (Oct 22) — catalog names for air & cabin filters
+
+- **Case:** "BMW 2 G42 220d, фильтр воздушный, масляный фильтр, колодки". The oil filter and pads were found; the air filter was reported as missing, although **13718594535** is on the site. Laximo's part search matches **names**, and BMW calls the air filter **"Сменный элемент фильтра"**, with no word "воздушный".
+- **Fix** (`searchPartsForVehicle` in `lib/laximo.js`, `FALLBACK_QUERIES`): if the customer's own keyword finds nothing, one more search runs under the catalog's name: "воздушный фильтр" → "элемент фильтра", keeping only "Сменный элемент фильтра" or intake/air-filter rows (so fuel/oil filter elements are dropped); "салонный фильтр" → "микрофильтр". At most 2 extra requests, and only when needed. Logged as `[laximo] "<keyword>" found nothing; catalog name "<query>" -> N part(s)`.
+- Add new pairs to `FALLBACK_QUERIES` when the logs show a part name that finds nothing.
+
 ### 🛡️ Session 16b (Oct 21) — browser check came back; pause now self-recovers
 
 - **Incident 21.10 ~17:12 UTC:** the site showed "Мы проверяем ваш браузер" to the server again, so Laximo paused for 6 h. A customer asking for a generator for an X5 E53 4.4i got "не нашли … ни среди оригинальных номеров производителя". That was wrong: Laximo was never asked. The unit page has 12317540990/992/994, and **12317540994 is in the feed** ("под заказ").
