@@ -101,6 +101,17 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
 
+### 🧩 Session 20b (Oct 23) — compatibility check while Laximo is blocked
+
+When Laximo can't check (site browser check, pause, `LAXIMO_ENABLED=false`, verdict `unavailable`/`no_part_name`), the check no longer just says "couldn't check":
+- **Model known** (brand + model): the number is checked in **our compatibility table** (`fetchCompatibilityByVendorCode()` + `matchCompatibility()` against the customer's car, with the part number ignored for matching). Verdicts:
+  - **`table_fits`**: "по нашей базе совместимости подходит для …", plus a recommendation to check by VIN later or ask the manager;
+  - **`table_other_vehicles`**: the table lists the number only for other cars (named). There's no confirmation for this model, which doesn't mean it doesn't fit; manager / VIN later;
+  - **`table_no_data`**: couldn't check, manager.
+- **Only a VIN**: a VIN can't be decoded without Laximo → **`vin_unavailable_need_model`**: the bot says VIN checks are temporarily unavailable and asks for brand, model with body code (e.g. X5 F15), engine or year. The next message runs the table check.
+- The compat check now also starts when `LAXIMO_ENABLED=false` (table only). The log `DIAG compat` gains `tableRows`; the prompt marks `catalogUnavailable: true`.
+- Tested end-to-end with Laximo returning the browser-check page and a test table: table_fits (X5 F15 30d), table_other_vehicles (E70 only), table_no_data, vin_unavailable_need_model. The normal Laximo path is unchanged.
+
 ### 🕒 Session 20 (Oct 23) — order timeline in the order-status reply
 
 - After the ownership check, **one** call to **`cp/orders/statusHistory`** (all item ids, max 100; read-only, whitelisted) gives each item's status history. `parseHistory()` in `lib/abcpOrders.js` sorts it oldest first and merges repeated statuses. **Staff names (`managerName`) are dropped** and never shown to customers.

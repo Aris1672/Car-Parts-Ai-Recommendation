@@ -1666,7 +1666,7 @@ console.log(JSON.stringify(extracted, null, 2));
     // Only while the number is current: typed in one of the customer's last 2 messages.
     const recentUserText = (messages || []).filter(m => m.role === 'user').slice(-2)
       .map(m => String(typeof m.content === 'string' ? m.content : '')).join(' ').toUpperCase().replace(/[\s\-.]/g, '');
-    if (LAXIMO_ENABLED && compatCode.length >= 5 && recentUserText.includes(compatCode) && compatCode !== String(extracted.vin || '').toUpperCase()
+    if (compatCode.length >= 5 && recentUserText.includes(compatCode) && compatCode !== String(extracted.vin || '').toUpperCase()
         && (laximo.normalizeVin(extracted.vin) || (extracted.brand && extracted.model))) {
       compat = { code: compatCode, partName: null, source: 'customer' };
       if (!Array.isArray(extracted.partKeywords) || !extracted.partKeywords.length) {
@@ -1686,7 +1686,24 @@ console.log(JSON.stringify(extracted, null, 2));
 
     const laximoResult = await lookupLaximo(extracted, messages);
     if (compat && !compat.verdict) Object.assign(compat, compatVerdict(compat.code, laximoResult));
-    if (compat) console.log('DIAG compat', JSON.stringify({ code: compat.code, source: compat.source, partName: compat.partName, keywords: extracted.partKeywords, aftermarket: compat.aftermarket || false, verdict: compat.verdict, by: laximoResult?.matchedBy || null }));
+    // Laximo couldn't check (site block, pause, disabled): fall back to our
+    // compatibility table when the model is known; with only a VIN, ask for
+    // the model (a VIN can't be decoded without Laximo).
+    if (compat && ['unavailable', 'no_part_name'].includes(compat.verdict)) {
+      compat.catalogUnavailable = true;
+      if (extracted.brand && extracted.model) {
+        const recs = await fetchCompatibilityByVendorCode(compat.code);
+        const fits = (matchCompatibility({ [compat.code]: recs }, { ...extracted, vendorCode: null })[compat.code]) || [];
+        const desc = r => [r.brand, r.model, r.modificationName, r.engineCode,
+          r.years || [r.yearFrom, r.yearTo].filter(Boolean).join('–')].filter(Boolean).join(' ');
+        if (fits.length) Object.assign(compat, { verdict: 'table_fits', tableVehicles: fits.slice(0, 5).map(desc) });
+        else if (recs.length) Object.assign(compat, { verdict: 'table_other_vehicles', tableVehicles: [...new Set(recs.map(desc))].slice(0, 8) });
+        else compat.verdict = 'table_no_data';
+      } else if (laximo.normalizeVin(extracted.vin)) {
+        compat.verdict = 'vin_unavailable_need_model';
+      }
+    }
+    if (compat) console.log('DIAG compat', JSON.stringify({ code: compat.code, source: compat.source, partName: compat.partName, keywords: extracted.partKeywords, aftermarket: compat.aftermarket || false, verdict: compat.verdict, tableRows: compat.tableVehicles ? compat.tableVehicles.length : undefined, by: laximoResult?.matchedBy || null }));
 
     // Model path couldn't decide a dropdown (e.g. "M240i" -> B58C or B58D?).
     // Ask the customer directly with the catalog's own options as buttons --
@@ -2011,7 +2028,11 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // button to the site's search page for it (all offers incl. "под заказ",
     // prices, delivery times -- also for parts with no card in the feed).
     const partLinkCodes = partLinksForMessage(extracted, messages);
-    const compatNote = compat ? `\n\n═══════════════════════════════════════════\nПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА (результат автоматической проверки по оригинальному каталогу — опирайся ТОЛЬКО на него):\n═══════════════════════════════════════════\n${JSON.stringify({ ...compat, matchedBy: laximoResult?.matchedBy || null, vehicle: laximoResult?.vehicle?.name || null })}\nПравила по полю "verdict":\n- "fits": номер ЕСТЬ в оригинальном каталоге для автомобиля клиента. Если matchedBy = "vin" — скажи, что совместимость подтверждена по VIN. Если "model" — что по каталогу номер подходит для этой модели, а для полной уверенности можно прислать VIN. Упомяни узел (unit) и условия из notes, если есть.\n- "other_numbers": номера клиента в каталоге его автомобиля НЕТ, но для этой детали каталог указывает другие номера (catalogNumbers). Скажи это прямо и вежливо, назови номера из каталога. Возможные причины: номер устарел/заменён, деталь для другой модификации. Если "aftermarket": true — номер клиента от другого производителя (аналог), а оригинальный номер для машины — из catalogNumbers; подходит ли аналог, уточнит менеджер. Предложи менеджера для окончательной проверки.\n- "part_not_found": по названию детали в каталоге автомобиля ничего не найдено — скажи, что автоматически проверить не удалось, предложи менеджера (<<<MANAGER_BUTTON>>>).\n- "vehicle_not_found": автомобиль по VIN не найден — попроси проверить VIN.\n- "unavailable" или "no_part_name": проверить автоматически сейчас не удалось — скажи это и предложи менеджера (<<<MANAGER_BUTTON>>>), НЕ утверждай, что деталь подходит или не подходит.\nНИКОГДА не утверждай совместимость сверх этого результата.` : '';
+    const compatNote = compat ? `\n\n═══════════════════════════════════════════\nПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА (результат автоматической проверки по оригинальному каталогу — опирайся ТОЛЬКО на него):\n═══════════════════════════════════════════\n${JSON.stringify({ ...compat, matchedBy: laximoResult?.matchedBy || null, vehicle: laximoResult?.vehicle?.name || null })}\nПравила по полю "verdict":\n- "fits": номер ЕСТЬ в оригинальном каталоге для автомобиля клиента. Если matchedBy = "vin" — скажи, что совместимость подтверждена по VIN. Если "model" — что по каталогу номер подходит для этой модели, а для полной уверенности можно прислать VIN. Упомяни узел (unit) и условия из notes, если есть.\n- "other_numbers": номера клиента в каталоге его автомобиля НЕТ, но для этой детали каталог указывает другие номера (catalogNumbers). Скажи это прямо и вежливо, назови номера из каталога. Возможные причины: номер устарел/заменён, деталь для другой модификации. Если "aftermarket": true — номер клиента от другого производителя (аналог), а оригинальный номер для машины — из catalogNumbers; подходит ли аналог, уточнит менеджер. Предложи менеджера для окончательной проверки.\n- "part_not_found": по названию детали в каталоге автомобиля ничего не найдено — скажи, что автоматически проверить не удалось, предложи менеджера (<<<MANAGER_BUTTON>>>).\n- "vehicle_not_found": автомобиль по VIN не найден — попроси проверить VIN.\n- "unavailable" или "no_part_name": проверить автоматически сейчас не удалось — скажи это и предложи менеджера (<<<MANAGER_BUTTON>>>), НЕ утверждай, что деталь подходит или не подходит.
+- "vin_unavailable_need_model": проверка по VIN в оригинальном каталоге СЕЙЧАС ВРЕМЕННО НЕДОСТУПНА. Скажи это коротко и попроси марку, модель с кодом кузова (например X5 F15), двигатель или год — по ним проверишь по базе совместимости. НЕ утверждай, подходит ли деталь.
+- "table_fits": оригинальный каталог сейчас недоступен, но по НАШЕЙ БАЗЕ СОВМЕСТИМОСТИ номер указан для автомобиля клиента (tableVehicles). Скажи "по нашей базе совместимости подходит для …", назови запись(и) и добавь, что для 100% уверенности можно проверить по VIN позже или уточнить у менеджера.
+- "table_other_vehicles": оригинальный каталог сейчас недоступен; в нашей базе совместимости этот номер указан ТОЛЬКО для других автомобилей (tableVehicles). Назови их и скажи, что для модели клиента подтверждения в базе нет — это не значит, что не подходит; предложи проверку менеджером (<<<MANAGER_BUTTON>>>) или по VIN позже.
+- "table_no_data": оригинальный каталог сейчас недоступен, и в базе совместимости по номеру данных нет — скажи, что сейчас проверить не получается, предложи менеджера (<<<MANAGER_BUTTON>>>).\nНИКОГДА не утверждай совместимость сверх этого результата.` : '';
     const partLinkNote = partLinkCodes.length
       ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных" или "нет в наличии": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ${compat ? ' (совместимость — см. раздел ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА)' : ' и проверит совместимость с автомобилем клиента'}. Саму кнопку и ссылку в тексте НЕ дублируй.`
       : '';
