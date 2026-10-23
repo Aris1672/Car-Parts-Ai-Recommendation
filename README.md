@@ -77,7 +77,7 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Flow** (`api/chat.js`, before `lookupLaximo`):
   1. **Trigger:** extracted `vendorCode` typed in one of the customer's **last 2 messages**, plus a VIN or brand+model.
   2. **Part name:** the customer's own keywords. Without them, ABCP **`search/brands`** (number → brands + description, read-only, cached 24 h, 5 s timeout; `abcpPartName()`) gives a name, preferring the car's brand ("BMW 11427808443 — Фильтр масляный"). The name becomes the Laximo keywords (`keywordsFromName()`: "фильтр масляный" + "масляный фильтр"). If only other brands have the number (MANN, Bosch…), it's flagged `aftermarket`.
-  3. **Laximo** searches the car (VIN or model) by that name. This is the normal lookup, incl. FALLBACK_QUERIES, brake-only "накладки" and **abbreviation expansion** (`expandAbbr()` in `lib/laximo.js`: ОГ → отработавших газов, ГБЦ, ШРУС, ДМРВ, АКПП, МКПП).
+  3. **Laximo** searches the car (VIN or model) by that name. This is the normal lookup, incl. FALLBACK_QUERIES, brake-only "накладки" and **both spellings of abbreviations** (`spellingVariants()` in `lib/laximo.js`). The customer's spelling is searched first; if it finds nothing, the other one is tried: ОГ ↔ отработавших газов, ГБЦ, ШРУС, ДМРВ, АКПП, МКПП. Max 2 extra requests.
   4. **Verdict** (`compatVerdict()`): **fits** (number in the car's catalog, with unit/notes), **other_numbers** (the catalog lists other numbers for this part, given to the customer), **part_not_found**, **vehicle_not_found**, **unavailable**, **no_part_name**.
 - **Prompt:** section "ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА" with the verdict as JSON and strict rules: by VIN = "подтверждено"; by model = "по каталогу подходит для модели, для точности VIN"; other_numbers = say so plainly and name the catalog numbers (old/replaced number or other modification; an aftermarket number goes to the manager); no automatic result = the manager button, and never claim fit beyond the result. The "Открыть деталь" note no longer says "менеджер проверит совместимость" when a check ran.
 - **Logs:** `DIAG compat {"code","source","partName","keywords","aftermarket","verdict","by"}`.
@@ -96,6 +96,7 @@ The bot now checks a **part number the customer types** against **their car's or
     - if only garbled / "Деталь" names exist, a name is taken from the offers of one `search/articles` call (added to the read-only whitelist);
     - a non-Russian name is translated by a small Haiku call into the BMW-catalog Russian name (`toRussianPartName()`, cached, 6 s timeout), e.g. "датчик температуры отработавших газов".
   - Logged as `[compat] ABCP name "…" -> "…"` and `[compat] part name for … from offers`.
+- **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
 
 ## 🗺️ ABCP API — future to-do list
 
