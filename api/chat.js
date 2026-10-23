@@ -648,6 +648,26 @@ async function lookupLaximo(extracted, messages) {
   }
 }
 
+// ─── PHONE SANITY CHECK ─────────────────────────────────────────────────────
+// The extraction step once took a BMW part number for the customer's phone
+// ("Подойдёт 13627823945? VIN …" -> contactPhone "13627823945", 23.10), which
+// also fired the automatic manager handoff with a bogus lead. Accept: Russian
+// mobiles (9xxxxxxxxx, optionally with 7/8 in front) always; other 11-digit
+// 7…/8… numbers only when written like a phone (+, brackets, dashes, spaces).
+function plausiblePhone(raw) {
+  const t = String(raw || '').trim();
+  const d = t.replace(/\D/g, '');
+  if (/^(?:[78])?9\d{9}$/.test(d)) return true;
+  return d.length === 11 && /^[78]/.test(d) && /[+()\-\s]/.test(t);
+}
+function sanitizeContactPhone(extracted) {
+  if (extracted && extracted.contactPhone && !plausiblePhone(extracted.contactPhone)) {
+    console.log(`[extract] contactPhone "${extracted.contactPhone}" doesn't look like a phone -- ignored`);
+    if (!extracted.vendorCode && /^\d{7,14}$/.test(String(extracted.contactPhone).replace(/\D/g, ''))) extracted.vendorCode = String(extracted.contactPhone).replace(/\D/g, '');
+    extracted.contactPhone = null;
+  }
+}
+
 // ─── PART-NUMBER COMPATIBILITY CHECK (ABCP name + Laximo) ──────────────────
 // The customer names a part number and their car: is that number in the car's
 // original catalog? Laximo on the site can't search by number, only by part
@@ -860,7 +880,7 @@ const WIZARD_STEP_QUESTIONS = {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"накладки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "orderStatusQuestion": "true, если ПОСЛЕДНЕЕ сообщение клиента касается его УЖЕ ОФОРМЛЕННОГО заказа (статус, где заказ, когда привезут, готов ли к выдаче, оплачен ли) ИЛИ клиент в нём отвечает на вопрос ассистента о номере заказа / телефоне / email для проверки заказа; иначе false", "orderNumber": "номер уже оформленного заказа (обычно 9 цифр, например 286496721), если клиент его назвал, иначе null. НЕ путай с артикулом детали, VIN и номером телефона", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
+{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"накладки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "orderStatusQuestion": "true, если ПОСЛЕДНЕЕ сообщение клиента касается его УЖЕ ОФОРМЛЕННОГО заказа (статус, где заказ, когда привезут, готов ли к выдаче, оплачен ли) ИЛИ клиент в нём отвечает на вопрос ассистента о номере заказа / телефоне / email для проверки заказа; иначе false", "orderNumber": "номер уже оформленного заказа (обычно 9 цифр, например 286496721), если клиент его назвал, иначе null. НЕ путай с артикулом детали, VIN и номером телефона", "contactPhone": "НЕ путай с артикулом детали: артикулы BMW — 11 цифр и обычно начинаются с 0–6 (например 13627823945, 11428507683), это НЕ телефон. Номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -1580,6 +1600,7 @@ async function handler(req, res) {
     // fields cheaply, match them in plain JS, and only send Claude the
     // already-matched result instead of the full dataset.
     const extracted = await extractVehicleInfo(messages);
+    sanitizeContactPhone(extracted);
     console.log("========== VEHICLE ==========");
 console.log(JSON.stringify(extracted, null, 2));
 
@@ -2070,5 +2091,6 @@ module.exports.compatVerdict = compatVerdict;
 module.exports.keywordsFromName = keywordsFromName;
 module.exports.abcpPartName = abcpPartName;
 module.exports.looksGarbled = looksGarbled;
+module.exports.plausiblePhone = plausiblePhone;
 module.exports.toRussianPartName = toRussianPartName;
 module.exports.clearCaches = clearCaches;
