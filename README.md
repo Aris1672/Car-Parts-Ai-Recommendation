@@ -40,13 +40,32 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-22 (sessions 16–16d: "Нет фото" model filter + sorting, self-recovering Laximo pause, catalog-name fallbacks for air/cabin filters, brake-only "накладки", "Открыть деталь" button for typed part numbers). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-23 (session 17: order status from ABCP; sessions 16–16e: "Нет фото" filter + sorting, self-recovering Laximo pause, catalog-name fallbacks, "Открыть деталь" button, new company info). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
 - **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs and the new tab.
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### 📦 Session 17 (Oct 23) — order status from ABCP ("где мой заказ?")
+
+Customers often ask about existing orders. The bot now answers from the shop's **ABCP admin API** (orders live in **"Заказы 1.0"**; "Заказы клиентов 2.0" only has 2024 test orders).
+
+- **Flow** (`orderStatusReply` in `api/chat.js`, deterministic, **no Sonnet call**, so order data is never guessed). The extraction step sets `orderStatusQuestion` / `orderNumber`.
+  1. No number → asks for the order number (9 digits, in the email/SMS and "Мои заказы") plus the phone or email used for the order.
+  2. Number but no contact → asks for the phone or email.
+  3. Both → `lib/abcpOrders.js` → `cp/order?number=…&format=additional`, then the **ownership check**: the phone (last 10 digits) or email must appear on the order (email, name field, notes, guest data) or on the customer card (`cp/users`).
+  4. Verified → reply per item: brand, number, name, qty, **status** + date, the status's "Описание для клиента" (`cp/statuses`, cached 6 h), plus pickup point/delivery type, amount due or "оплачен", and the Telegram/MAX contact.
+- **Security:**
+  - **Read-only client:** `apiGet()` only allows `cp/order`, `cp/users`, `cp/statuses`, although the API-administrator account could change orders.
+  - **"Not found" and "contact doesn't match" give the same answer.**
+  - **Max 5 failed checks per IP per hour.**
+  - The password is never logged.
+  - A phone given for order verification does **not** trigger the automatic manager handoff (`AUTO_MANAGER_HANDOFF` is skipped when an `orderNumber` is in the conversation).
+- **Config (Coolify env vars only):** `ABCP_API_HOST` (from Настройка → Система → "Данные для доступа к API"), `ABCP_API_LOGIN`, `ABCP_API_PASSWORD_MD5`. **Never put these in code or the README.** Without them the bot points to "Мои заказы", Telegram/MAX and the manager button.
+- **Logs:** `DIAG order-status {"number","by","status"}` and `[abcp] order …: verified / contact does not match / ABCP error …`.
+- ⚠️ **The API-admin MD5 password was shown in a chat screenshot on 23.10. Change it in ABCP once this works, and update `ABCP_API_PASSWORD_MD5` in Coolify.**
 
 ### 📍 Session 16e (Oct 23) — company info from the client
 

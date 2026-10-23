@@ -23,6 +23,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // car; without a VIN (or if Laximo fails) the table path below is used.
 // LAXIMO_ENABLED=false turns it off without a code change.
 const laximo = require('../lib/laximo');
+const abcpOrders = require('../lib/abcpOrders');
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
 const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
 
@@ -647,6 +648,55 @@ async function lookupLaximo(extracted, messages) {
   }
 }
 
+// ─── ORDER STATUS (ABCP admin API, lib/abcpOrders.js) ──────────────────────
+// Deterministic replies -- no Sonnet call: order data must never be guessed.
+const ORDER_CONTACTS = 'в Telegram или MAX: +7 (967) 555-7-555';
+const fmtDate = s => {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : null;
+};
+const fmtRub = n => `${Math.round(Number(n)).toLocaleString('ru-RU').replace(/\u00a0/g, ' ')} ₽`;
+
+async function orderStatusReply(extracted, ip) {
+  const number = abcpOrders.normalizeOrderNumber(extracted.orderNumber);
+  const phone = extracted.contactPhone, email = extracted.contactEmail;
+  if (!abcpOrders.enabled()) {
+    return `Статус заказа можно посмотреть в личном кабинете на сайте, в разделе «Мои заказы». Также вы можете написать нам ${ORDER_CONTACTS} — укажите номер заказа, и мы подскажем.\n<<<MANAGER_BUTTON>>>`;
+  }
+  if (!number) {
+    return 'Подскажу статус заказа. Напишите, пожалуйста, **номер заказа** (обычно 9 цифр — есть в письме или SMS о заказе и в личном кабинете в разделе «Мои заказы») и **телефон или email**, указанный при заказе.';
+  }
+  if (!phone && !email) {
+    return `Спасибо! Для защиты ваших данных напишите, пожалуйста, **телефон или email**, указанный при оформлении заказа №${number}.`;
+  }
+  const r = await abcpOrders.lookupOrder({ number, phone, email, ip });
+  console.log('DIAG order-status', JSON.stringify({ number, by: phone ? 'phone' : 'email', status: r.status, reason: r.reason || undefined }));
+  if (r.status === 'rate_limited') {
+    return `Слишком много попыток проверки. Пожалуйста, напишите нам ${ORDER_CONTACTS} — менеджер подскажет статус заказа.\n<<<MANAGER_BUTTON>>>`;
+  }
+  if (r.status === 'unavailable') {
+    return `Сейчас не получается проверить заказ автоматически. Статус можно посмотреть в личном кабинете («Мои заказы») или написать нам ${ORDER_CONTACTS}.\n<<<MANAGER_BUTTON>>>`;
+  }
+  if (r.status === 'no_match') {
+    return `Не нашёл заказ №${number} с такими данными. Проверьте, пожалуйста, номер заказа и телефон или email, указанный при заказе, и напишите ещё раз. Если не получается — напишите нам ${ORDER_CONTACTS}.\n<<<MANAGER_BUTTON>>>`;
+  }
+  const o = r.order;
+  const lines = [`**Заказ №${o.number}**${fmtDate(o.date) ? ` от ${fmtDate(o.date)}` : ''}:`];
+  for (const p of o.positions.slice(0, 15)) {
+    const what = [p.brand, p.number].filter(Boolean).join(' ') + (p.description ? ` — ${p.description}` : '') + (p.quantity ? ` (${p.quantity} шт.)` : '');
+    let line = `• ${what}: **${p.status || 'статус уточняется'}**${fmtDate(p.statusDate) ? ` (с ${fmtDate(p.statusDate)})` : ''}`;
+    if (p.statusInfo) line += `. ${p.statusInfo}`;
+    lines.push(line);
+  }
+  if (o.positions.length > 15) lines.push(`…и ещё ${o.positions.length - 15} поз.`);
+  if (o.deliveryOffice) lines.push(`\nСамовывоз: ${o.deliveryOffice}.`);
+  else if (o.deliveryType) lines.push(`\nДоставка: ${o.deliveryType}.`);
+  if (o.debt > 0) lines.push(`К оплате: ${fmtRub(o.debt)}.`);
+  else if (o.sum) lines.push('Заказ оплачен.');
+  lines.push(`\nЕсли нужны подробности по срокам — напишите нам ${ORDER_CONTACTS}.`);
+  return lines.join('\n');
+}
+
 // Wording for the clarifying question when the model wizard can't decide a
 // dropdown on its own. Keys are Laximo's step names.
 const WIZARD_STEP_QUESTIONS = {
@@ -675,7 +725,7 @@ const WIZARD_STEP_QUESTIONS = {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"накладки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
+{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список категорий: [\"масляный фильтр\",\"моторное масло\",\"воздушный фильтр\",\"салонный фильтр\",\"свеча зажигания\",\"тормозные колодки\",\"накладки\",\"тормозной диск\"]. Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "orderStatusQuestion": "true, если ПОСЛЕДНЕЕ сообщение клиента касается его УЖЕ ОФОРМЛЕННОГО заказа (статус, где заказ, когда привезут, готов ли к выдаче, оплачен ли) ИЛИ клиент в нём отвечает на вопрос ассистента о номере заказа / телефоне / email для проверки заказа; иначе false", "orderNumber": "номер уже оформленного заказа (обычно 9 цифр, например 286496721), если клиент его назвал, иначе null. НЕ путай с артикулом детали, VIN и номером телефона", "contactPhone": "номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -1404,6 +1454,15 @@ console.log(JSON.stringify(extracted, null, 2));
     // parts, it REPLACES the compatibility-table matching below; otherwise
     // (no VIN, VIN not found, no part named yet, scraper failed or slow)
     // we fall through to the table path exactly as before.
+    // Questions about an existing order: answered from ABCP, no catalog work.
+    if (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true') {
+      const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+      const reply = await orderStatusReply(extracted, ip);
+      Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(200).json({ reply });
+    }
+
     const laximoResult = await lookupLaximo(extracted, messages);
 
     // Model path couldn't decide a dropdown (e.g. "M240i" -> B58C or B58D?).
@@ -1790,7 +1849,8 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // extracted.contactPhone/contactEmail above. The widget guards this
     // with a per-session flag so it only fires once even if contact info
     // is repeated in a later message.
-    if (extracted.contactPhone || extracted.contactEmail) {
+    // (Not when the phone/email was given to verify an order -- see above.)
+    if ((extracted.contactPhone || extracted.contactEmail) && !extracted.orderNumber) {
       text = `${text}\n<<<AUTO_MANAGER_HANDOFF>>>`;
     }
     if (partLinkCodes.length) {
@@ -1815,4 +1875,5 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 // shape or behavior at all.
 module.exports = handler;
 module.exports.partLinksForMessage = partLinksForMessage;
+module.exports.orderStatusReply = orderStatusReply;
 module.exports.clearCaches = clearCaches;
