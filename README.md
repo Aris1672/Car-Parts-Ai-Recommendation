@@ -58,6 +58,13 @@ Read session 15 first, then session 14's "Status", then session 13 for the compa
 - **Client:** `lib/abcpOrders.js` got `apiPost()` with its own whitelist (`READ_ONLY_POST_OPS = cp/articles/info/batch`). Write operations such as `cp/productCards` are still refused.
 - ⚠️ **First live run 23.10: `ABCP error 3: Unknown operation`.** Per the docs, `cp/articles/info/batch` is part of **"Каталоги в товарных группах через API", a separate paid ABCP service** ("для подключения необходимо связаться с отделом продаж ABCP"). It is not enabled on this account. The dashboard now says so (`job.error = 'NOT_ENABLED'`). Options: enable that service (the code works unchanged), or use the per-article `articles/info` from ABCP's "Общий интерфейс" (docs still to be checked; 1 call per article, so slow on the first run).
 - **Switched to the free `articles/info`** (ABCP "Общий интерфейс", API-administrator only, not a paid add-on): one article per call, `format=bnhi` (brand, number, localized properties, images), `ABCP_CHECK_PAUSE_MS` default **700 ms** between calls. The first full run of ~5 200 articles takes **about 1 hour** in the background, most-requested first, saved every 25. Afterwards only new articles are checked. ABCP 301 = not in the catalog. Error 3/103 stops the run with a clear message. 5 network errors in a row stop the run, and the rest stays "not checked" for the next click. The progress line shows the remaining minutes, and the page can be closed meanwhile. `articles/info` was added to `READ_ONLY_OPS`.
+- ⚠️ **ABCP rate limit (live 23.10):** at 0.7 s per call ABCP answered **error 303 "The resource is blocked. The limit on the number of requests per minute/hour/day has been exceeded"**. The limits aren't documented, and the **same API account serves the chat's order-status lookups**. So now:
+  - **Pace:** `ABCP_CHECK_PAUSE_MS` default **3000 ms**.
+  - **Daily cap:** `ABCP_CHECK_DAILY_LIMIT` default **500 articles per Moscow day**, most-requested first. When reached, the check continues **automatically at 00:05 MSK** the next day.
+  - **On 303:** the run pauses and **resumes automatically after 1 hour**.
+  - The dashboard shows "⏸ ABCP ограничил…" / "✅ Дневная порция проверена… Продолжится автоматически <time>" and the queue size.
+  - The auto-resume timer lives in the server process; after a redeploy, click "Проверить в ABCP" once to restart it.
+  - **Order status:** only ABCP error 301 counts as "order not found". A 303 block (or an auth/site error) now gives the "сейчас не получается проверить" answer instead of "не нашёл заказ", and doesn't count as a failed attempt.
 - **What the result means:** "📷 есть фото в ABCP" while the item is missing from the feed points to an export/price-list setting, not a missing photo. "Найден, без фото" / "не найден" need a photo added (next steps in the to-do list: product-card text, photo upload via "Мои каталоги").
 
 ## 🗺️ ABCP API — future to-do list
@@ -77,7 +84,7 @@ Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Админист
 - [ ] ⭐ **Oil/fluid selection by catalog filters** (brand, viscosity, approval) — `/cp/catalog/info`, `/cp/catalog/search`, then `/cp/articles/info/batch`.
 
 ### For Михаил (admin dashboard)
-- [x] **"Нет фото" → ABCP catalog check**: background check of every missing article against ABCP's catalog (`cp/articles/info/batch`), with thumbnail, description and an ABCP filter in the tab *(session 18, 23.10.2026; uses the free `articles/info`, about 1 h for the first full run)*
+- [x] **"Нет фото" → ABCP catalog check**: background check of every missing article against ABCP's catalog (`cp/articles/info/batch`), with thumbnail, description and an ABCP filter in the tab *(session 18, 23.10.2026; free `articles/info`, max 500/day because of ABCP's rate limit, continues automatically)*
 - [ ] ⭐⭐ **"Нет фото" → product card text with one click**: `cp/productCards` (write, admin-only), description + SEO texts. ⚠️ The API does **not** upload photos; the card limit is a paid service (`403 Article cards limit exceeded`).
 - [ ] ⭐⭐ **"Нет фото" → photo upload** via "Мои каталоги" import with an image archive — `/cp/usercatalogs/{catalogId}/upload` (`imagesArchive`, multipart) + `/cp/usercatalogs/{catalogId}/tasks/{taskId}/status`. Bigger job; needs a user catalog set up in ABCP.
 - [ ] ⭐⭐⭐ **"Неудовлетворённый спрос" tab**: what customers searched on the site and didn't buy (in stock / not / analogs, put in cart or not) — `/cp/reports/unsatisfiedDemands`. Same idea as "Нет фото", for the whole site.

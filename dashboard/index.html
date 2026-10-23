@@ -1854,12 +1854,15 @@
     let html = '';
     if (st && st.running) {
       const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
-      const left = Math.max(1, Math.round((st.total - st.done) * 0.9 / 60));
-      html = `⏳ Проверка в каталоге ABCP: ${st.done} из ${st.total} (${pct}%) · найдено ${st.found} · с фото ${st.withPhoto} · осталось ≈ ${left} мин. Можно закрыть страницу — проверка идёт на сервере.`;
+      const left = Math.max(1, Math.round((st.total - st.done) * 3.3 / 60));
+      html = `⏳ Проверка в каталоге ABCP: ${st.done} из ${st.total} на сегодня (${pct}%) · найдено ${st.found} · с фото ${st.withPhoto} · осталось ≈ ${left} мин. Всего в очереди: ${st.remaining}. Можно закрыть страницу — проверка идёт на сервере.`;
       btn.disabled = true;
     } else {
       btn.disabled = false;
-      if (st && st.error === 'NOT_ENABLED') html = '⚠️ Проверка недоступна: ABCP не разрешает этот метод для аккаунта API (ошибка «неизвестная операция» / «доступ запрещён»). Уточните в техподдержке ABCP доступ к методу articles/info.';
+      const at = st && st.resumeAt ? new Date(st.resumeAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      if (st && st.error === 'RATE_LIMITED') html = `⏸ ABCP ограничил число запросов к API — проверка продолжится автоматически ${at}. (Тот же доступ используется для статуса заказов в чате, поэтому проверка идёт медленно.)`;
+      else if (st && st.error === 'DAILY_LIMIT') html = `✅ Дневная порция проверена (до ${st.dailyLimit} артикулов в день, самые востребованные — первыми). В очереди: ${st.remaining}. Продолжится автоматически ${at}.`;
+      else if (st && st.error === 'NOT_ENABLED') html = '⚠️ Проверка недоступна: ABCP не разрешает этот метод для аккаунта API (ошибка «неизвестная операция» / «доступ запрещён»). Уточните в техподдержке ABCP доступ к методу articles/info.';
       else if (st && st.error) html = `⚠️ Проверка остановилась: ${esc(st.error)}. Нажмите «Проверить в ABCP», чтобы продолжить.`;
       else if (counts.photo + counts.nophoto + counts.notfound > 0)
         html = `Каталог ABCP: 📷 с фото — <b>${counts.photo}</b> · найдено без фото — ${counts.nophoto} · не найдено — ${counts.notfound} · не проверено — ${counts.unchecked}`;
@@ -1887,9 +1890,9 @@
       const r = await fetch(MISSING_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password, action: 'abcp_check' }) });
       const d = await r.json();
       if (!d.success) throw new Error(d.error || 'Ошибка');
-      if (d.abcpCheck.total === 0) { alert('Все артикулы уже проверены. Повторная проверка «без фото» — через 7 дней.'); btn.disabled = false; return; }
+      if (d.abcpCheck.total === 0 && !d.abcpCheck.error) { alert('Все артикулы уже проверены. Повторная проверка «без фото» — через 7 дней.'); btn.disabled = false; return; }
       showAbcpProgress(d.abcpCheck);
-      pollAbcpCheck();
+      if (d.abcpCheck.running) pollAbcpCheck();
     } catch (e) {
       alert('Не удалось запустить проверку: ' + e.message);
       btn.disabled = false;
