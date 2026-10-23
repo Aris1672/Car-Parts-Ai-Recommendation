@@ -15,6 +15,10 @@
  *   { action: 'list' }                 -> all rows, unresolved first, sorted by request_count desc
  *   { action: 'resolve', vendor_code } -> mark as resolved (client's added a photo, no longer needs attention)
  *   { action: 'delete', vendor_code }  -> remove a row entirely (e.g. logged in error, or the part's discontinued)
+ *   { action: 'abcp_check' }           -> start the background check against ABCP's catalog (lib/abcpCatalogCheck.js)
+ *   { action: 'abcp_status' }          -> progress of that check
+ * 'list' hides placeholder codes (00000000000, 01104444444...) and adds each
+ * row's ABCP catalog result as `abcp` ({found, imagesCount, image, descr, checkedAt} or null = not checked).
  *
  * Auth: same password pattern as products.js / sessions.js
  * (DASHBOARD_ADMIN_PASSWORD / DASHBOARD_CLIENT_PASSWORD). Both roles can
@@ -23,6 +27,8 @@
  */
 
 const { Client }     = require('pg');
+const abcpCheck      = require('../../lib/abcpCatalogCheck');
+const abcpOrders     = require('../../lib/abcpOrders');
 const SUPABASE_URL   = process.env.SUPABASE_URL;
 const DB_URL         = process.env.SUPABASE_DB_URL;
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_KEY;
@@ -129,7 +135,10 @@ module.exports = async function handler(req, res) {
 
   try {
     if (action === 'list') {
-      const rows = await listAll();
+      const allRows = await listAll();
+      const rows = allRows.filter(a => !abcpCheck.isJunkCode(a.vendor_code));
+      let info = new Map();
+      try { info = await abcpCheck.getInfoMap(); } catch (err) { console.error('abcp info unavailable:', err.message); }
       // Per row: the model groups it was requested for (any of its stored
       // examples), plus a facet list with article counts for the dropdown.
       const facet = new Map();
@@ -138,11 +147,25 @@ module.exports = async function handler(req, res) {
         const exampleLabels = ex.map(vehicleLabel); // aligned with vehicle_examples
         const models = [...new Set(exampleLabels.filter(Boolean))];
         for (const m of models) facet.set(m, (facet.get(m) || 0) + 1);
-        return { ...a, models, exampleLabels };
+        return { ...a, models, exampleLabels, abcp: info.get(a.vendor_code) || null };
       });
       const models = [...facet.entries()].map(([label, count]) => ({ label, count }))
         .sort((x, y) => y.count - x.count || x.label.localeCompare(y.label));
-      return res.status(200).json({ success: true, total: articles.length, articles, models });
+      return res.status(200).json({
+        success: true, total: articles.length, articles, models,
+        hiddenJunk: allRows.length - rows.length,
+        abcpEnabled: abcpOrders.enabled(),
+        abcpCheck: abcpCheck.status(),
+      });
+    }
+
+    if (action === 'abcp_check') {
+      try { return res.status(200).json({ success: true, abcpCheck: await abcpCheck.start() }); }
+      catch (err) { return res.status(400).json({ error: err.message }); }
+    }
+
+    if (action === 'abcp_status') {
+      return res.status(200).json({ success: true, abcpCheck: abcpCheck.status() });
     }
 
     if (action === 'resolve') {

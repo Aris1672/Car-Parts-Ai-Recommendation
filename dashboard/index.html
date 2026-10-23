@@ -1035,13 +1035,23 @@
             <select class="date-input" id="missing-model" title="Фильтр по автомобилю" style="max-width:260px;">
               <option value="">Все автомобили</option>
             </select>
+            <select class="date-input" id="missing-abcp" title="Результат проверки в каталоге ABCP" style="max-width:220px;">
+              <option value="">ABCP: все</option>
+              <option value="photo">📷 Есть фото в ABCP</option>
+              <option value="nophoto">Найден, без фото</option>
+              <option value="notfound">Не найден в ABCP</option>
+              <option value="unchecked">Не проверен</option>
+            </select>
+            <button class="filter-btn" id="missing-abcp-btn" type="button" title="Проверить артикулы в каталоге ABCP (только чтение)">🔍 Проверить в ABCP</button>
             <input type="text" class="table-search" id="missing-search" placeholder="🔍  Поиск по артикулу…">
           </div>
         </div>
+        <div id="missing-abcp-progress" style="display:none; padding:8px 20px; font-size:12px; color:var(--text2); border-bottom:1px solid var(--border);"></div>
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
+                <th>ABCP</th>
                 <th data-mcol="vendor_code" class="sort-asc">Артикул</th>
                 <th data-mcol="request_count">Запросов</th>
                 <th id="missing-vehicle-th">Автомобиль (последний запрос)</th>
@@ -1824,6 +1834,66 @@
   const MISSING_API_URL = '/api/dashboard/missing-articles';
   let allMissingArticles = [];
   let missingModels = [];
+  let missingAbcpEnabled = false;
+  let missingHiddenJunk = 0;
+
+  // ── Missing articles: check against ABCP's catalog ───────────
+  // Background job on the server (lib/abcpCatalogCheck.js); read-only.
+  function abcpState(a) {
+    const i = a.abcp;
+    if (!i) return 'unchecked';
+    if (!i.found) return 'notfound';
+    return i.imagesCount > 0 ? 'photo' : 'nophoto';
+  }
+  function showAbcpProgress(st) {
+    const el = document.getElementById('missing-abcp-progress');
+    const btn = document.getElementById('missing-abcp-btn');
+    btn.style.display = missingAbcpEnabled ? '' : 'none';
+    const counts = { photo: 0, nophoto: 0, notfound: 0, unchecked: 0 };
+    allMissingArticles.forEach(a => { if (!a.resolved) counts[abcpState(a)]++; });
+    let html = '';
+    if (st && st.running) {
+      const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
+      html = `⏳ Проверка в каталоге ABCP: ${st.done} из ${st.total} (${pct}%) · найдено ${st.found} · с фото ${st.withPhoto}`;
+      btn.disabled = true;
+    } else {
+      btn.disabled = false;
+      if (st && st.error) html = `⚠️ Проверка остановилась: ${esc(st.error)}. Нажмите «Проверить в ABCP», чтобы продолжить.`;
+      else if (counts.photo + counts.nophoto + counts.notfound > 0)
+        html = `Каталог ABCP: 📷 с фото — <b>${counts.photo}</b> · найдено без фото — ${counts.nophoto} · не найдено — ${counts.notfound} · не проверено — ${counts.unchecked}`;
+    }
+    if (missingHiddenJunk) html += `${html ? ' · ' : ''}скрыто служебных кодов (00000000000 и т.п.): ${missingHiddenJunk}`;
+    el.innerHTML = html;
+    el.style.display = html ? 'block' : 'none';
+  }
+  let abcpPollTimer = null;
+  function pollAbcpCheck() {
+    clearTimeout(abcpPollTimer);
+    abcpPollTimer = setTimeout(async () => {
+      try {
+        const r = await fetch(MISSING_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password, action: 'abcp_status' }) });
+        const d = await r.json();
+        if (d.abcpCheck && d.abcpCheck.running) { showAbcpProgress(d.abcpCheck); pollAbcpCheck(); }
+        else await loadMissing(); // finished: reload with the saved results
+      } catch (e) { pollAbcpCheck(); }
+    }, 3000);
+  }
+  document.getElementById('missing-abcp-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('missing-abcp-btn');
+    btn.disabled = true;
+    try {
+      const r = await fetch(MISSING_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password, action: 'abcp_check' }) });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error || 'Ошибка');
+      if (d.abcpCheck.total === 0) { alert('Все артикулы уже проверены. Повторная проверка «без фото» — через 7 дней.'); btn.disabled = false; return; }
+      showAbcpProgress(d.abcpCheck);
+      pollAbcpCheck();
+    } catch (e) {
+      alert('Не удалось запустить проверку: ' + e.message);
+      btn.disabled = false;
+    }
+  });
+  document.getElementById('missing-abcp').addEventListener('change', () => filterMissing());
 
   async function loadMissing() {
     try {
@@ -1836,6 +1906,10 @@
       if (!data.success) throw new Error(data.error || 'Ошибка загрузки');
       allMissingArticles = data.articles || [];
       missingModels = data.models || [];
+      missingAbcpEnabled = !!data.abcpEnabled;
+      missingHiddenJunk = data.hiddenJunk || 0;
+      showAbcpProgress(data.abcpCheck);
+      if (data.abcpCheck && data.abcpCheck.running) pollAbcpCheck();
       renderMissingModels();
       filterMissing();
     } catch (e) {
@@ -1857,9 +1931,11 @@
   function filterMissing() {
     const q = document.getElementById('missing-search').value.toLowerCase().trim();
     const model = document.getElementById('missing-model').value;
+    const abcpF = document.getElementById('missing-abcp').value;
     const filtered = allMissingArticles.filter(a =>
       (!q || (a.vendor_code || '').toLowerCase().includes(q)) &&
-      (!model || (a.models || []).includes(model)));
+      (!model || (a.models || []).includes(model)) &&
+      (!abcpF || abcpState(a) === abcpF));
     renderMissing(sortMissing(filtered));
   }
 
@@ -1936,8 +2012,16 @@
 
       const tr = document.createElement('tr');
       if (a.resolved) tr.style.opacity = '0.5';
+      const st = abcpState(a);
+      const info = a.abcp || {};
+      const abcpCell = st === 'photo'
+        ? `<a href="${esc(info.image)}" target="_blank" rel="noopener" title="${esc(info.descr || '')}"><img src="${esc(info.image)}" alt="" loading="lazy" style="width:44px;height:44px;object-fit:contain;background:#fff;border-radius:6px;display:block;"></a>`
+        : st === 'nophoto' ? `<span title="${esc(info.descr || '')}" style="font-size:11px;color:var(--text2);">найден,<br>без фото</span>`
+        : st === 'notfound' ? '<span style="font-size:11px;color:var(--text2);">не найден</span>'
+        : '<span style="font-size:11px;color:var(--text2);opacity:.6;">—</span>';
       tr.innerHTML = `
-        <td><strong>${esc(a.vendor_code)}</strong></td>
+        <td style="width:56px;">${abcpCell}</td>
+        <td><strong>${esc(a.vendor_code)}</strong>${info.descr ? `<div style="font-size:11px;color:var(--text2);font-weight:400;max-width:260px;white-space:normal;">${esc(info.descr)}</div>` : ''}</td>
         <td class="td-dur">${a.request_count}</td>
         <td style="white-space:normal; max-width:360px;">${esc(vehicleText)}</td>
         <td class="td-date">${a.last_requested_at ? fmtDate(a.last_requested_at.split('T')[0]) : '—'}</td>
