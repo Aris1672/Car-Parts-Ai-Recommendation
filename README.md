@@ -108,6 +108,10 @@ The bot now checks a **part number the customer types** against **their car's or
 - **"Ориентировочный срок поставки: до DD.MM.YYYY"** = order date + the longest supplier delivery time of the items (`deadlineMax`/`deadline`, hours → days), shown only while it's still ahead. Mixed orders add "(по самой долгой позиции)".
 - If the history call fails, the reply falls back to the current status (logged `[abcp] statusHistory failed`). Limit group "orders": 120 000/day.
 - Tested with mocked ABCP: shared timeline, per-item timelines, a missing history, merged duplicates, no staff names.
+- **Live test 23.10: "Код заказа" 304981534 not found any more** (it had found 286508592 an hour earlier). Most likely the order was **archived** after processing, and `cp/orders` lists only active orders by default. Now:
+  - the "Код заказа" scan also reads **archived** orders (`isArchive=1`, separate 10-min cache);
+  - an order number that `cp/order` doesn't know is looked up in the archive (`cp/orders?numbers[]=…&isArchive=1`, deleted orders skipped) before the deleted/merged check;
+  - the scan logs `[abcp] scanned active|archived orders since …: N order(s), M with notes`.
 
 ## 📝 TO-DO: switch from scraping the site's Laximo pages to the direct Laximo API
 
