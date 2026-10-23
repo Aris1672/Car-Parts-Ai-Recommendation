@@ -138,6 +138,20 @@ When Laximo can't check (site browser check, pause, `LAXIMO_ENABLED=false`, verd
   - an order number that `cp/order` doesn't know is looked up in the archive (`cp/orders?numbers[]=…&isArchive=1`, deleted orders skipped) before the deleted/merged check;
   - the scan logs `[abcp] scanned active|archived orders since …: N order(s), M with notes`.
 
+## 📝 TO-DO: second branch "Ленинский проспект, д.146"
+
+The site's home page has the news item **"Новый филиал открыли на Ленинском проспекте д.146"** (26.01.2026, "Магазин запчастей BMW Ленинский проспект д.146"). The bot's contact block (`SYSTEM_PROMPT` → "Контакты компании", `api/chat.js`) only knows **Химки, ул. Молодежная, д. 9Н**.
+
+**To ask Михаил:**
+1. Should the bot mention this branch at all, and in what role (store, pickup point, service)?
+2. Opening hours?
+3. Phone (same +7 (967) 555-7-555 or its own)?
+4. Can orders be picked up there? Is it a pickup option in ABCP (would show as `deliveryOffice` in order status)?
+
+**Also check:** the news item "Открыли филиал на Мичуринском проспекте" (03.03.2025). Is that branch still open, or replaced by Ленинский проспект?
+
+**When answered:** add a second address block under "Контакты компании" and tell the bot which address to give for which question (pickup vs. service). **Status:** ⏳ waiting for Михаил (owner asks 24.10).
+
 ## 📝 TO-DO: switch from scraping the site's Laximo pages to the direct Laximo API
 
 **Why:** the bot reads Laximo through bmwclub77.ru's `/laximo` pages (scraper, `lib/laximo.js`). ABCP's bot check ("Мы проверяем ваш браузер") has blocked our server twice despite the IP exemption: **21.10.2026** and **23.10.2026**. During a block, VIN/model lookups and the part-number compatibility check fail (the pause + 30-min probe limits the damage, but the bot can't check anything). Михаил has his **own Laximo licence** (14 750 ₽, renewed on the 9th, dashboard lk.a-motive.ru, provider Technology Trade, ~1 000 OEM requests/month shared with site customers), so the direct Laximo web service may be usable.
