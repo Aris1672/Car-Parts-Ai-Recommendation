@@ -1848,7 +1848,7 @@
   function showAbcpProgress(st) {
     const el = document.getElementById('missing-abcp-progress');
     const btn = document.getElementById('missing-abcp-btn');
-    btn.style.display = missingAbcpEnabled ? '' : 'none';
+    btn.style.display = missingAbcpEnabled && st && st.enabled ? '' : 'none';
     const counts = { photo: 0, nophoto: 0, notfound: 0, unchecked: 0 };
     allMissingArticles.forEach(a => { if (!a.resolved) counts[abcpState(a)]++; });
     let html = '';
