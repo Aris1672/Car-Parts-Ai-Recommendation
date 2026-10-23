@@ -1547,6 +1547,18 @@ console.log(JSON.stringify(extracted, null, 2));
 
     // Part number + car known -> check that number against the car's catalog.
     let compat = null;
+    // Safety net: the extraction step sometimes misses the part number when a
+    // VIN is in the same message (seen 23.10: "Подойдёт 13628582663? VIN …").
+    // Take an 11-digit number from the latest message (BMW format; spaces ok),
+    // never the VIN or a phone number (7…/8… with 11 digits, or the extracted phone).
+    if (!extracted.vendorCode) {
+      const last = [...(messages || [])].reverse().find(m => m.role === 'user');
+      const text = String(last && typeof last.content === 'string' ? last.content : '').replace(/(\d)[\s-](?=\d)/g, '$1');
+      const phone = String(extracted.contactPhone || '').replace(/\D/g, '').slice(-10);
+      const found = (text.match(/(?<![\dA-Z])\d{11}(?![\dA-Z])/gi) || [])
+        .find(n => !/^[78]9/.test(n) && !(phone && n.endsWith(phone)) && !String(extracted.vin || '').includes(n));
+      if (found) { extracted.vendorCode = found; console.log(`[compat] part number ${found} taken from the message (missed by extraction)`); }
+    }
     const compatCode = String(extracted.vendorCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     // Only while the number is current: typed in one of the customer's last 2 messages.
     const recentUserText = (messages || []).filter(m => m.role === 'user').slice(-2)

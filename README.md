@@ -83,6 +83,12 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Logs:** `DIAG compat {"code","source","partName","keywords","aftermarket","verdict","by"}`.
 - **Cost:** 1 ABCP `search/brands` (limit 90 000/day) + usually 1 Laximo details search (vehicle cached).
 - **Tested** end-to-end with the real chat handler, saved Laximo pages and mocked ABCP/AI: fits, other_numbers, and no check for a number from 3 messages ago.
+- **First live test 23.10, two fixes:**
+  - **VIN test: no check ran.** "Подойдёт 13628582663? VIN …": the extraction missed the part number next to the VIN. Safety net: if `vendorCode` is empty, an **11-digit number from the latest message** is taken (spaces allowed). Never the VIN, never phone-like `79…`/`89…` or the extracted phone. Logged as `[compat] part number … taken from the message`.
+  - **Model test: Laximo `found:false` in 81 ms, without a log line.** `findVehicleByModel` returned null silently when a wizard step didn't match, and it **cached empty vehicle lists** (e.g. fetched during the 21.10 site block), which then failed that car instantly. Now:
+    - empty lists are never cached (key `modelveh3`, old v2 entries ignored);
+    - **`partialWizardPick()`** matches customer tokens with digits as part of an option ("30d" → BMW's "30dX"). One match is taken, several become buttons, none become buttons for ≤ 16 options. It also narrows a picker question to one option when possible;
+    - every give-up now logs `[laximo] model path: no "<step>" option matches (…options…)` or `…returned no vehicles`.
 
 ## 🗺️ ABCP API — future to-do list
 
