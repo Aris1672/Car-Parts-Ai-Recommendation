@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-23 (session 18: "Нет фото" check against ABCP's catalog; session 17: order status from ABCP; ABCP API to-do list). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-23 (session 19: part-number compatibility check via ABCP + Laximo; session 18: "Нет фото" ABCP check (off, tariff limit); session 17: order status from ABCP). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -69,11 +69,27 @@ Read session 15 first, then session 14's "Status", then session 13 for the compa
 - **Limits per operation (ABCP "Детализация услуг", tariff "S-Klasse"):** articles/info 10/10/10 (min/hour/day); orders 1 000 / 20 000 / 120 000; users 500 / 10 000 / 100 000; search/brands 900 / 9 000 / 90 000; others 2 000 / 2 000 / 10 000. **Limits are separate per operation**, so order status (`orders`, `users`) was never at risk from the catalog check. Current usage is visible in ABCP → Финансы/Детализация услуг → "Статистика вызовов API-операций".
 - **What the result means:** "📷 есть фото в ABCP" while the item is missing from the feed points to an export/price-list setting, not a missing photo. "Найден, без фото" / "не найден" need a photo added (next steps in the to-do list: product-card text, photo upload via "Мои каталоги").
 
+### ✅ Session 19 (Oct 23) — "Подойдёт ли этот номер на мою машину?" (ABCP + Laximo)
+
+The bot now checks a **part number the customer types** against **their car's original catalog** itself, instead of "менеджер проверит совместимость".
+
+- **Why a combination:** Laximo on the site searches a car's catalog **only by part name**, not by number (tested by the owner). ABCP's site search finds a number but tells who sells it, not which cars it fits.
+- **Flow** (`api/chat.js`, before `lookupLaximo`):
+  1. **Trigger:** extracted `vendorCode` typed in one of the customer's **last 2 messages**, plus a VIN or brand+model.
+  2. **Part name:** the customer's own keywords. Without them, ABCP **`search/brands`** (number → brands + description, read-only, cached 24 h, 5 s timeout; `abcpPartName()`) gives a name, preferring the car's brand ("BMW 11427808443 — Фильтр масляный"). The name becomes the Laximo keywords (`keywordsFromName()`: "фильтр масляный" + "масляный фильтр"). If only other brands have the number (MANN, Bosch…), it's flagged `aftermarket`.
+  3. **Laximo** searches the car (VIN or model) by that name. This is the normal lookup, incl. FALLBACK_QUERIES, brake-only "накладки" and **abbreviation expansion** (`expandAbbr()` in `lib/laximo.js`: ОГ → отработавших газов, ГБЦ, ШРУС, ДМРВ, АКПП, МКПП).
+  4. **Verdict** (`compatVerdict()`): **fits** (number in the car's catalog, with unit/notes), **other_numbers** (the catalog lists other numbers for this part, given to the customer), **part_not_found**, **vehicle_not_found**, **unavailable**, **no_part_name**.
+- **Prompt:** section "ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА" with the verdict as JSON and strict rules: by VIN = "подтверждено"; by model = "по каталогу подходит для модели, для точности VIN"; other_numbers = say so plainly and name the catalog numbers (old/replaced number or other modification; an aftermarket number goes to the manager); no automatic result = the manager button, and never claim fit beyond the result. The "Открыть деталь" note no longer says "менеджер проверит совместимость" when a check ran.
+- **Logs:** `DIAG compat {"code","source","partName","keywords","aftermarket","verdict","by"}`.
+- **Cost:** 1 ABCP `search/brands` (limit 90 000/day) + usually 1 Laximo details search (vehicle cached).
+- **Tested** end-to-end with the real chat handler, saved Laximo pages and mocked ABCP/AI: fits, other_numbers, and no check for a number from 3 messages ago.
+
 ## 🗺️ ABCP API — future to-do list
 
 Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Административный интерфейс) could add to the bot and the dashboard. **Done** = live. Priority: ⭐⭐⭐ high, ⭐⭐ medium, ⭐ low. Rule for all items: the bot only **reads**. Any write operation runs only from the admin dashboard, after an explicit click by Михаил, and is whitelisted one by one in `lib/abcpOrders.js` (`READ_ONLY_OPS`) or a separate admin-only client.
 
 ### For customers (chat widget)
+- [x] **Part-number compatibility check** ("подойдёт ли 11427808443 на мою машину?"): ABCP `search/brands` gives the part name → Laximo searches the car's catalog by name → numbers compared *(session 19, 23.10.2026)*
 - [x] **Order status** by order number or "Код заказа" + phone/email — `cp/order`, `cp/orders`, `cp/users`, `cp/statuses` *(session 17, live 23.10.2026)*
 - [ ] ⭐⭐⭐ **"Оплатить заказ" button** for verified orders with an amount due — `cp/payment/token` (ABCP's own payment link). Small, builds on order status.
 - [ ] ⭐⭐⭐ **Live price & availability for any part number** (not only the photo feed): "13628582663 — 10 100 ₽, под заказ, ~110 дней". **Confirmed possible** ("Общий интерфейс"): `search/articles` (GET, one number+brand, incl. online suppliers and analogs) and `search/batch` (POST, up to 100 brand+number, own price lists only). Limits look fine for chat volume: the full "Статистика вызовов API-операций" table has only 5 groups (articles/info, others, search/brands, users, orders), so `search/articles`/`search/batch` count under **search/brands (90 000/day)** or **others (10 000/day)**. Searches also count toward the monthly **"Поисковые запросы"** service (400 000/month; 16 282 used in Oct 2026). As API-administrator, pass **`profileId`** of the retail profile so prices match what a visitor sees (without it: guest price). Fields: price, availability, deliveryPeriod/Max (hours), noReturn, isUsed, supplierDescription.

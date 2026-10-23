@@ -648,6 +648,71 @@ async function lookupLaximo(extracted, messages) {
   }
 }
 
+// ─── PART-NUMBER COMPATIBILITY CHECK (ABCP name + Laximo) ──────────────────
+// The customer names a part number and their car: is that number in the car's
+// original catalog? Laximo on the site can't search by number, only by part
+// NAME, so: 1) the name comes from the customer's words or from ABCP
+// (search/brands: number -> brand + description), 2) the car's catalog is
+// searched by that name (the normal Laximo lookup), 3) the numbers are
+// compared. The verdict goes into the prompt as data -- the agent never guesses.
+const partNameCache = new Map(); // number -> { at, data }
+const PART_NAME_TTL_MS = 24 * 60 * 60 * 1000;
+const BRAND_KEY = s => String(s || '').toLowerCase().replace(/[^a-zа-я0-9]/g, '');
+
+/** ABCP: brand + description for a part number, preferring the car's brand. */
+async function abcpPartName(code, carBrand) {
+  if (!abcpOrders.enabled()) return null;
+  const hit = partNameCache.get(code);
+  let list = hit && Date.now() - hit.at < PART_NAME_TTL_MS ? hit.data : null;
+  if (!list) {
+    try {
+      const res = await Promise.race([
+        abcpOrders.apiGet('search/brands', { number: code }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout 5s')), 5000)),
+      ]);
+      list = (Array.isArray(res) ? res : Object.values(res || {})).filter(x => x && x.brand);
+      partNameCache.set(code, { at: Date.now(), data: list });
+      if (partNameCache.size > 2000) partNameCache.clear();
+    } catch (err) {
+      console.error('[compat] search/brands failed:', err.message);
+      return null;
+    }
+  }
+  if (!list.length) return null;
+  const want = BRAND_KEY(carBrand === 'MINI' ? 'BMW' : carBrand);
+  const own = list.find(x => want && BRAND_KEY(x.brand) === want && x.description);
+  const any = list.find(x => x.description && !/^деталь$/i.test(String(x.description).trim()));
+  const pick = own || any || list[0];
+  return {
+    brand: pick.brand,
+    name: pick.description ? String(pick.description).trim() : null,
+    // Only brands other than the car's (e.g. MANN, Bosch) -> an aftermarket number.
+    aftermarket: !!want && !list.some(x => BRAND_KEY(x.brand) === want),
+  };
+}
+
+/** "Фильтр масляный" -> ["фильтр масляный", "масляный фильтр"] (Laximo name search). */
+function keywordsFromName(name) {
+  const n = String(name || '').toLowerCase().replace(/[^a-zа-яё0-9\s-]/gi, ' ').replace(/\s+/g, ' ').trim();
+  if (!n || n === 'деталь') return [];
+  const words = n.split(' ');
+  const out = [n];
+  if (words.length === 2) out.push(`${words[1]} ${words[0]}`);
+  return out.slice(0, 2);
+}
+
+/** Pure: compare the checked number with the car's catalog parts. Exported for tests. */
+function compatVerdict(code, laximoResult) {
+  const want = laximo.normalizeOem(code);
+  if (!laximoResult) return { verdict: 'unavailable' };
+  if (laximoResult.notFound) return { verdict: 'vehicle_not_found' };
+  const parts = laximoResult.parts || [];
+  const hits = parts.filter(p => laximo.normalizeOem(p.oem) === want);
+  if (hits.length) return { verdict: 'fits', matches: hits.slice(0, 3).map(p => ({ oem: p.oem, name: p.name, unit: p.unit, notes: p.notes })) };
+  if (parts.length) return { verdict: 'other_numbers', catalogNumbers: parts.slice(0, 8).map(p => ({ oem: p.oem, name: p.name, unit: p.unit })) };
+  return { verdict: 'part_not_found' };
+}
+
 // ─── ORDER STATUS (ABCP admin API, lib/abcpOrders.js) ──────────────────────
 // Deterministic replies -- no Sonnet call: order data must never be guessed.
 const ORDER_CONTACTS = 'в Telegram или MAX: +7 (967) 555-7-555';
@@ -1480,7 +1545,27 @@ console.log(JSON.stringify(extracted, null, 2));
       return res.status(200).json({ reply });
     }
 
+    // Part number + car known -> check that number against the car's catalog.
+    let compat = null;
+    const compatCode = String(extracted.vendorCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Only while the number is current: typed in one of the customer's last 2 messages.
+    const recentUserText = (messages || []).filter(m => m.role === 'user').slice(-2)
+      .map(m => String(typeof m.content === 'string' ? m.content : '')).join(' ').toUpperCase().replace(/[\s\-.]/g, '');
+    if (LAXIMO_ENABLED && compatCode.length >= 5 && recentUserText.includes(compatCode) && compatCode !== String(extracted.vin || '').toUpperCase()
+        && (laximo.normalizeVin(extracted.vin) || (extracted.brand && extracted.model))) {
+      compat = { code: compatCode, partName: null, source: 'customer' };
+      if (!Array.isArray(extracted.partKeywords) || !extracted.partKeywords.length) {
+        const info = await abcpPartName(compatCode, extracted.brand || 'BMW');
+        if (info) Object.assign(compat, { partName: info.name, partBrand: info.brand, aftermarket: info.aftermarket, source: 'abcp' });
+        const kw = keywordsFromName(info && info.name);
+        if (kw.length) extracted.partKeywords = kw; // drives the Laximo name search below
+      }
+      if (!extracted.partKeywords || !extracted.partKeywords.length) compat.verdict = 'no_part_name';
+    }
+
     const laximoResult = await lookupLaximo(extracted, messages);
+    if (compat && !compat.verdict) Object.assign(compat, compatVerdict(compat.code, laximoResult));
+    if (compat) console.log('DIAG compat', JSON.stringify({ code: compat.code, source: compat.source, partName: compat.partName, keywords: extracted.partKeywords, aftermarket: compat.aftermarket || false, verdict: compat.verdict, by: laximoResult?.matchedBy || null }));
 
     // Model path couldn't decide a dropdown (e.g. "M240i" -> B58C or B58D?).
     // Ask the customer directly with the catalog's own options as buttons --
@@ -1805,8 +1890,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // button to the site's search page for it (all offers incl. "под заказ",
     // prices, delivery times -- also for parts with no card in the feed).
     const partLinkCodes = partLinksForMessage(extracted, messages);
+    const compatNote = compat ? `\n\n═══════════════════════════════════════════\nПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА (результат автоматической проверки по оригинальному каталогу — опирайся ТОЛЬКО на него):\n═══════════════════════════════════════════\n${JSON.stringify({ ...compat, matchedBy: laximoResult?.matchedBy || null, vehicle: laximoResult?.vehicle?.name || null })}\nПравила по полю "verdict":\n- "fits": номер ЕСТЬ в оригинальном каталоге для автомобиля клиента. Если matchedBy = "vin" — скажи, что совместимость подтверждена по VIN. Если "model" — что по каталогу номер подходит для этой модели, а для полной уверенности можно прислать VIN. Упомяни узел (unit) и условия из notes, если есть.\n- "other_numbers": номера клиента в каталоге его автомобиля НЕТ, но для этой детали каталог указывает другие номера (catalogNumbers). Скажи это прямо и вежливо, назови номера из каталога. Возможные причины: номер устарел/заменён, деталь для другой модификации. Если "aftermarket": true — номер клиента от другого производителя (аналог), а оригинальный номер для машины — из catalogNumbers; подходит ли аналог, уточнит менеджер. Предложи менеджера для окончательной проверки.\n- "part_not_found": по названию детали в каталоге автомобиля ничего не найдено — скажи, что автоматически проверить не удалось, предложи менеджера (<<<MANAGER_BUTTON>>>).\n- "vehicle_not_found": автомобиль по VIN не найден — попроси проверить VIN.\n- "unavailable" или "no_part_name": проверить автоматически сейчас не удалось — скажи это и предложи менеджера (<<<MANAGER_BUTTON>>>), НЕ утверждай, что деталь подходит или не подходит.\nНИКОГДА не утверждай совместимость сверх этого результата.` : '';
     const partLinkNote = partLinkCodes.length
-      ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных" или "нет в наличии": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ и проверит совместимость с автомобилем клиента. Саму кнопку и ссылку в тексте НЕ дублируй.`
+      ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных" или "нет в наличии": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ${compat ? ' (совместимость — см. раздел ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА)' : ' и проверит совместимость с автомобилем клиента'}. Саму кнопку и ссылку в тексте НЕ дублируй.`
       : '';
 
     const systemWithData = SYSTEM_PROMPT
@@ -1815,7 +1901,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
-      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + partLinkNote;
+      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote;
 
     const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
@@ -1893,4 +1979,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 module.exports = handler;
 module.exports.partLinksForMessage = partLinksForMessage;
 module.exports.orderStatusReply = orderStatusReply;
+module.exports.compatVerdict = compatVerdict;
+module.exports.keywordsFromName = keywordsFromName;
+module.exports.abcpPartName = abcpPartName;
 module.exports.clearCaches = clearCaches;
