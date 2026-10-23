@@ -1600,19 +1600,35 @@ console.log(JSON.stringify(extracted, null, 2));
 
     // Part number + car known -> check that number against the car's catalog.
     let compat = null;
+    let compatSkipCode = null;
     // Safety net: the extraction step sometimes misses the part number when a
     // VIN is in the same message (seen 23.10: "Подойдёт 13628582663? VIN …").
     // Take an 11-digit number from the latest message (BMW format; spaces ok),
     // never the VIN or a phone number (7…/8… with 11 digits, or the extracted phone).
-    if (!extracted.vendorCode) {
+    // Also when the "part number" it returned is really the VIN, or isn't in
+    // the customer's recent messages at all (seen 23.10: no check ran for
+    // "Подойдёт 13627823945? VIN X4XZW61140L560928").
+    {
+      const norm = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const vc = norm(extracted.vendorCode);
+      const recent = (messages || []).filter(m => m.role === 'user').slice(-2)
+        .map(m => String(typeof m.content === 'string' ? m.content : '')).join(' ').toUpperCase().replace(/[\s\-.]/g, '');
+      if (vc && (vc === norm(extracted.vin) || vc.length === 17)) {
+        console.log(`[compat] extracted vendorCode "${extracted.vendorCode}" is the VIN -- ignored`);
+        extracted.vendorCode = null;                 // wrong anyway
+      } else if (vc && !recent.includes(vc)) {
+        compatSkipCode = vc;                         // older number: keep it, just don't re-check it
+      }
+    }
+    if (!extracted.vendorCode || compatSkipCode) {
       const last = [...(messages || [])].reverse().find(m => m.role === 'user');
       const text = String(last && typeof last.content === 'string' ? last.content : '').replace(/(\d)[\s-](?=\d)/g, '$1');
       const phone = String(extracted.contactPhone || '').replace(/\D/g, '').slice(-10);
       const found = (text.match(/(?<![\dA-Z])\d{11}(?![\dA-Z])/gi) || [])
         .find(n => !/^[78]9/.test(n) && !(phone && n.endsWith(phone)) && !String(extracted.vin || '').includes(n));
-      if (found) { extracted.vendorCode = found; console.log(`[compat] part number ${found} taken from the message (missed by extraction)`); }
+      if (found) { extracted.vendorCode = found; compatSkipCode = null; console.log(`[compat] part number ${found} taken from the message (missed by extraction)`); }
     }
-    const compatCode = String(extracted.vendorCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const compatCode = compatSkipCode ? '' : String(extracted.vendorCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     // Only while the number is current: typed in one of the customer's last 2 messages.
     const recentUserText = (messages || []).filter(m => m.role === 'user').slice(-2)
       .map(m => String(typeof m.content === 'string' ? m.content : '')).join(' ').toUpperCase().replace(/[\s\-.]/g, '');

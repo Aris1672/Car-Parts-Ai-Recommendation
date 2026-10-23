@@ -96,6 +96,7 @@ The bot now checks a **part number the customer types** against **their car's or
     - if only garbled / "Деталь" names exist, a name is taken from the offers of one `search/articles` call (added to the read-only whitelist);
     - a non-Russian name is translated by a small Haiku call into the BMW-catalog Russian name (`toRussianPartName()`, cached, 6 s timeout), e.g. "датчик температуры отработавших газов".
   - Logged as `[compat] ABCP name "…" -> "…"` and `[compat] part name for … from offers`.
+- **Fourth live test 23.10:** "Подойдёт 13627823945? VIN X4XZW61140L560928" ran no check, and the fallback didn't fire either. The extraction had put the **VIN into `vendorCode`**. Now a `vendorCode` equal to the VIN (or 17 characters long) is discarded and the 11-digit number is taken from the message. A `vendorCode` that isn't in the last 2 customer messages is kept for the rest of the reply but **not re-checked** (`compatSkipCode`). Log: `[compat] extracted vendorCode "…" is the VIN -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
 
 ## 🗺️ ABCP API — future to-do list
