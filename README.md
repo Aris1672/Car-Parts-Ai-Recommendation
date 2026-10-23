@@ -101,6 +101,27 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
 
+## 📝 TO-DO: switch from scraping the site's Laximo pages to the direct Laximo API
+
+**Why:** the bot reads Laximo through bmwclub77.ru's `/laximo` pages (scraper, `lib/laximo.js`). ABCP's bot check ("Мы проверяем ваш браузер") has blocked our server twice despite the IP exemption: **21.10.2026** and **23.10.2026**. During a block, VIN/model lookups and the part-number compatibility check fail (the pause + 30-min probe limits the damage, but the bot can't check anything). Михаил has his **own Laximo licence** (14 750 ₽, renewed on the 9th, dashboard lk.a-motive.ru, provider Technology Trade, ~1 000 OEM requests/month shared with site customers), so the direct Laximo web service may be usable.
+
+**Expected gains:**
+- no dependency on the site's bot protection;
+- faster, structured data instead of HTML parsing (no breakage when the site's markup changes);
+- possibly a **search by OEM number / list of applicable vehicles**, which would make the compatibility check exact and drop the ABCP part-name + name-search detour (session 19). To be confirmed in Laximo's docs.
+
+**Open questions for Laximo support (Technology Trade):**
+1. Does Михаил's licence include **direct access to the Laximo web service (OEM catalogs)** from our own server, or only the ABCP platform integration?
+2. What is needed: **IP whitelist (168.222.202.222)** or separate API credentials? Where is the **API documentation**?
+3. Do direct API requests count toward the **same monthly quota** as the site? Is there a method to **find the vehicles a given OEM number fits**?
+
+**When answered:**
+- Credentials go **only** into Coolify env vars (never code/README).
+- Build a `lib/laximoApi.js` with the same outputs as `lib/laximo.js` (`findPartsByVin`, `findPartsByModel`, plus an OEM applicability lookup) and keep the scraper as a fallback behind an env switch.
+- Keep the request budget/queue (quota is billed).
+
+**Status:** ⏳ not started. Message to Laximo support not sent yet (a Russian draft can be prepared on request).
+
 ## 🗺️ ABCP API — future to-do list
 
 Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Административный интерфейс) could add to the bot and the dashboard. **Done** = live. Priority: ⭐⭐⭐ high, ⭐⭐ medium, ⭐ low. Rule for all items: the bot only **reads**. Any write operation runs only from the admin dashboard, after an explicit click by Михаил, and is whitelisted one by one in `lib/abcpOrders.js` (`READ_ONLY_OPS`) or a separate admin-only client.
