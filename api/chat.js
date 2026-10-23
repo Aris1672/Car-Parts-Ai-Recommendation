@@ -782,6 +782,8 @@ function compatVerdict(code, laximoResult) {
   const parts = laximoResult.parts || [];
   const hits = parts.filter(p => laximo.normalizeOem(p.oem) === want);
   if (hits.length) return { verdict: 'fits', matches: hits.slice(0, 3).map(p => ({ oem: p.oem, name: p.name, unit: p.unit, notes: p.notes })) };
+  // The search itself failed (site block, pause...): "not found" would be a false statement.
+  if (laximoResult.searchFailed) return { verdict: 'unavailable', reason: 'catalog search failed' };
   if (parts.length) return { verdict: 'other_numbers', catalogNumbers: parts.slice(0, 8).map(p => ({ oem: p.oem, name: p.name, unit: p.unit })) };
   return { verdict: 'part_not_found' };
 }
