@@ -64,6 +64,7 @@ Customers often ask about existing orders. The bot now answers from the shop's *
   - The password is never logged.
   - A phone given for order verification does **not** trigger the automatic manager handoff (`AUTO_MANAGER_HANDOFF` is skipped when an `orderNumber` is in the conversation).
 - **Config (Coolify env vars only):** `ABCP_API_HOST` (from Настройка → Система → "Данные для доступа к API"), `ABCP_API_LOGIN`, `ABCP_API_PASSWORD_MD5`. **Never put these in code or the README.** Without them the bot points to "Мои заказы", Telegram/MAX and the manager button.
+- **First live test 23.10:** `fetch failed` (network/TLS level, no answer from ABCP). The likely cause is the host from the panel, `bmwmperformance.ru.public.api.abcp.ru`: it has an extra dot, which a `*.public.api.abcp.ru` certificate doesn't cover. `ABCP_API_HOST` now accepts **several hosts, comma-separated**. They are tried in order, the first that answers is remembered, and the real reason is logged (`[abcp] … via <host> failed: <code>: <reason>`). Try `bmwmperformance.ru.public.api.abcp.ru,id2319.public.api.abcp.ru` (id2319 = the shop ID).
 - **Logs:** `DIAG order-status {"number","by","status"}` and `[abcp] order …: verified / contact does not match / ABCP error …`.
 - ⚠️ **The API-admin MD5 password was shown in a chat screenshot on 23.10. Change it in ABCP once this works, and update `ABCP_API_PASSWORD_MD5` in Coolify.**
 
