@@ -1858,7 +1858,8 @@
       btn.disabled = true;
     } else {
       btn.disabled = false;
-      if (st && st.error) html = `⚠️ Проверка остановилась: ${esc(st.error)}. Нажмите «Проверить в ABCP», чтобы продолжить.`;
+      if (st && st.error === 'NOT_ENABLED') html = '⚠️ Проверка недоступна: метод каталога ABCP входит в отдельную платную услугу «Каталоги в товарных группах через API». Её подключает отдел продаж ABCP.';
+      else if (st && st.error) html = `⚠️ Проверка остановилась: ${esc(st.error)}. Нажмите «Проверить в ABCP», чтобы продолжить.`;
       else if (counts.photo + counts.nophoto + counts.notfound > 0)
         html = `Каталог ABCP: 📷 с фото — <b>${counts.photo}</b> · найдено без фото — ${counts.nophoto} · не найдено — ${counts.notfound} · не проверено — ${counts.unchecked}`;
     }

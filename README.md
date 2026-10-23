@@ -56,6 +56,7 @@ Read session 15 first, then session 14's "Status", then session 13 for the compa
 - **Brand for the lookup:** missing articles store only the number, so the car's brand is used (BMW/MINI → "BMW", Мерседес → "Mercedes-Benz", Фольксваген → "VW"…). Wrong guesses show as "не найден".
 - **Junk codes hidden:** placeholders from the old compatibility table (`00000000000`, `01104444444`: all zeros or 7+ identical digits in a row) are left out of the list and the check. Their count is shown in the summary line.
 - **Client:** `lib/abcpOrders.js` got `apiPost()` with its own whitelist (`READ_ONLY_POST_OPS = cp/articles/info/batch`). Write operations such as `cp/productCards` are still refused.
+- ⚠️ **First live run 23.10: `ABCP error 3: Unknown operation`.** Per the docs, `cp/articles/info/batch` is part of **"Каталоги в товарных группах через API", a separate paid ABCP service** ("для подключения необходимо связаться с отделом продаж ABCP"). It is not enabled on this account. The dashboard now says so (`job.error = 'NOT_ENABLED'`). Options: enable that service (the code works unchanged), or use the per-article `articles/info` from ABCP's "Общий интерфейс" (docs still to be checked; 1 call per article, so slow on the first run).
 - **What the result means:** "📷 есть фото в ABCP" while the item is missing from the feed points to an export/price-list setting, not a missing photo. "Найден, без фото" / "не найден" need a photo added (next steps in the to-do list: product-card text, photo upload via "Мои каталоги").
 
 ## 🗺️ ABCP API — future to-do list
@@ -75,7 +76,7 @@ Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Админист
 - [ ] ⭐ **Oil/fluid selection by catalog filters** (brand, viscosity, approval) — `/cp/catalog/info`, `/cp/catalog/search`, then `/cp/articles/info/batch`.
 
 ### For Михаил (admin dashboard)
-- [x] **"Нет фото" → ABCP catalog check**: background check of every missing article against ABCP's catalog (`cp/articles/info/batch`), with thumbnail, description and an ABCP filter in the tab *(session 18, 23.10.2026; awaiting first live run)*
+- [x] **"Нет фото" → ABCP catalog check**: background check of every missing article against ABCP's catalog (`cp/articles/info/batch`), with thumbnail, description and an ABCP filter in the tab *(session 18, 23.10.2026; built, but the ABCP method needs the paid "Каталоги в товарных группах через API" service; see session 18)*
 - [ ] ⭐⭐ **"Нет фото" → product card text with one click**: `cp/productCards` (write, admin-only), description + SEO texts. ⚠️ The API does **not** upload photos; the card limit is a paid service (`403 Article cards limit exceeded`).
 - [ ] ⭐⭐ **"Нет фото" → photo upload** via "Мои каталоги" import with an image archive — `/cp/usercatalogs/{catalogId}/upload` (`imagesArchive`, multipart) + `/cp/usercatalogs/{catalogId}/tasks/{taskId}/status`. Bigger job; needs a user catalog set up in ABCP.
 - [ ] ⭐⭐⭐ **"Неудовлетворённый спрос" tab**: what customers searched on the site and didn't buy (in stock / not / analogs, put in cart or not) — `/cp/reports/unsatisfiedDemands`. Same idea as "Нет фото", for the whole site.
