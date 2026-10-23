@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-23 (session 17: order status from ABCP; sessions 16–16e: "Нет фото" filter + sorting, self-recovering Laximo pause, catalog-name fallbacks, "Открыть деталь" button, new company info). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-23 (session 17: order status from ABCP, live and confirmed, password rotated; sessions 16–16e: "Нет фото" filter + sorting, self-recovering Laximo pause, catalog-name fallbacks, "Открыть деталь" button, new company info and manager phone). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -72,7 +72,8 @@ Customers often ask about existing orders. The bot now answers from the shop's *
   - **Status notes were repeated per item** ("Спасибо, за заказ!" is the client description of "Заказ принят" in ABCP). Now, if all items share a status, there is one "Статус: …" line plus the note once; otherwise there is a status per item and each status's note once. Long item names are cut at about 70 characters.
   - **286461514 was "not found" although it was in the panel earlier** (probably merged or deleted). An unknown number is now retried with `withDeleted=1`. If it exists as deleted **and** the contact matches, the bot says the order is no longer active (merged or cancelled) and refers to the manager.
 - **Logs:** `DIAG order-status {"number","by","status"}` and `[abcp] order …: verified / contact does not match / ABCP error …`.
-- ⚠️ **The API-admin MD5 password was shown in a chat screenshot on 23.10. Change it in ABCP once this works, and update `ABCP_API_PASSWORD_MD5` in Coolify.**
+- ✅ **Password rotated 23.10:** the API-admin password (shown in a chat screenshot earlier that day) was changed in ABCP, and `ABCP_API_PASSWORD_MD5` was updated in Coolify. **Confirmed working by the owner** after the change: order status by order number or "Код заказа" plus phone/email.
+- **Final settings:** `ABCP_API_HOST=bmwmperformance.ru.public.api.abcp.ru` (single host; the id2319 fallback is not used), `ABCP_API_LOGIN`, `ABCP_API_PASSWORD_MD5`. **If the password is changed again, update the Coolify variable.**
 
 ### 📍 Session 16e (Oct 23) — company info from the client
 
