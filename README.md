@@ -48,9 +48,16 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
-### 📍 Session 16e (Oct 23) — store address
+### 📍 Session 16e (Oct 23) — company info from the client
 
-- At the client's request (Михаил) the store address in the bot's contact block (`SYSTEM_PROMPT` in `api/chat.js`, "Контакты компании") changed from "г.Москва, ул.Юровская д.103" to **"Московская обл., г. Химки, ул. Молодежная, д. 9Н"** (пункт выдачи, same as the site header), and the bot is told not to name any other address. Phone, email and opening hours are kept as they were. **Company facts (address, hours, delivery, payment…) live in that block**: edit it there when they change.
+The bot's contact block (`SYSTEM_PROMPT` in `api/chat.js`, "Контакты компании") was rewritten with the client's current data. It replaces the old Юровская address, the 11:30–19:00 hours and the +7 985 phone:
+- **Address:** new branch in Химки near МКАД: Московская обл., г. Химки, ул. Молодежная, д. 9Н ("БмвКлуб77" in the navigator), store + BMW service.
+- **Hours:** Mon–Fri 10:30–20:00; Sat–Sun 11:00–18:00, pickup of ready orders only.
+- **Phone:** +7 (967) 555-7-555. **Order questions:** Telegram or MAX at the same number. **Email:** Orders@BmwClub77.ru.
+- **Delivery:** Moscow by Yandex.Доставка, regions by СДЭК. Prices and times aren't given, so the bot refers those questions to the manager.
+- The bot answers address, hours, contact and delivery questions **only** from this block.
+- **Not changed:** the green manager button in the widget still dials `MANAGER_PHONE = '+79855558675'` (`widget/chat-widget.js`). Change it there if the client wants the button to call +7 (967) 555-7-555.
+- **Edit this block when company facts change.** If many more facts are needed (payment, returns, warranty…), consider a separate knowledge-base section.
 
 ### 🔗 Session 16d (Oct 22) — "Открыть деталь" button when the customer types a part number
 
