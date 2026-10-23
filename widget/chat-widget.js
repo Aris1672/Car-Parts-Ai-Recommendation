@@ -35,7 +35,8 @@
   const BASE_URL    = (window.AGENT_URL || 'https://bmwclub77.assistant24info.ru').replace(/\/+$/, '');
   const AGENT_URL   = BASE_URL + '/api/chat';
   const SESSION_URL = BASE_URL + '/api/session';
-  const MANAGER_PHONE = '+79855558675'; // BMW Club77 manager line (tel: link on the manager button)
+  const MANAGER_PHONE = '+79675557555'; // BMW Club77 line (tel: link on the manager button), changed 23.10.2026 at the client's request
+  const MANAGER_PHONE_LABEL = '+7 (967) 555-7-555'; // shown under the button, written the way the client writes it
 
   // BMW Club77 brand colors (BMW's well-known blue palette)
   const BRAND_COLOR      = '#0066b1';
@@ -1095,7 +1096,7 @@
       ${ICON_PHONE}
       <div class="pc-manager-btn-label">
         <span class="pc-manager-btn-title">Связаться с менеджером</span>
-        <span class="pc-manager-btn-sub">${MANAGER_PHONE.replace(/(\+7)(\d{3})(\d{3})(\d{2})(\d{2})/, '$1 $2 $3-$4-$5')}</span>
+        <span class="pc-manager-btn-sub">${MANAGER_PHONE_LABEL}</span>
       </div>
     `;
 

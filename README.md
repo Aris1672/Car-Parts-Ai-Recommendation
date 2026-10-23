@@ -56,7 +56,7 @@ The bot's contact block (`SYSTEM_PROMPT` in `api/chat.js`, "Контакты к�
 - **Phone:** +7 (967) 555-7-555. **Order questions:** Telegram or MAX at the same number. **Email:** Orders@BmwClub77.ru.
 - **Delivery:** Moscow by Yandex.Доставка, regions by СДЭК. Prices and times aren't given, so the bot refers those questions to the manager.
 - The bot answers address, hours, contact and delivery questions **only** from this block.
-- **Not changed:** the green manager button in the widget still dials `MANAGER_PHONE = '+79855558675'` (`widget/chat-widget.js`). Change it there if the client wants the button to call +7 (967) 555-7-555.
+- **Green "Связаться с менеджером" button** (`widget/chat-widget.js`): now calls **+7 (967) 555-7-555** (`MANAGER_PHONE = '+79675557555'`, label `MANAGER_PHONE_LABEL`) at the client's request; it called +7 985 555-86-75 before. Old cached widgets show the old number until a hard refresh.
 - **Edit this block when company facts change.** If many more facts are needed (payment, returns, warranty…), consider a separate knowledge-base section.
 
 ### 🔗 Session 16d (Oct 22) — "Открыть деталь" button when the customer types a part number
