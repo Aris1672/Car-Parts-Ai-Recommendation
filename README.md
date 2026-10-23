@@ -89,6 +89,13 @@ The bot now checks a **part number the customer types** against **their car's or
     - empty lists are never cached (key `modelveh3`, old v2 entries ignored);
     - **`partialWizardPick()`** matches customer tokens with digits as part of an option ("30d" → BMW's "30dX"). One match is taken, several become buttons, none become buttons for ≤ 16 options. It also narrows a picker question to one option when possible;
     - every give-up now logs `[laximo] model path: no "<step>" option matches (…options…)` or `…returned no vehicles`.
+- **Second live test 23.10:**
+  - ✅ **By model works:** "Подойдёт 11427808443 на X5 F15 30d?" → Laximo found X5 30dX (F15) → **other_numbers**. The bot named the catalog's numbers 11428507683 (oil filter) and 11428507697 (housing) and showed them as cards.
+  - **By VIN: `part_not_found` for 13628582663.** ABCP's names for it are **English** ("Temperature sensor, exhaust") or **garbled** ("Ґрвзшъ вхьяхарвгал si"), and the catalog search is Russian. Now:
+    - garbled names are skipped (`looksGarbled()`);
+    - if only garbled / "Деталь" names exist, a name is taken from the offers of one `search/articles` call (added to the read-only whitelist);
+    - a non-Russian name is translated by a small Haiku call into the BMW-catalog Russian name (`toRussianPartName()`, cached, 6 s timeout), e.g. "датчик температуры отработавших газов".
+  - Logged as `[compat] ABCP name "…" -> "…"` and `[compat] part name for … from offers`.
 
 ## 🗺️ ABCP API — future to-do list
 

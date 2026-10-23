@@ -680,15 +680,68 @@ async function abcpPartName(code, carBrand) {
   }
   if (!list.length) return null;
   const want = BRAND_KEY(carBrand === 'MINI' ? 'BMW' : carBrand);
-  const own = list.find(x => want && BRAND_KEY(x.brand) === want && x.description);
-  const any = list.find(x => x.description && !/^деталь$/i.test(String(x.description).trim()));
+  const usable = x => x.description && !/^деталь$/i.test(String(x.description).trim()) && !looksGarbled(x.description);
+  const own = list.find(x => want && BRAND_KEY(x.brand) === want && usable(x));
+  const any = list.find(usable);
   const pick = own || any || list[0];
+  let name = usable(pick) ? String(pick.description).trim() : null;
+  if (!name) {
+    // Only garbled / "Деталь" names: take one from the offers of the price
+    // search (one call; e.g. "Temperature sensor, exhaust").
+    try {
+      const offers = await Promise.race([
+        abcpOrders.apiGet('search/articles', { number: code, brand: pick.brand, useOnlineStocks: 0, withOutAnalogs: 1 }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout 6s')), 6000)),
+      ]);
+      const arr = Array.isArray(offers) ? offers : Object.values(offers || {});
+      const descs = arr.map(o => o && o.description).filter(d => usable({ description: d }));
+      name = descs.find(d => /[а-яё]/i.test(d)) || descs[0] || null;
+      if (name) console.log(`[compat] part name for ${code} from offers: "${name}"`);
+    } catch (err) {
+      console.error('[compat] search/articles failed:', err.message);
+    }
+  }
   return {
     brand: pick.brand,
-    name: pick.description ? String(pick.description).trim() : null,
+    name,
     // Only brands other than the car's (e.g. MANN, Bosch) -> an aftermarket number.
     aftermarket: !!want && !list.some(x => BRAND_KEY(x.brand) === want),
   };
+}
+
+/** Mis-decoded text like "Ґрвзшъ вхьяхарвгал si" (seen in ABCP descriptions). */
+function looksGarbled(s) {
+  const t = String(s || '');
+  return /[ҐґЄєЇїЎўІі]/.test(t) || /[ъь]{2}|[ъь][аеёиоуыэюя]/i.test(t.replace(/подъ|объ|съ|разъ|отъ|изъ|въ/gi, ''));
+}
+
+// Some ABCP names are English ("Temperature sensor, exhaust") -- the Laximo
+// catalog on the site is Russian. Translate with a small, cheap model call.
+const translateCache = new Map();
+async function toRussianPartName(name) {
+  const key = String(name || '').trim().toLowerCase();
+  if (!key) return null;
+  if (translateCache.has(key)) return translateCache.get(key);
+  try {
+    const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 60, temperature: 0,
+        messages: [{ role: 'user', content: `Переведи название автозапчасти на русский так, как оно называется в оригинальном каталоге BMW (ETK), коротко, без пояснений и кавычек. Название: ${name}` }],
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+    const data = await res.json();
+    const out = String(((data.content || []).find(b => b.type === 'text') || {}).text || '').split('\n')[0].replace(/["«».]/g, '').trim();
+    const ru = /[а-яё]/i.test(out) ? out.slice(0, 80) : null;
+    translateCache.set(key, ru);
+    if (translateCache.size > 2000) translateCache.clear();
+    return ru;
+  } catch (err) {
+    console.error('[compat] translation failed:', err.message);
+    return null;
+  }
 }
 
 /** "Фильтр масляный" -> ["фильтр масляный", "масляный фильтр"] (Laximo name search). */
@@ -1569,6 +1622,12 @@ console.log(JSON.stringify(extracted, null, 2));
       if (!Array.isArray(extracted.partKeywords) || !extracted.partKeywords.length) {
         const info = await abcpPartName(compatCode, extracted.brand || 'BMW');
         if (info) Object.assign(compat, { partName: info.name, partBrand: info.brand, aftermarket: info.aftermarket, source: 'abcp' });
+        if (info && info.name && !/[а-яё]/i.test(info.name)) {
+          // English name from ABCP -> Russian, as the catalog names it.
+          const ru = await toRussianPartName(info.name);
+          console.log(`[compat] ABCP name "${info.name}" -> "${ru || '?'}"`);
+          if (ru) { compat.partNameOriginal = info.name; info.name = ru; compat.partName = ru; }
+        }
         const kw = keywordsFromName(info && info.name);
         if (kw.length) extracted.partKeywords = kw; // drives the Laximo name search below
       }
@@ -1994,4 +2053,6 @@ module.exports.orderStatusReply = orderStatusReply;
 module.exports.compatVerdict = compatVerdict;
 module.exports.keywordsFromName = keywordsFromName;
 module.exports.abcpPartName = abcpPartName;
+module.exports.looksGarbled = looksGarbled;
+module.exports.toRussianPartName = toRussianPartName;
 module.exports.clearCaches = clearCaches;
