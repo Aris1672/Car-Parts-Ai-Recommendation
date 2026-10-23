@@ -795,6 +795,7 @@ const fmtDate = s => {
   const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[3]}.${m[2]}.${m[1]}` : null;
 };
+const fmtDay = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}` : null; };
 const fmtRub = n => `${Math.round(Number(n)).toLocaleString('ru-RU').replace(/\u00a0/g, ' ')} ₽`;
 
 async function orderStatusReply(extracted, ip) {
@@ -830,16 +831,26 @@ async function orderStatusReply(extracted, ip) {
     if (lines.length) lines.push('');
     lines.push(`**Заказ №${o.number}**${fmtDate(o.date) ? ` от ${fmtDate(o.date)}` : ''}`);
     const pos = o.positions.slice(0, 15);
-    const statuses = [...new Set(pos.map(p => p.status || 'статус уточняется'))];
-    const one = statuses.length === 1;
-    for (const p of pos) {
+    // Timeline per item: "Заказ принят 23.10 → Заказано у поставщика 24.10 → **В пути** 26.10"
+    // (from cp/orders/statusHistory; current status alone if there's no history).
+    const timeline = p => {
+      const h = (p.history || []).filter(e => e.status);
+      if (h.length > 1) return h.map((e, i) => `${i === h.length - 1 ? `**${e.status}**` : e.status}${fmtDay(e.at) ? ` ${fmtDay(e.at)}` : ''}`).join(' → ');
+      return `**${p.status || 'статус уточняется'}**${fmtDate(p.statusDate) ? ` (с ${fmtDate(p.statusDate)})` : ''}`;
+    };
+    const lines0 = pos.map(timeline);
+    const one = new Set(lines0).size === 1;
+    pos.forEach((p, i) => {
       const what = [p.brand, p.number].filter(Boolean).join(' ') + (p.description ? ` — ${short(p.description)}` : '') + (p.quantity ? ` (${p.quantity} шт.)` : '');
-      lines.push(`• ${what}` + (one ? '' : `: **${p.status || 'статус уточняется'}**${fmtDate(p.statusDate) ? ` (с ${fmtDate(p.statusDate)})` : ''}`));
-    }
+      lines.push(`• ${what}` + (one ? '' : `: ${lines0[i]}`));
+    });
     if (o.positions.length > 15) lines.push(`…и ещё ${o.positions.length - 15} поз.`);
-    if (one) {
-      const d = pos.map(p => fmtDate(p.statusDate)).filter(Boolean).sort().pop();
-      lines.push(`Статус: **${statuses[0]}**${d ? ` (с ${d})` : ''}.`);
+    if (one) lines.push(`${(pos[0] && (pos[0].history || []).length > 1) ? 'История' : 'Статус'}: ${lines0[0]}.`);
+    // Expected arrival from the supplier's delivery time (only if still ahead).
+    const days = Math.max(0, ...pos.map(p => p.deliveryDaysMax || p.deliveryDays || 0));
+    const base = Date.parse(String(o.date || '').replace(' ', 'T'));
+    if (days && !Number.isNaN(base) && base + days * 86400000 > Date.now()) {
+      lines.push(`Ориентировочный срок поставки: до ${fmtDate(new Date(base + days * 86400000).toISOString())}${!one && pos.length > 1 ? ' (по самой долгой позиции)' : ''}.`);
     }
     // Each status's client description once, not per item.
     const infos = [...new Map(pos.filter(p => p.statusInfo).map(p => [p.status, p.statusInfo])).entries()];

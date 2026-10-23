@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-23 (session 19: part-number compatibility check via ABCP + Laximo; session 18: "Нет фото" ABCP check (off, tariff limit); session 17: order status from ABCP). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-23 (session 20: order timeline; session 19: part-number compatibility check via ABCP + Laximo; TO-DO: direct Laximo API). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -101,6 +101,14 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
 
+### 🕒 Session 20 (Oct 23) — order timeline in the order-status reply
+
+- After the ownership check, **one** call to **`cp/orders/statusHistory`** (all item ids, max 100; read-only, whitelisted) gives each item's status history. `parseHistory()` in `lib/abcpOrders.js` sorts it oldest first and merges repeated statuses. **Staff names (`managerName`) are dropped** and never shown to customers.
+- **Reply:** if all items share the same history, there is one line, "История: Заказ принят 21.10 → Заказано у поставщика 22.10 → **В пути** 23.10"; otherwise each item gets its own timeline. Without history, the current status shows as before.
+- **"Ориентировочный срок поставки: до DD.MM.YYYY"** = order date + the longest supplier delivery time of the items (`deadlineMax`/`deadline`, hours → days), shown only while it's still ahead. Mixed orders add "(по самой долгой позиции)".
+- If the history call fails, the reply falls back to the current status (logged `[abcp] statusHistory failed`). Limit group "orders": 120 000/day.
+- Tested with mocked ABCP: shared timeline, per-item timelines, a missing history, merged duplicates, no staff names.
+
 ## 📝 TO-DO: switch from scraping the site's Laximo pages to the direct Laximo API
 
 **Why:** the bot reads Laximo through bmwclub77.ru's `/laximo` pages (scraper, `lib/laximo.js`). ABCP's bot check ("Мы проверяем ваш браузер") has blocked our server twice despite the IP exemption: **21.10.2026** and **23.10.2026**. During a block, VIN/model lookups and the part-number compatibility check fail (the pause + 30-min probe limits the damage, but the bot can't check anything). Михаил has his **own Laximo licence** (14 750 ₽, renewed on the 9th, dashboard lk.a-motive.ru, provider Technology Trade, ~1 000 OEM requests/month shared with site customers), so the direct Laximo web service may be usable.
@@ -131,7 +139,7 @@ Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Админист
 - [x] **Order status** by order number or "Код заказа" + phone/email — `cp/order`, `cp/orders`, `cp/users`, `cp/statuses` *(session 17, live 23.10.2026)*
 - [ ] ⭐⭐⭐ **"Оплатить заказ" button** for verified orders with an amount due — `cp/payment/token` (ABCP's own payment link). Small, builds on order status.
 - [ ] ⭐⭐⭐ **Live price & availability for any part number** (not only the photo feed): "13628582663 — 10 100 ₽, под заказ, ~110 дней". **Confirmed possible** ("Общий интерфейс"): `search/articles` (GET, one number+brand, incl. online suppliers and analogs) and `search/batch` (POST, up to 100 brand+number, own price lists only). Limits look fine for chat volume: the full "Статистика вызовов API-операций" table has only 5 groups (articles/info, others, search/brands, users, orders), so `search/articles`/`search/batch` count under **search/brands (90 000/day)** or **others (10 000/day)**. Searches also count toward the monthly **"Поисковые запросы"** service (400 000/month; 16 282 used in Oct 2026). As API-administrator, pass **`profileId`** of the retail profile so prices match what a visitor sees (without it: guest price). Fields: price, availability, deliveryPeriod/Max (hours), noReturn, isUsed, supplierDescription.
-- [ ] ⭐⭐ **Order timeline**: accepted → ordered from supplier → in transit → ready, with dates — `cp/order/statusHistory`, `cp/orders/statusHistory`.
+- [x] **Order timeline**: accepted → ordered from supplier → in transit → ready, with dates, plus the expected delivery date — `cp/orders/statusHistory` *(session 20, 23.10.2026)*
 - [ ] ⭐⭐ **Product details for parts without a feed card**: description, photos, properties (viscosity, approvals, sizes) — `cp/articles/info/batch` (POST, read-only, max 100 per call; images at `https://imgcdn.abcp.ru/p/<name>`). Also lets the bot answer oil-approval questions from real data.
 - [ ] ⭐⭐ **Customer's garage**: after the phone check, use the cars (often with VIN) saved on the site — "Вижу у вас BMW X5 G05 — подбираю для неё?" → VIN to Laximo — `cp/users/garage`.
 - [ ] ⭐ **Delivery times by zone** for "сколько ехать в …?" — `/cp/user/shipmentAddressZones` (min. delivery days per zone).
