@@ -1854,11 +1854,12 @@
     let html = '';
     if (st && st.running) {
       const pct = st.total ? Math.round(st.done / st.total * 100) : 0;
-      html = `⏳ Проверка в каталоге ABCP: ${st.done} из ${st.total} (${pct}%) · найдено ${st.found} · с фото ${st.withPhoto}`;
+      const left = Math.max(1, Math.round((st.total - st.done) * 0.9 / 60));
+      html = `⏳ Проверка в каталоге ABCP: ${st.done} из ${st.total} (${pct}%) · найдено ${st.found} · с фото ${st.withPhoto} · осталось ≈ ${left} мин. Можно закрыть страницу — проверка идёт на сервере.`;
       btn.disabled = true;
     } else {
       btn.disabled = false;
-      if (st && st.error === 'NOT_ENABLED') html = '⚠️ Проверка недоступна: метод каталога ABCP входит в отдельную платную услугу «Каталоги в товарных группах через API». Её подключает отдел продаж ABCP.';
+      if (st && st.error === 'NOT_ENABLED') html = '⚠️ Проверка недоступна: ABCP не разрешает этот метод для аккаунта API (ошибка «неизвестная операция» / «доступ запрещён»). Уточните в техподдержке ABCP доступ к методу articles/info.';
       else if (st && st.error) html = `⚠️ Проверка остановилась: ${esc(st.error)}. Нажмите «Проверить в ABCP», чтобы продолжить.`;
       else if (counts.photo + counts.nophoto + counts.notfound > 0)
         html = `Каталог ABCP: 📷 с фото — <b>${counts.photo}</b> · найдено без фото — ${counts.nophoto} · не найдено — ${counts.notfound} · не проверено — ${counts.unchecked}`;
