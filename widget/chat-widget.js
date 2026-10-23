@@ -369,6 +369,16 @@
     .pc-partlink-label { display: flex; flex-direction: column; }
     .pc-partlink-sub { font-size: 11px; opacity: 0.85; font-weight: 400; }
 
+    /* ── Unit diagram (catalog part without a product photo) ── */
+    .pc-diagram { background: #fff; border-radius: 14px; padding: 10px; max-width: 340px; box-shadow: 0 2px 12px rgba(0,0,0,0.12); animation: pc-msg-in 0.22s ease; color: #222; }
+    .pc-diagram-title { font-size: 12px; font-weight: 700; color: #555; margin: 0 2px 6px; }
+    .pc-diagram-frame { position: relative; display: block; cursor: zoom-in; line-height: 0; border-radius: 8px; overflow: hidden; background: #fff; }
+    .pc-diagram-frame img { width: 100%; height: auto; display: block; }
+    .pc-diagram-mark { position: absolute; border: 2px solid #e30613; border-radius: 4px; background: rgba(227,6,19,0.18); box-shadow: 0 0 0 3px rgba(227,6,19,0.25); pointer-events: none; display: none; }
+    .pc-diagram-caption { font-size: 13px; margin: 8px 2px 0; line-height: 1.4; }
+    .pc-diagram-caption b { color: #111; }
+    .pc-diagram-note { font-size: 11px; color: #888; margin: 4px 2px 0; }
+
     /* ── Product carousel ── */
     .pc-carousel-outer { width: 100%; max-width: 100%; }
     .pc-carousel-wrap { overflow: hidden; position: relative; border-radius: 14px; }
@@ -541,7 +551,7 @@
   // faithfully rebuild product carousels and button groups, not just text.
   const STORAGE_KEY = 'pc_chat_state_v2';
   const EXPIRY_MS    = 45 * 60 * 1000; // 45 minutes of inactivity -- matches typical "session" semantics
-  let displayLog = []; // [{type: 'dateSep'|'bot'|'user'|'products'|'buttons'|'manager'|'partlinks', payload}]
+  let displayLog = []; // [{type: 'dateSep'|'bot'|'user'|'products'|'buttons'|'manager'|'partlinks'|'diagram', payload}]
 
   function saveState() {
     try {
@@ -585,6 +595,7 @@
         case 'buttons':  addButtonsBubble(entry.payload); break;
         case 'manager':  addManagerButton(); break;
         case 'partlinks': addPartLinks(entry.payload); break;
+        case 'diagram':  addDiagram(entry.payload); break;
       }
     });
   }
@@ -1132,6 +1143,43 @@
     appendMsg(wrap);
   }
 
+  // ─── UNIT DIAGRAM ────────────────────────────────────────────────────────────
+  // Laximo diagram for a catalog part that has no product photo: image via
+  // our proxy (/api/laximo-image), the part's position marked in red (box
+  // coordinates are in the image's own pixels, scaled to the shown size).
+  function addDiagram(d) {
+    if (!d || !d.image) return;
+    const src = `${BASE_URL}/api/laximo-image?u=${encodeURIComponent(d.image)}`;
+    const wrap = document.createElement('div');
+    wrap.className = 'pc-diagram';
+    const pos = d.position ? `Поз. ${escHtml(d.position)} — ` : '';
+    wrap.innerHTML = `
+      <div class="pc-diagram-title">🛠 Схема${d.unitName ? ': ' + escHtml(d.unitName) : ''}</div>
+      <a class="pc-diagram-frame" href="${escHtml(src)}" target="_blank" rel="noopener" title="Открыть схему крупно">
+        <img alt="Схема узла" loading="lazy">
+        <span class="pc-diagram-mark"></span>
+      </a>
+      <div class="pc-diagram-caption">${pos}<b>${escHtml(d.oem || '')}</b>${d.name ? ' — ' + escHtml(d.name) : ''}${d.qty ? ' (' + escHtml(d.qty) + ')' : ''}</div>
+      <div class="pc-diagram-note">Оригинальный каталог производителя${d.box ? ' · позиция отмечена красным' : ''}</div>`;
+    const img = wrap.querySelector('img');
+    const mark = wrap.querySelector('.pc-diagram-mark');
+    const place = () => {
+      if (!d.box || !img.naturalWidth) return;
+      const k = img.clientWidth / img.naturalWidth;
+      const pad = 3;
+      mark.style.left = `${d.box.x * k - pad}px`;
+      mark.style.top = `${d.box.y * k - pad}px`;
+      mark.style.width = `${(d.box.w || 12) * k + pad * 2}px`;
+      mark.style.height = `${(d.box.h || 16) * k + pad * 2}px`;
+      mark.style.display = 'block';
+    };
+    img.addEventListener('load', place);
+    window.addEventListener('resize', place);
+    img.addEventListener('error', () => wrap.remove()); // no broken image in the chat
+    img.src = src;
+    appendMsg(wrap);
+  }
+
   // ─── PRODUCT CAROUSEL ────────────────────────────────────────────────────────
   function addProductCarousel(products) {
     if (!products || products.length === 0) return;
@@ -1272,6 +1320,7 @@
     let showManager = false;
     let autoHandoff = false;
     let partLinks = null;
+    let diagram = null;
 
     const prodMatch = text.match(/<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/);
     if (prodMatch) {
@@ -1283,6 +1332,12 @@
     if (btnMatch) {
       try { buttons = JSON.parse(btnMatch[1].trim()); } catch(e) {}
       text = text.replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/, '').trim();
+    }
+
+    const diagMatch = text.match(/<<<DIAGRAM>>>([\s\S]*?)<<<END_DIAGRAM>>>/);
+    if (diagMatch) {
+      try { diagram = JSON.parse(diagMatch[1].trim()); } catch(e) {}
+      text = text.replace(/<<<DIAGRAM>>>[\s\S]*?<<<END_DIAGRAM>>>/, '').trim();
     }
 
     const linkMatch = text.match(/<<<PART_LINKS>>>([\s\S]*?)<<<END_PART_LINKS>>>/);
@@ -1307,7 +1362,7 @@
     // bubble. Collapse any run of blank lines to a single blank line.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
-    return { text, products, buttons, showManager, autoHandoff, partLinks };
+    return { text, products, buttons, showManager, autoHandoff, partLinks, diagram };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -1371,7 +1426,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, showManager, autoHandoff, partLinks } = parseBotResponse(raw);
+      const { text, products, buttons, showManager, autoHandoff, partLinks, diagram } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -1388,10 +1443,15 @@
           .replace(/<<<PRODUCTS>>>[\s\S]*?<<<END_PRODUCTS>>>/g, '[запчасти показаны]')
           .replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/g, '')
           .replace(/<<<PART_LINKS>>>[\s\S]*?<<<END_PART_LINKS>>>/g, '')
+          .replace(/<<<DIAGRAM>>>[\s\S]*?<<<END_DIAGRAM>>>/g, '[схема показана]')
           .replace(/<<<MANAGER_BUTTON>>>/g, '')
           .replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '')
           .trim();
         messages.push({ role: 'assistant', content: cleanedForHistory });
+      }
+      if (diagram && diagram.image) {
+        addDiagram(diagram);
+        displayLog.push({ type: 'diagram', payload: diagram });
       }
       if (partLinks && partLinks.length > 0) {
         addPartLinks(partLinks);

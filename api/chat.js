@@ -2056,6 +2056,24 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
       .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote;
 
+    // Unit diagram for a catalog part that has no product photo (fetched in
+    // parallel with the AI reply; shown as a card under it). One per reply.
+    let diagramPromise = null;
+    if (laximoUsed && process.env.LAXIMO_DIAGRAMS !== 'false') {
+      const withPhoto = new Set(matchedCatalog.filter(p => p.picture).map(p => laximo.normalizeOem(p.article)));
+      const first = compat && compat.verdict === 'fits'
+        ? laximoResult.parts.filter(p => laximo.normalizeOem(p.oem) === laximo.normalizeOem(compat.code)) : [];
+      const cand = [...first, ...laximoResult.parts].find(p => p.schema && !withPhoto.has(laximo.normalizeOem(p.oem)));
+      if (cand) {
+        let t;
+        diagramPromise = Promise.race([
+          laximo.getPartDiagram(cand),
+          new Promise(r => { t = setTimeout(() => r(null), 9000); }),
+        ]).catch(err => { console.error('[laximo] diagram failed:', err.message); return null; })
+          .finally(() => clearTimeout(t));
+      }
+    }
+
     const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: {
@@ -2108,6 +2126,11 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // (Not when the phone/email was given to verify an order -- see above.)
     if ((extracted.contactPhone || extracted.contactEmail) && !extracted.orderNumber) {
       text = `${text}\n<<<AUTO_MANAGER_HANDOFF>>>`;
+    }
+    const diagram = diagramPromise ? await diagramPromise : null;
+    if (diagram) {
+      console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
+      text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;
     }
     if (partLinkCodes.length) {
       text = `${text}\n<<<PART_LINKS>>>\n${JSON.stringify(partLinkCodes)}\n<<<END_PART_LINKS>>>`;
