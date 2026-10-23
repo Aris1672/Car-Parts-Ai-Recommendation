@@ -1691,9 +1691,20 @@ console.log(JSON.stringify(extracted, null, 2));
     // the model (a VIN can't be decoded without Laximo).
     if (compat && ['unavailable', 'no_part_name'].includes(compat.verdict)) {
       compat.catalogUnavailable = true;
-      if (extracted.brand && extracted.model) {
+      // The car may be known from a saved VIN lookup even when the part search
+      // is blocked (seen 23.10: "X5 40dX", Код модели E70N) -> use it for the
+      // table: series + body code ("X5 E70"), no trim (tables spell it differently).
+      let car = extracted.brand && extracted.model ? { brand: extracted.brand, model: extracted.model } : null;
+      const lv = laximoResult && laximoResult.vehicle;
+      if (!car && lv && lv.name) {
+        const series = String(lv.name).trim().split(/\s+/)[0];
+        const body = String((lv.options && (lv.options['Код модели'] || lv.options['Серия'])) || '').trim().match(/^[A-Z]\d{2,3}/i);
+        if (series) car = { brand: lv.brand || 'BMW', model: [series, body && body[0].toUpperCase()].filter(Boolean).join(' ') };
+        if (car) compat.carFromVin = `${car.brand} ${car.model}`;
+      }
+      if (car) {
         const recs = await fetchCompatibilityByVendorCode(compat.code);
-        const fits = (matchCompatibility({ [compat.code]: recs }, { ...extracted, vendorCode: null })[compat.code]) || [];
+        const fits = (matchCompatibility({ [compat.code]: recs }, { ...extracted, ...car, vendorCode: null })[compat.code]) || [];
         const desc = r => [r.brand, r.model, r.modificationName, r.engineCode,
           r.years || [r.yearFrom, r.yearTo].filter(Boolean).join('–')].filter(Boolean).join(' ');
         if (fits.length) Object.assign(compat, { verdict: 'table_fits', tableVehicles: fits.slice(0, 5).map(desc) });
@@ -2030,7 +2041,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     const partLinkCodes = partLinksForMessage(extracted, messages);
     const compatNote = compat ? `\n\n═══════════════════════════════════════════\nПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА (результат автоматической проверки по оригинальному каталогу — опирайся ТОЛЬКО на него):\n═══════════════════════════════════════════\n${JSON.stringify({ ...compat, matchedBy: laximoResult?.matchedBy || null, vehicle: laximoResult?.vehicle?.name || null })}\nПравила по полю "verdict":\n- "fits": номер ЕСТЬ в оригинальном каталоге для автомобиля клиента. Если matchedBy = "vin" — скажи, что совместимость подтверждена по VIN. Если "model" — что по каталогу номер подходит для этой модели, а для полной уверенности можно прислать VIN. Упомяни узел (unit) и условия из notes, если есть.\n- "other_numbers": номера клиента в каталоге его автомобиля НЕТ, но для этой детали каталог указывает другие номера (catalogNumbers). Скажи это прямо и вежливо, назови номера из каталога. Возможные причины: номер устарел/заменён, деталь для другой модификации. Если "aftermarket": true — номер клиента от другого производителя (аналог), а оригинальный номер для машины — из catalogNumbers; подходит ли аналог, уточнит менеджер. Предложи менеджера для окончательной проверки.\n- "part_not_found": по названию детали в каталоге автомобиля ничего не найдено — скажи, что автоматически проверить не удалось, предложи менеджера (<<<MANAGER_BUTTON>>>).\n- "vehicle_not_found": автомобиль по VIN не найден — попроси проверить VIN.\n- "unavailable" или "no_part_name": проверить автоматически сейчас не удалось — скажи это и предложи менеджера (<<<MANAGER_BUTTON>>>), НЕ утверждай, что деталь подходит или не подходит.
 - "vin_unavailable_need_model": проверка по VIN в оригинальном каталоге СЕЙЧАС ВРЕМЕННО НЕДОСТУПНА. Скажи это коротко и попроси марку, модель с кодом кузова (например X5 F15), двигатель или год — по ним проверишь по базе совместимости. НЕ утверждай, подходит ли деталь.
-- "table_fits": оригинальный каталог сейчас недоступен, но по НАШЕЙ БАЗЕ СОВМЕСТИМОСТИ номер указан для автомобиля клиента (tableVehicles). Скажи "по нашей базе совместимости подходит для …", назови запись(и) и добавь, что для 100% уверенности можно проверить по VIN позже или уточнить у менеджера.
+- "table_fits": оригинальный каталог сейчас недоступен, но по НАШЕЙ БАЗЕ СОВМЕСТИМОСТИ номер указан для автомобиля клиента (tableVehicles). Если есть поле carFromVin — автомобиль уже определён по VIN, НЕ проси подтвердить модель, сразу дай результат. Скажи "по нашей базе совместимости подходит для …", назови запись(и) и добавь, что для 100% уверенности можно проверить по VIN позже или уточнить у менеджера.
 - "table_other_vehicles": оригинальный каталог сейчас недоступен; в нашей базе совместимости этот номер указан ТОЛЬКО для других автомобилей (tableVehicles). Назови их и скажи, что для модели клиента подтверждения в базе нет — это не значит, что не подходит; предложи проверку менеджером (<<<MANAGER_BUTTON>>>) или по VIN позже.
 - "table_no_data": оригинальный каталог сейчас недоступен, и в базе совместимости по номеру данных нет — скажи, что сейчас проверить не получается, предложи менеджера (<<<MANAGER_BUTTON>>>).\nНИКОГДА не утверждай совместимость сверх этого результата.` : '';
     const partLinkNote = partLinkCodes.length

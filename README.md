@@ -109,6 +109,7 @@ When Laximo can't check (site browser check, pause, `LAXIMO_ENABLED=false`, verd
   - **`table_other_vehicles`**: the table lists the number only for other cars (named). There's no confirmation for this model, which doesn't mean it doesn't fit; manager / VIN later;
   - **`table_no_data`**: couldn't check, manager.
 - **Only a VIN**: a VIN can't be decoded without Laximo → **`vin_unavailable_need_model`**: the bot says VIN checks are temporarily unavailable and asks for brand, model with body code (e.g. X5 F15), engine or year. The next message runs the table check.
+- **Car already known from a saved VIN lookup** (the VIN result is cached even when part searches are blocked; seen 23.10: X5 40dX, Код модели E70N): the table check uses it directly, as series + body code ("X5 E70"), without asking for the model first. The prompt gets `carFromVin` and is told not to ask for confirmation.
 - The compat check now also starts when `LAXIMO_ENABLED=false` (table only). The log `DIAG compat` gains `tableRows`; the prompt marks `catalogUnavailable: true`.
 - Tested end-to-end with Laximo returning the browser-check page and a test table: table_fits (X5 F15 30d), table_other_vehicles (E70 only), table_no_data, vin_unavailable_need_model. The normal Laximo path is unchanged.
 
