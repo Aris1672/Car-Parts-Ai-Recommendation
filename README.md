@@ -48,6 +48,10 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
+### 📍 Session 16e (Oct 23) — store address
+
+- At the client's request (Михаил) the store address in the bot's contact block (`SYSTEM_PROMPT` in `api/chat.js`, "Контакты компании") changed from "г.Москва, ул.Юровская д.103" to **"Московская обл., г. Химки, ул. Молодежная, д. 9Н"** (пункт выдачи, same as the site header), and the bot is told not to name any other address. Phone, email and opening hours are kept as they were. **Company facts (address, hours, delivery, payment…) live in that block**: edit it there when they change.
+
 ### 🔗 Session 16d (Oct 22) — "Открыть деталь" button when the customer types a part number
 
 - **Case:** "нужен датчик температуры ОГ БМВ ф15 13628582663". The bot answered "нет данных в каталоге", but the site's search page shows that number (and its replacement 13628573347) with prices and "под заказ". The feed only has items with photos, so the bot couldn't see it.
