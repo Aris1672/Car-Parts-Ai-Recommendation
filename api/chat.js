@@ -680,19 +680,36 @@ async function orderStatusReply(extracted, ip) {
   if (r.status === 'no_match') {
     return `Не нашёл заказ №${number} с такими данными. Проверьте, пожалуйста, номер заказа и телефон или email, указанный при заказе, и напишите ещё раз. Если не получается — напишите нам ${ORDER_CONTACTS}.\n<<<MANAGER_BUTTON>>>`;
   }
-  const o = r.order;
-  const lines = [`**Заказ №${o.number}**${fmtDate(o.date) ? ` от ${fmtDate(o.date)}` : ''}:`];
-  for (const p of o.positions.slice(0, 15)) {
-    const what = [p.brand, p.number].filter(Boolean).join(' ') + (p.description ? ` — ${p.description}` : '') + (p.quantity ? ` (${p.quantity} шт.)` : '');
-    let line = `• ${what}: **${p.status || 'статус уточняется'}**${fmtDate(p.statusDate) ? ` (с ${fmtDate(p.statusDate)})` : ''}`;
-    if (p.statusInfo) line += `. ${p.statusInfo}`;
-    lines.push(line);
+  if (r.status === 'deleted') {
+    return `Заказ №${r.number} сейчас не активен: возможно, он был объединён с другим заказом или отменён. Напишите, пожалуйста, нам ${ORDER_CONTACTS} — менеджер подскажет актуальный номер и статус.\n<<<MANAGER_BUTTON>>>`;
   }
-  if (o.positions.length > 15) lines.push(`…и ещё ${o.positions.length - 15} поз.`);
-  if (o.deliveryOffice) lines.push(`\nСамовывоз: ${o.deliveryOffice}.`);
-  else if (o.deliveryType) lines.push(`\nДоставка: ${o.deliveryType}.`);
-  if (o.debt > 0) lines.push(`К оплате: ${fmtRub(o.debt)}.`);
-  else if (o.sum) lines.push('Заказ оплачен.');
+  const short = t => { const x = String(t || ''); return x.length > 70 ? x.slice(0, 67).replace(/[\s,.;:]+\S*$/, '') + '…' : x; };
+  const lines = [];
+  if (r.viaCode) lines.push(r.orders.length > 1 ? `По коду заказа ${r.code} нашёл ${r.orders.length} заказа:` : `По коду заказа ${r.code}:`);
+  for (const o of r.orders.slice(0, 3)) {
+    if (lines.length) lines.push('');
+    lines.push(`**Заказ №${o.number}**${fmtDate(o.date) ? ` от ${fmtDate(o.date)}` : ''}`);
+    const pos = o.positions.slice(0, 15);
+    const statuses = [...new Set(pos.map(p => p.status || 'статус уточняется'))];
+    const one = statuses.length === 1;
+    for (const p of pos) {
+      const what = [p.brand, p.number].filter(Boolean).join(' ') + (p.description ? ` — ${short(p.description)}` : '') + (p.quantity ? ` (${p.quantity} шт.)` : '');
+      lines.push(`• ${what}` + (one ? '' : `: **${p.status || 'статус уточняется'}**${fmtDate(p.statusDate) ? ` (с ${fmtDate(p.statusDate)})` : ''}`));
+    }
+    if (o.positions.length > 15) lines.push(`…и ещё ${o.positions.length - 15} поз.`);
+    if (one) {
+      const d = pos.map(p => fmtDate(p.statusDate)).filter(Boolean).sort().pop();
+      lines.push(`Статус: **${statuses[0]}**${d ? ` (с ${d})` : ''}.`);
+    }
+    // Each status's client description once, not per item.
+    const infos = [...new Map(pos.filter(p => p.statusInfo).map(p => [p.status, p.statusInfo])).entries()];
+    for (const [st, info] of infos) lines.push(one ? info : `${st}: ${info}`);
+    if (o.deliveryOffice) lines.push(`Самовывоз: ${o.deliveryOffice}.`);
+    else if (o.deliveryType) lines.push(`Доставка: ${o.deliveryType}.`);
+    if (o.debt > 0) lines.push(`К оплате: ${fmtRub(o.debt)}.`);
+    else if (o.sum) lines.push('Заказ оплачен.');
+  }
+  if (r.orders.length > 3) lines.push(`\n…и ещё ${r.orders.length - 3} заказ(а).`);
   lines.push(`\nЕсли нужны подробности по срокам — напишите нам ${ORDER_CONTACTS}.`);
   return lines.join('\n');
 }
