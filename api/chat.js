@@ -2251,10 +2251,32 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       console.log('DIAG service-kit', JSON.stringify({ unit: diagram.unitName, items: diagram.kit.length, inFeed: diagram.kit.filter(k => k.inFeed).length, priced: diagram.kit.filter(k => k.priceFrom).length }));
       serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла (с отмеченной позицией) и карточки позиций, которые есть на сайте. Ответ КОРОТКИЙ (см. СТАНДАРТНОЕ ТО): одна строка-вступление, одна строка с перечнем позиций БЕЗ номеров и цен, при discontinued=true или если части позиций нет в карточках — одно предложение, что эти позиции (часть номеров снята с производства) подберёт менеджер; затем вопрос про моторное масло и колодки/диски. Номера, цены и сроки по позициям в текст НЕ переписывай — они в карточках. Пробег и интервалы НЕ спрашивай. Это правило ВАЖНЕЕ разделов «АКТУАЛЬНЫЕ ЦЕНЫ» и «КНОПКИ…»: для ответа на ТО цены и сроки отдельных номеров в тексте НЕ называй. Все позиции с inFeed=true система САМА добавит карточками (до 12 карточек) — в блок <<<PRODUCTS>>> их можно не включать.`;
     }
+    // Extra diagrams (owner, 25.10): an "Открыть деталь" number that is NOT on
+    // the main diagram gets its own card with its position marked -- max 2
+    // (each costs ~2 Laximo requests; cached 7 days), capped at 9 s together.
+    let extraDiagrams = [];
+    if (laximoUsed && laximoResult && process.env.LAXIMO_DIAGRAMS !== 'false' && allLinkCodes.length) {
+      const onMain = new Set([...(diagram && Array.isArray(diagram.unitParts) ? diagram.unitParts.map(p => laximo.normalizeOem(p.oem)) : []),
+        ...(diagram ? [laximo.normalizeOem(diagram.oem)] : [])]);
+      const extraParts = allLinkCodes.filter(c => !onMain.has(laximo.normalizeOem(c)))
+        .map(c => laximoResult.parts.find(p => p.schema && laximo.normalizeOem(p.oem) === laximo.normalizeOem(c)))
+        .filter(Boolean).slice(0, 2);
+      if (extraParts.length) {
+        let t;
+        const all = Promise.all(extraParts.map(p => laximo.getPartDiagram(p).catch(err => { console.error('[laximo] extra diagram failed:', err.message); return null; })));
+        extraDiagrams = ((await Promise.race([all, new Promise(r => { t = setTimeout(() => r([]), 9000); })]).finally(() => clearTimeout(t))) || [])
+          .filter(d => d && d.image && (!diagram || d.image !== diagram.image)); // same unit -> no second card
+        for (const d of extraDiagrams) { delete d.unitParts; delete d.kit; }
+        console.log(`DIAG extra-diagrams ${extraParts.map(p => p.oem).join(',')} -> ${extraDiagrams.length}`);
+      }
+    }
     if (diagram) delete diagram.unitParts; // the card gets `kit` instead
 
     const diagramNote = diagram
       ? `\n\n═══════════════════════════════════════════\nСХЕМА ПОД ОТВЕТОМ:\n═══════════════════════════════════════════\nПод твоим ответом будет показана схема узла «${diagram.unitName || ''}» с отмеченной позицией ${diagram.position || ''}: ${diagram.oem} — ${diagram.name || ''}${diagram.qty ? ` (${diagram.qty})` : ''}.${diagram.notes && Object.keys(diagram.notes).length ? ` Примечания каталога: ${Object.entries(diagram.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}.` : ''} Можешь коротко сослаться на схему ("позиция ${diagram.position || ''} на схеме ниже"). Если в примечаниях сказано, что деталь не производится — ОБЯЗАТЕЛЬНО скажи (одним коротким предложением), что этот номер снят с производства, и что менеджер подскажет актуальную замену. Описывай деталь по её названию из каталога (например, сменный элемент фильтра — это не «вариант к корпусу»).`
+      : '';
+    const extraDiagramNote = extraDiagrams.length
+      ? `\nТакже под ответом будут схемы для: ${extraDiagrams.map(d => `${d.oem} — ${d.name || ''} (узел «${d.unitName || ''}», позиция ${d.position || ''}${d.notes && Object.keys(d.notes).length ? `; примечания: ${Object.entries(d.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}` : ''})`).join('; ')}. Если номер снят с производства — скажи об этом одним коротким предложением.`
       : '';
 
     const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
@@ -2277,7 +2299,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
                            // <<<PRODUCTS>>> block, so it silently fell back
                            // to showing the raw (broken) text instead of
                            // rendering cards.
-        system:      systemWithData + diagramNote + serviceKitNote,
+        system:      systemWithData + diagramNote + extraDiagramNote + serviceKitNote,
         messages:    messages,
       }),
       signal: AbortSignal.timeout(75000),
@@ -2320,6 +2342,10 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     if (diagram) {
       console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;
+    }
+    for (const d of extraDiagrams) {
+      console.log('DIAG diagram (extra)', JSON.stringify({ oem: d.oem, unit: d.unitName, position: d.position, box: !!d.box }));
+      text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(d)}\n<<<END_DIAGRAM>>>`;
     }
     if (allLinkCodes.length) {
       text = `${text}\n<<<PART_LINKS>>>\n${JSON.stringify(allLinkCodes)}\n<<<END_PART_LINKS>>>`;

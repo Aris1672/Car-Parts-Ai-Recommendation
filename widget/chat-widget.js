@@ -1370,11 +1370,13 @@
       text = text.replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/, '').trim();
     }
 
-    const diagMatch = text.match(/<<<DIAGRAM>>>([\s\S]*?)<<<END_DIAGRAM>>>/);
-    if (diagMatch) {
-      try { diagram = JSON.parse(diagMatch[1].trim()); } catch(e) {}
-      text = text.replace(/<<<DIAGRAM>>>[\s\S]*?<<<END_DIAGRAM>>>/, '').trim();
+    // One or more diagram cards (main part + parts on other diagrams).
+    const diagrams = [];
+    for (const m of text.matchAll(/<<<DIAGRAM>>>([\s\S]*?)<<<END_DIAGRAM>>>/g)) {
+      try { const d = JSON.parse(m[1].trim()); if (d && d.image) diagrams.push(d); } catch(e) {}
     }
+    text = text.replace(/<<<DIAGRAM>>>[\s\S]*?<<<END_DIAGRAM>>>/g, '').trim();
+    diagram = diagrams[0] || null;
 
     const linkMatch = text.match(/<<<PART_LINKS>>>([\s\S]*?)<<<END_PART_LINKS>>>/);
     if (linkMatch) {
@@ -1398,7 +1400,7 @@
     // bubble. Collapse any run of blank lines to a single blank line.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
-    return { text, products, buttons, showManager, autoHandoff, partLinks, diagram };
+    return { text, products, buttons, showManager, autoHandoff, partLinks, diagram, diagrams };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -1462,7 +1464,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, showManager, autoHandoff, partLinks, diagram } = parseBotResponse(raw);
+      const { text, products, buttons, showManager, autoHandoff, partLinks, diagram, diagrams } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -1485,9 +1487,9 @@
           .trim();
         messages.push({ role: 'assistant', content: cleanedForHistory });
       }
-      if (diagram && diagram.image) {
-        addDiagram(diagram);
-        displayLog.push({ type: 'diagram', payload: diagram });
+      for (const d of (diagrams || (diagram ? [diagram] : []))) {
+        addDiagram(d);
+        displayLog.push({ type: 'diagram', payload: d });
       }
       if (partLinks && partLinks.length > 0) {
         addPartLinks(partLinks);

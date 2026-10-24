@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-25 (session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-25 (session 23g: diagram for every "Открыть деталь" number; session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -100,6 +100,17 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Sixth live test 23.10:** the part name was now right ("Датчик температуры ОГ" from the ABCP offers), but **the site's browser check was back** (`BROWSER CHECK detected … paused until 22:38 UTC`, the probe was blocked again). The details search never ran, yet the verdict said **part_not_found**, i.e. the bot claimed "ничего не найдено". Fix: `searchPartsForVehicle()` marks the result `searchFailed` when a search errors or is skipped. `findPartsByVin/Model` pass it on, and `compatVerdict()` returns **unavailable** ("couldn't check now" + manager) unless the number was found anyway.
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
+
+### 🖼 Session 23g (Oct 25) — a diagram for every "Открыть деталь" number
+
+- **Live test 25.10:** the ТО answer had a button **"Открыть деталь 64119460554"**, but that number isn't on the ТО diagram, so the customer couldn't see what the part is.
+- **Now (`api/chat.js`):**
+  - every "Открыть деталь" number that is **not on the main diagram** (by `unitParts`) and was found by Laximo gets its **own diagram card** with its position marked;
+  - max **2 extra** cards per answer, each ~2 Laximo requests, cached 7 days; 9 s cap together;
+  - a card whose image matches the main diagram is dropped;
+  - the agent gets their unit, position and notes (for "снят с производства").
+  - Log: `DIAG extra-diagrams <codes> -> N`.
+- **Widget:** parses **all** `<<<DIAGRAM>>>` blocks (`matchAll`) and renders one card per block; all of them come back after a page reload.
 
 ### 📋 Session 23f (Oct 25) — "standard ТО" rule in the prompt
 
