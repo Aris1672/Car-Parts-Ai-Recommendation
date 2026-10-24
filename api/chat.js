@@ -151,6 +151,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 
 Если пользователь в ЛЮБОЙ момент диалога (не обязательно сразу после эскалации) сам называет номер телефона или email текстом — ничего специально делать не нужно: система автоматически обнаружит контакт и запустит передачу менеджеру таким же образом, как и по кнопке. Просто поблагодари пользователя за контакт в ответе (например: "Спасибо! Специалист свяжется с вами в ближайшее время.").
 
+Товары из КАТАЛОГА ТОВАРОВ показываются карточками ПОД твоим текстом. Если пишешь «подходят следующие позиции», не обрывай фразу: скажи, что они в карточках ниже, или коротко перечисли их названия.
 НИКОГДА не говори клиенту, что какой-то детали или номера «нет в нашем каталоге», «нет на сайте», «пока нет в каталоге сайта» — КАТАЛОГ ТОВАРОВ в этих данных содержит только позиции с фото, а на сайте в поиске по номеру продаётся гораздо больше. Вместо этого направляй к кнопке «Открыть деталь» (если она есть) или к менеджеру.
 НЕ придумывай данные о совместимости и НЕ придумывай товары, которых нет в каталоге — эскалация в этих случаях лучше, чем неверная информация.
 
@@ -2104,6 +2105,14 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       }
     }
 
+    // Wait for the diagram (cached: instant; new: ~2 Laximo requests, capped
+    // at 9 s) so the agent knows what the card shows -- e.g. that the part
+    // is discontinued (seen 25.10: 11428583898 "Не производится с 16.11.2021").
+    const diagram = diagramPromise ? await diagramPromise : null;
+    const diagramNote = diagram
+      ? `\n\n═══════════════════════════════════════════\nСХЕМА ПОД ОТВЕТОМ:\n═══════════════════════════════════════════\nПод твоим ответом будет показана схема узла «${diagram.unitName || ''}» с отмеченной позицией ${diagram.position || ''}: ${diagram.oem} — ${diagram.name || ''}${diagram.qty ? ` (${diagram.qty})` : ''}.${diagram.notes && Object.keys(diagram.notes).length ? ` Примечания каталога: ${Object.entries(diagram.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}.` : ''} Можешь коротко сослаться на схему ("позиция ${diagram.position || ''} на схеме ниже"). Если в примечаниях сказано, что деталь не производится — ОБЯЗАТЕЛЬНО скажи, что этот номер снят с производства, и что менеджер подскажет актуальную замену. Описывай деталь по её названию из каталога (например, сменный элемент фильтра — это не «вариант к корпусу»).`
+      : '';
+
     const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: {
@@ -2124,7 +2133,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
                            // <<<PRODUCTS>>> block, so it silently fell back
                            // to showing the raw (broken) text instead of
                            // rendering cards.
-        system:      systemWithData,
+        system:      systemWithData + diagramNote,
         messages:    messages,
       }),
       signal: AbortSignal.timeout(75000),
@@ -2157,7 +2166,6 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     if ((extracted.contactPhone || extracted.contactEmail) && !extracted.orderNumber) {
       text = `${text}\n<<<AUTO_MANAGER_HANDOFF>>>`;
     }
-    const diagram = diagramPromise ? await diagramPromise : null;
     if (diagram) {
       console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;
