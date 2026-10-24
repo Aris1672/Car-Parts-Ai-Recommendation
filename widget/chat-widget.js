@@ -378,6 +378,15 @@
     .pc-diagram-caption { font-size: 13px; margin: 8px 2px 0; line-height: 1.4; }
     .pc-diagram-caption b { color: #111; }
     .pc-diagram-note { font-size: 11px; color: #888; margin: 4px 2px 0; }
+    .pc-kit { margin: 8px 0 2px; border-top: 1px solid #eee; padding-top: 6px; }
+    .pc-kit-title { font-size: 12px; font-weight: 700; color: #333; margin: 0 2px 4px; }
+    .pc-kit-row { display: flex; gap: 6px; align-items: baseline; padding: 4px 2px; border-bottom: 1px solid #f2f2f2; text-decoration: none; color: #222; font-size: 12px; line-height: 1.3; }
+    .pc-kit-row:hover { background: #f7f9fc; }
+    .pc-kit-pos { flex: 0 0 18px; color: #c00; font-weight: 700; text-align: right; }
+    .pc-kit-name { flex: 1 1 auto; min-width: 0; }
+    .pc-kit-price { flex: 0 0 auto; text-align: right; white-space: nowrap; font-weight: 600; }
+    .pc-kit-sub { display: block; font-size: 10px; font-weight: 400; color: #888; }
+    .pc-kit-name .pc-kit-sub { display: inline; }
 
     /* ── Product carousel ── */
     .pc-carousel-outer { width: 100%; max-width: 100%; }
@@ -1147,6 +1156,27 @@
   // Laximo diagram for a catalog part that has no product photo: image via
   // our proxy (/api/laximo-image), the part's position marked in red (box
   // coordinates are in the image's own pixels, scaled to the shown size).
+  // Service kit (ТО): every position of the unit with the site price (product
+  // in the feed) or the cheapest live offer; each row opens the part on the site.
+  function kitHtml(kit) {
+    if (!Array.isArray(kit) || !kit.length) return '';
+    const fmt = n => Number(n).toLocaleString('ru-RU');
+    const rows = kit.slice(0, 14).map(k => {
+      const code = String(k.oem || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const href = (k.inFeed && safeUrl(k.url)) || `${SITE_URL}/search?pcode=${encodeURIComponent(code)}`;
+      let price = '';
+      if (k.inFeed && Number(k.price) > 0) price = `${fmt(k.price)} ₽`;
+      else if (Number(k.priceFrom) > 0) price = `от ${fmt(k.priceFrom)} ₽<span class="pc-kit-sub">${k.inStock ? 'в наличии' : (k.days ? '~' + Number(k.days) + ' дн.' : '')}</span>`;
+      else price = '<span class="pc-kit-sub">цена на сайте</span>';
+      const warn = k.discontinued ? '<span style="color:#c00;font-weight:600;"> ⚠ снят с пр-ва</span>' : '';
+      return `<a class="pc-kit-row" href="${escHtml(href)}" target="_blank" rel="noopener" data-code="${escHtml(code)}">
+        <span class="pc-kit-pos">${escHtml(String(k.position || '').replace(/^0+(?=\d)/, ''))}</span>
+        <span class="pc-kit-name"><b>${escHtml(code)}</b> ${escHtml(k.name || '')}${k.qty ? ' <span class="pc-kit-sub">(' + escHtml(k.qty) + ')</span>' : ''}${warn}</span>
+        <span class="pc-kit-price">${price}</span></a>`;
+    }).join('');
+    return `<div class="pc-kit"><div class="pc-kit-title">Состав ТО по каталогу BMW</div>${rows}</div>`;
+  }
+
   function addDiagram(d) {
     if (!d || !d.image) return;
     const src = `${BASE_URL}/api/laximo-image?u=${encodeURIComponent(d.image)}`;
@@ -1161,6 +1191,7 @@
       </a>
       <div class="pc-diagram-caption">${pos}<b>${escHtml(d.oem || '')}</b>${d.name ? ' — ' + escHtml(d.name) : ''}${d.qty ? ' (' + escHtml(d.qty) + ')' : ''}</div>
       ${d.notes && typeof d.notes === 'object' && Object.keys(d.notes).length ? `<div class="pc-diagram-note" style="color:#444;">${Object.entries(d.notes).slice(0, 3).map(([k, v]) => /не производ|снят/i.test(k + ' ' + v) ? `<span style="color:#c00;font-weight:600;">⚠ ${escHtml(k)}: ${escHtml(v)}</span>` : `${escHtml(k)}: ${escHtml(v)}`).join(' · ')}</div>` : ''}
+      ${kitHtml(d.kit)}
       <div class="pc-diagram-note">Оригинальный каталог производителя${d.box ? ' · позиция отмечена красным' : ''}</div>`;
     const img = wrap.querySelector('img');
     const mark = wrap.querySelector('.pc-diagram-mark');
@@ -1176,7 +1207,11 @@
     };
     img.addEventListener('load', place);
     window.addEventListener('resize', place);
-    img.addEventListener('error', () => wrap.remove()); // no broken image in the chat
+    img.addEventListener('error', () => { // no broken image in the chat (keep the kit list if there is one)
+      if (Array.isArray(d.kit) && d.kit.length) wrap.querySelector('.pc-diagram-frame').remove(); else wrap.remove();
+    });
+    wrap.querySelectorAll('.pc-kit-row').forEach(a => a.addEventListener('click', () =>
+      logEvent('product_open', { article: a.dataset.code, name: 'Состав ТО (схема)', url: a.href })));
     img.src = src;
     appendMsg(wrap);
   }

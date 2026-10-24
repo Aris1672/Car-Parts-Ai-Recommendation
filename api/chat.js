@@ -434,6 +434,24 @@ function clearCaches() {
  * button doesn't repeat on every later reply). Spaces/dashes ignored, so
  * "13 62 8 582 663" matches 13628582663. Never a VIN or the phone number.
  */
+// ─── Service kit (ТО) ────────────────────────────────────────────────────────
+// A general maintenance request ("набор на ТО", "техобслуживание") -> the
+// original catalog's service unit ("ТО по регл.Oelservice / Inspektion") lists
+// everything BMW puts in it: oil filter, plugs, air/cabin filter, wipers,
+// fluids. Detected on the last two customer messages (the last one may be just
+// a VIN), or on the extraction's ТО expansion of partKeywords.
+function isServiceRequest(messages, extracted) {
+  const users = (messages || []).filter(m => m && m.role === 'user').slice(-2)
+    .map(m => (typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.map(c => c.text || '').join(' ') : ''))).join(' \n ');
+  if (/(^|[^А-ЯЁа-яё])ТО([^А-ЯЁа-яё]|$)/.test(users)) return true;  // upper-case only ("то" is a common word)
+  // (\w doesn't match Cyrillic in JS -- use [а-яё]*)
+  if (/техобслуж|техническ[а-яё]*\s+обслуж|регламентн|планов[а-яё]*\s+обслуж|обслуживани[а-яё]*\s+(авто|машин)|сервисн[а-яё]*\s+(набор|комплект)|набор[а-яё]*\s+(на|для)\s+(то|обслуж)|oelservice|inspektion|расходник/i.test(users)) return true;
+  const kw = (extracted && Array.isArray(extracted.partKeywords) ? extracted.partKeywords : []).join(' ').toLowerCase();
+  return /масл[а-яё]* фильтр/.test(kw) && /воздуш[а-яё]* фильтр/.test(kw) && /салон[а-яё]* фильтр/.test(kw);
+}
+const SERVICE_UNIT_RE = /(^|[^А-ЯЁа-яё])ТО([^А-ЯЁа-яё]|$)|oelservice|inspektion|техобслуж|обслуживан/i;
+const isOilFilterPart = p => /масл/i.test(p.name || '') && /фильтр|элемент/i.test(p.name || '') && !/корпус|крышк|уплотн|прокладк|датчик/i.test(p.name || '');
+
 function partLinksForMessage(extracted, messages) {
   const code = String(extracted?.vendorCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length < 5 || code.length > 20 || !/\d/.test(code)) return [];
@@ -2090,11 +2108,15 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Unit diagram for a catalog part that has no product photo (fetched in
     // parallel with the AI reply; shown as a card under it). One per reply.
     let diagramPromise = null;
+    const serviceRequest = isServiceRequest(messages, extracted);
     if (laximoUsed && process.env.LAXIMO_DIAGRAMS !== 'false') {
       const withPhoto = new Set(matchedCatalog.filter(p => p.picture).map(p => laximo.normalizeOem(p.article)));
       const first = compat && compat.verdict === 'fits'
         ? laximoResult.parts.filter(p => laximo.normalizeOem(p.oem) === laximo.normalizeOem(compat.code)) : [];
-      const cand = [...first, ...laximoResult.parts].find(p => p.schema && !withPhoto.has(laximo.normalizeOem(p.oem)));
+      // ТО request: the oil filter's diagram is the service unit -> full kit
+      // (even when the oil filter itself has a photo in the feed).
+      const service = serviceRequest ? laximoResult.parts.filter(p => p.schema && isOilFilterPart(p)) : [];
+      const cand = service[0] || [...first, ...laximoResult.parts].find(p => p.schema && !withPhoto.has(laximo.normalizeOem(p.oem)));
       if (cand) {
         let t;
         diagramPromise = Promise.race([
@@ -2109,6 +2131,37 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // at 9 s) so the agent knows what the card shows -- e.g. that the part
     // is discontinued (seen 25.10: 11428583898 "Не производится с 16.11.2021").
     const diagram = diagramPromise ? await diagramPromise : null;
+
+    // Full service kit from the unit (ТО requests only): each position with the
+    // feed product (if any) or the cheapest live offer, shown as a list in the
+    // diagram card; the agent gets the same list.
+    let serviceKitNote = '';
+    if (diagram && serviceRequest && Array.isArray(diagram.unitParts) && diagram.unitParts.length > 1
+        && SERVICE_UNIT_RE.test(diagram.unitName || '')) {
+      const index = await fetchCatalogIndex().catch(() => new Map());
+      const seen = new Set();
+      const kitParts = diagram.unitParts.filter(p => !seen.has(p.oem) && seen.add(p.oem)).slice(0, 14);
+      const toPrice = kitParts.filter(p => !index.get(p.oem)).map(p => p.oem);
+      let kitPrices = {};
+      if (toPrice.length && abcpPrices.enabled()) {
+        try { kitPrices = await abcpPrices.livePrices(toPrice, priceBrand, 14); }
+        catch (err) { console.error('[prices] kit failed:', err.message); }
+      }
+      diagram.kit = kitParts.map(p => {
+        const feed = index.get(p.oem);
+        const lp = kitPrices[p.oem];
+        const discontinued = Object.entries(p.notes || {}).some(([k, v]) => /не производ|снят/i.test(`${k} ${v}`));
+        return {
+          position: p.position, oem: p.oem, name: p.name, qty: p.qty, discontinued,
+          ...(feed ? { inFeed: true, price: Number(feed.price) || null, url: feed.url || null, stock: feed.stock } : {}),
+          ...(!feed && lp ? { priceFrom: lp.cheapest.price, days: lp.cheapest.days, inStock: lp.cheapest.inStock, noReturn: lp.cheapest.noReturn, offers: lp.count } : {}),
+        };
+      });
+      console.log('DIAG service-kit', JSON.stringify({ unit: diagram.unitName, items: diagram.kit.length, inFeed: diagram.kit.filter(k => k.inFeed).length, priced: diagram.kit.filter(k => k.priceFrom).length }));
+      serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла и СПИСОК всех этих позиций с ценами и ссылками. В тексте коротко перечисли состав ТО по каталогу BMW (сгруппируй: фильтры, свечи, щётки стеклоочистителя, жидкости), не теряй позиции, которых нет в КАТАЛОГЕ ТОВАРОВ. Цены называй только из этого раздела: price (inFeed — товар есть на сайте) или priceFrom ("от … ₽", days — срок в днях, inStock — в наличии). Позиции без цены — "цена по кнопке/у менеджера". discontinued=true — номер снят с производства, менеджер подберёт замену. Скажи, что полный список с ценами и ссылками — под схемой ниже. Товары из КАТАЛОГА ТОВАРОВ, как обычно, можно показать карточками.`;
+    }
+    if (diagram) delete diagram.unitParts; // the card gets `kit` instead
+
     const diagramNote = diagram
       ? `\n\n═══════════════════════════════════════════\nСХЕМА ПОД ОТВЕТОМ:\n═══════════════════════════════════════════\nПод твоим ответом будет показана схема узла «${diagram.unitName || ''}» с отмеченной позицией ${diagram.position || ''}: ${diagram.oem} — ${diagram.name || ''}${diagram.qty ? ` (${diagram.qty})` : ''}.${diagram.notes && Object.keys(diagram.notes).length ? ` Примечания каталога: ${Object.entries(diagram.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}.` : ''} Можешь коротко сослаться на схему ("позиция ${diagram.position || ''} на схеме ниже"). Если в примечаниях сказано, что деталь не производится — ОБЯЗАТЕЛЬНО скажи, что этот номер снят с производства, и что менеджер подскажет актуальную замену. Описывай деталь по её названию из каталога (например, сменный элемент фильтра — это не «вариант к корпусу»).`
       : '';
@@ -2133,7 +2186,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
                            // <<<PRODUCTS>>> block, so it silently fell back
                            // to showing the raw (broken) text instead of
                            // rendering cards.
-        system:      systemWithData + diagramNote,
+        system:      systemWithData + diagramNote + serviceKitNote,
         messages:    messages,
       }),
       signal: AbortSignal.timeout(75000),
@@ -2200,3 +2253,4 @@ module.exports.looksGarbled = looksGarbled;
 module.exports.plausiblePhone = plausiblePhone;
 module.exports.toRussianPartName = toRussianPartName;
 module.exports.clearCaches = clearCaches;
+module.exports.isServiceRequest = isServiceRequest;

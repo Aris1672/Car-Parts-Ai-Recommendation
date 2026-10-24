@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-25 (session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-25 (session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -100,6 +100,18 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Sixth live test 23.10:** the part name was now right ("Датчик температуры ОГ" from the ABCP offers), but **the site's browser check was back** (`BROWSER CHECK detected … paused until 22:38 UTC`, the probe was blocked again). The details search never ran, yet the verdict said **part_not_found**, i.e. the bot claimed "ничего не найдено". Fix: `searchPartsForVehicle()` marks the result `searchFailed` when a search errors or is skipped. `findPartsByVin/Model` pass it on, and `compatVerdict()` returns **unavailable** ("couldn't check now" + manager) unless the number was found anyway.
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
+
+### 🧰 Session 23e (Oct 25) — full ТО kit from the original catalog
+
+- **Live test 25.10:** "Набор на стандартный технический обслуживание. BMW X5 4.0i G05" listed only the oil/air/cabin filters and the oil filter housing. BMW's service unit **"ТО по регл.Oelservice / Inspektion"** also has spark plugs, wiper blades (front/rear), brake fluid, coolant, washer fluid and CHF hydraulic oil.
+- **How it works now:**
+  - `isServiceRequest()` (`api/chat.js`) spots a general maintenance request in the last two customer messages ("ТО" in capitals, "техобслуживание", "техническое обслуживание", "набор на ТО", "расходники", …) or in the extraction's ТО keyword list. Note: `\w` doesn't match Cyrillic in JS, so the patterns use `[а-яё]*`.
+  - For such a request, the diagram is taken from the **oil filter** found by Laximo (even if it has a photo in the feed), because its diagram is the service unit.
+  - `parseSchemaAnswer()` (`lib/laximo.js`) now also returns **`unitParts`**, every position of the unit, from the same "Схема" JSON. No extra Laximo request. Cache key `diagram4:`.
+  - Each position is checked against the full feed (`fetchCatalogIndex`): products in the feed get the site price and product link; the others get the **cheapest live offer** (`livePrices`, up to 14 numbers, profile "Гость (Опт)").
+  - The agent gets a **"ПОЛНЫЙ СОСТАВ ТО"** block: list the kit grouped (filters, plugs, wipers, fluids), prices only from this list, flag discontinued numbers.
+  - **Widget:** the diagram card shows a **"Состав ТО по каталогу BMW"** list: position, number, name, quantity, price ("3 900 ₽", or "от 1 250 ₽ · в наличии / ~70 дн."), "⚠ снят с пр-ва". Each row opens the product or the site's search page. If the image fails, the list stays.
+  - Only when the diagram's unit name looks like a service unit (ТО / Oelservice / Inspektion). Log: `DIAG service-kit {unit, items, inFeed, priced}`.
 
 ### 🗂 Session 23d (Oct 25) — the agent now knows what the diagram card shows
 
