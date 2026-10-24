@@ -2044,6 +2044,16 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 - "table_fits": оригинальный каталог сейчас недоступен, но по НАШЕЙ БАЗЕ СОВМЕСТИМОСТИ номер указан для автомобиля клиента (tableVehicles). Если есть поле carFromVin — автомобиль уже определён по VIN, НЕ проси подтвердить модель, сразу дай результат. Скажи "по нашей базе совместимости подходит для …", назови запись(и) и добавь, что для 100% уверенности можно проверить по VIN позже или уточнить у менеджера.
 - "table_other_vehicles": оригинальный каталог сейчас недоступен; в нашей базе совместимости этот номер указан ТОЛЬКО для других автомобилей (tableVehicles). Назови их и скажи, что для модели клиента подтверждения в базе нет — это не значит, что не подходит; предложи проверку менеджером (<<<MANAGER_BUTTON>>>) или по VIN позже.
 - "table_no_data": оригинальный каталог сейчас недоступен, и в базе совместимости по номеру данных нет — скажи, что сейчас проверить не получается, предложи менеджера (<<<MANAGER_BUTTON>>>).\nНИКОГДА не утверждай совместимость сверх этого результата.` : '';
+    // Original numbers found for the car but missing from the feed get the same
+    // "Открыть деталь" button (the site's search page shows their offers,
+    // prices and delivery times) -- up to 3, after a typed number.
+    const missingLinkCodes = laximoUsed
+      ? laximoNotInCatalog.map(x => String(x.oem || '').toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean) : [];
+    const allLinkCodes = [...new Set([...partLinkCodes, ...missingLinkCodes])].slice(0, 3);
+    const missingWithButton = missingLinkCodes.filter(c => allLinkCodes.includes(c));
+    const missingLinkNote = missingWithButton.length
+      ? `\n\n═══════════════════════════════════════════\nКНОПКИ ДЛЯ НОМЕРОВ, КОТОРЫХ НЕТ В КАТАЛОГЕ ТОВАРОВ:\n═══════════════════════════════════════════\nДля номеров ${missingWithButton.join(', ')} под ответом автоматически появятся кнопки «Открыть деталь …» — они открывают страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки. Поэтому НЕ пиши, что цену или наличие показать невозможно: скажи, что цену и срок по этим номерам можно посмотреть по кнопкам ниже, а менеджер поможет с заказом. Сами цены НЕ называй (их нет в данных), ссылки в тексте НЕ дублируй.${missingLinkCodes.length > missingWithButton.length ? ' Для остальных номеров кнопок нет — по ним предложи менеджера.' : ''}`
+      : '';
     const partLinkNote = partLinkCodes.length
       ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных" или "нет в наличии": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ${compat ? ' (совместимость — см. раздел ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА)' : ' и проверит совместимость с автомобилем клиента'}. Саму кнопку и ссылку в тексте НЕ дублируй.`
       : '';
@@ -2054,7 +2064,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
-      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote;
+      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote + missingLinkNote;
 
     // Unit diagram for a catalog part that has no product photo (fetched in
     // parallel with the AI reply; shown as a card under it). One per reply.
@@ -2132,8 +2142,8 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;
     }
-    if (partLinkCodes.length) {
-      text = `${text}\n<<<PART_LINKS>>>\n${JSON.stringify(partLinkCodes)}\n<<<END_PART_LINKS>>>`;
+    if (allLinkCodes.length) {
+      text = `${text}\n<<<PART_LINKS>>>\n${JSON.stringify(allLinkCodes)}\n<<<END_PART_LINKS>>>`;
     }
 
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
