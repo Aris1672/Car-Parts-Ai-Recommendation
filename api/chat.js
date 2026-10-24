@@ -233,6 +233,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 - Назови клиенту оригинальный номер производителя (OEM) и название детали — это точный номер для его машины.
 - Объясни, что этой позиции пока нет в каталоге сайта, но менеджер может проверить наличие и срок поставки именно по этому номеру. Предложи оставить телефон или нажать кнопку менеджера.
 - Если для одной детали несколько номеров — перечисли их (до 5) как альтернативы/замены; если у номера есть условие в "notes", укажи его.
+- Если в "notes" сказано, что деталь не производится ("Не производятся с …", end_of_production) — обязательно скажи, что номер снят с производства, и что менеджер подскажет актуальную замену.
 - НЕ добавляй эти номера в блок <<<PRODUCTS>>>, НЕ называй цену и наличие — их нет в данных. НЕ говори, что деталь «не найдена» или «не подтверждена» — номер подтверждён по оригинальному каталогу.
 {{LAXIMO_NOT_IN_CATALOG}}
 
@@ -2048,7 +2049,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Original numbers found for the car but missing from the feed get the same
     // "Открыть деталь" button (the site's search page shows their offers,
     // prices and delivery times) -- up to 3, after a typed number.
-    const missingLinkCodes = laximoUsed
+    // (Not when the customer's own number was confirmed: then the other
+    // results of the name search are different parts, not alternatives.)
+    const missingLinkCodes = laximoUsed && !(compat && compat.verdict === 'fits')
       ? laximoNotInCatalog.map(x => String(x.oem || '').toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean) : [];
     const allLinkCodes = [...new Set([...partLinkCodes, ...missingLinkCodes])].slice(0, 3);
     const missingWithButton = missingLinkCodes.filter(c => allLinkCodes.includes(c));

@@ -1160,7 +1160,7 @@
         <span class="pc-diagram-mark"></span>
       </a>
       <div class="pc-diagram-caption">${pos}<b>${escHtml(d.oem || '')}</b>${d.name ? ' — ' + escHtml(d.name) : ''}${d.qty ? ' (' + escHtml(d.qty) + ')' : ''}</div>
-      ${d.notes && typeof d.notes === 'object' && Object.keys(d.notes).length ? `<div class="pc-diagram-note" style="color:#444;">${Object.entries(d.notes).slice(0, 3).map(([k, v]) => `${escHtml(k)}: ${escHtml(v)}`).join(' · ')}</div>` : ''}
+      ${d.notes && typeof d.notes === 'object' && Object.keys(d.notes).length ? `<div class="pc-diagram-note" style="color:#444;">${Object.entries(d.notes).slice(0, 3).map(([k, v]) => /не производ|снят/i.test(k + ' ' + v) ? `<span style="color:#c00;font-weight:600;">⚠ ${escHtml(k)}: ${escHtml(v)}</span>` : `${escHtml(k)}: ${escHtml(v)}`).join(' · ')}</div>` : ''}
       <div class="pc-diagram-note">Оригинальный каталог производителя${d.box ? ' · позиция отмечена красным' : ''}</div>`;
     const img = wrap.querySelector('img');
     const mark = wrap.querySelector('.pc-diagram-mark');
