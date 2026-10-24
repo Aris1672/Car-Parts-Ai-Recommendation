@@ -120,6 +120,12 @@ The bot now checks a **part number the customer types** against **their car's or
   - **Answer order:** the set in this order (numbers and prices only from the data) → cards for everything in the price list (up to 12) → **one closing question:** "Нужно ли также моторное масло (допуск…) и тормозные колодки/диски?"
   - **Engine oil and brake pads/discs** are added only after the customer says yes.
   - The catalog kit section, when present, has priority.
+  - **Short text (owner, 25.10):** the first version listed every position with numbers, prices and alternatives, which was too long on a phone and repeated the cards. Now:
+    - one intro line;
+    - one line naming the positions, without numbers or prices;
+    - at most one sentence "часть номеров снята с производства — менеджер подберёт замену";
+    - the oil and brakes question.
+  - Numbers, prices and delivery times stay in the cards and the list under the diagram. This rule beats the "АКТУАЛЬНЫЕ ЦЕНЫ" and button sections for ТО replies.
 - **Extraction:** a ТО request now expands to `["масляный фильтр","воздушный фильтр","салонный фильтр","микрофильтр","свеча","щетка","жидкость","антифриз","CHF"]`. Engine oil and brake pads/discs are added only when the customer names them.
 - **Name matching fixes (`filterCatalogByPartKeyword`):**
   - 1–2 letter words of a product name ("к", "т" from "рем.к-т") no longer match every keyword. Before, "рем.к-т торм.накладок" showed up for unrelated keywords.
