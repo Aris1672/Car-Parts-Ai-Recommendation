@@ -112,6 +112,11 @@ The bot now checks a **part number the customer types** against **their car's or
   - The agent gets a **"ПОЛНЫЙ СОСТАВ ТО"** block: list the kit grouped (filters, plugs, wipers, fluids), prices only from this list, flag discontinued numbers.
   - **Widget:** the diagram card shows a **"Состав ТО по каталогу BMW"** list: position, number, name, quantity, price ("3 900 ₽", or "от 1 250 ₽ · в наличии / ~70 дн."), "⚠ снят с пр-ва". Each row opens the product or the site's search page. If the image fails, the list stays.
   - Only when the diagram's unit name looks like a service unit (ТО / Oelservice / Inspektion). Log: `DIAG service-kit {unit, items, inFeed, priced}`.
+- **Second live test 25.10 (same request):** the card showed **"Масляный фильтр смаз.сист.,теплообменник"** (the oil filter housing unit, 11428488578 at pos. 1) and no kit. The bot had picked the "Масляный фильтр" **module**, whose "Схема" opens the housing unit; only the **filter element** (11428583898) opens the service unit. Fix:
+  - `serviceCandRank()` orders the found parts: oil filter element → cabin microfilter → spark plug → air filter element → "Масляный фильтр" module (housings, covers, seals, sensors excluded);
+  - up to 4 are checked with **`laximo.getPartSchemaInfo()`**, which makes only the "Схема" request (1 per part, cached 7 days as `schema1:`), until one opens the service unit; only then is the unit page loaded for the marker; total cap 16 s;
+  - if none does, the oil filter element's own diagram (or the usual part without a photo) is shown;
+  - logs: `[laximo] service unit via <oem> (<name>): <unit>` / `… not the service unit`.
 
 ### 🗂 Session 23d (Oct 25) — the agent now knows what the diagram card shows
 

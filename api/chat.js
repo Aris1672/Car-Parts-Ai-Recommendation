@@ -450,6 +450,17 @@ function isServiceRequest(messages, extracted) {
   return /масл[а-яё]* фильтр/.test(kw) && /воздуш[а-яё]* фильтр/.test(kw) && /салон[а-яё]* фильтр/.test(kw);
 }
 const SERVICE_UNIT_RE = /(^|[^А-ЯЁа-яё])ТО([^А-ЯЁа-яё]|$)|oelservice|inspektion|техобслуж|обслуживан/i;
+// Which found parts most likely point to the service unit (lower = try first; 9 = no).
+function serviceCandRank(p) {
+  const n = String(p.name || '').toLowerCase();
+  if (/корпус|крышк|уплотн|прокладк|датчик|кронштейн|теплообмен/.test(n)) return 9;
+  if (/масл/.test(n) && /(сменн|вставк|элемент)/.test(n)) return 0;   // oil filter element
+  if (/микрофильтр|салон/.test(n)) return 1;
+  if (/свеч/.test(n)) return 2;
+  if (/сменн[а-яё]* элемент/.test(n)) return 3;                      // air filter element
+  if (/масл/.test(n) && /фильтр/.test(n)) return 4;                   // "Масляный фильтр" module
+  return 9;
+}
 const isOilFilterPart = p => /масл/i.test(p.name || '') && /фильтр|элемент/i.test(p.name || '') && !/корпус|крышк|уплотн|прокладк|датчик/i.test(p.name || '');
 
 function partLinksForMessage(extracted, messages) {
@@ -2113,17 +2124,33 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       const withPhoto = new Set(matchedCatalog.filter(p => p.picture).map(p => laximo.normalizeOem(p.article)));
       const first = compat && compat.verdict === 'fits'
         ? laximoResult.parts.filter(p => laximo.normalizeOem(p.oem) === laximo.normalizeOem(compat.code)) : [];
-      // ТО request: the oil filter's diagram is the service unit -> full kit
-      // (even when the oil filter itself has a photo in the feed).
-      const service = serviceRequest ? laximoResult.parts.filter(p => p.schema && isOilFilterPart(p)) : [];
-      const cand = service[0] || [...first, ...laximoResult.parts].find(p => p.schema && !withPhoto.has(laximo.normalizeOem(p.oem)));
-      if (cand) {
-        let t;
-        diagramPromise = Promise.race([
-          laximo.getPartDiagram(cand),
-          new Promise(r => { t = setTimeout(() => r(null), 9000); }),
-        ]).catch(err => { console.error('[laximo] diagram failed:', err.message); return null; })
-          .finally(() => clearTimeout(t));
+      const cand = [...first, ...laximoResult.parts].find(p => p.schema && !withPhoto.has(laximo.normalizeOem(p.oem)));
+      const capped = (promise, ms) => { let t; return Promise.race([promise, new Promise(r => { t = setTimeout(() => r(null), ms); })])
+        .catch(err => { console.error('[laximo] diagram failed:', err.message); return null; }).finally(() => clearTimeout(t)); };
+      // ТО request: find the SERVICE unit ("ТО по регл.Oelservice / Inspektion")
+      // -> full kit. Only some numbers point to it: the oil filter ELEMENT
+      // (11428583898) does, the "Масляный фильтр" module (11428488578, pos. 1)
+      // points to the oil filter housing unit (live test 25.10). So try the
+      // likely ТО items in order (cached 7 days each) until one is the service unit.
+      const serviceCands = serviceRequest ? laximoResult.parts.filter(p => p.schema && serviceCandRank(p) < 9)
+        .sort((a, b) => serviceCandRank(a) - serviceCandRank(b)).slice(0, 4) : [];
+      if (serviceCands.length) {
+        diagramPromise = capped((async () => {
+          let fallback = null;
+          for (const p of serviceCands) {
+            const info = await capped(laximo.getPartSchemaInfo(p), 5000);   // 1 request: which unit?
+            if (info && SERVICE_UNIT_RE.test(info.unitName || '')) {
+              console.log(`[laximo] service unit via ${p.oem} (${p.name}): ${info.unitName}`);
+              return capped(laximo.getPartDiagram(p), 6000);               // + unit page for the marker
+            }
+            console.log(`[laximo] ${p.oem} (${p.name}) -> unit "${info && info.unitName}", not the service unit`);
+            if (!fallback && info && serviceCandRank(p) === 0) fallback = p; // the oil filter element's own diagram
+          }
+          const fb = fallback || cand;
+          return fb ? capped(laximo.getPartDiagram(fb), 6000) : null;
+        })(), 16000);
+      } else if (cand) {
+        diagramPromise = capped(laximo.getPartDiagram(cand), 9000);
       }
     }
 
