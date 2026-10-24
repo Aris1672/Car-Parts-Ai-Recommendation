@@ -1161,7 +1161,7 @@
   function kitHtml(kit) {
     if (!Array.isArray(kit) || !kit.length) return '';
     const fmt = n => Number(n).toLocaleString('ru-RU');
-    const rows = kit.slice(0, 14).map(k => {
+    const rows = kit.slice(0, 20).map(k => {
       const code = String(k.oem || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const href = (k.inFeed && safeUrl(k.url)) || `${SITE_URL}/search?pcode=${encodeURIComponent(code)}`;
       let price = '';

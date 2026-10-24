@@ -2197,11 +2197,19 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         && SERVICE_UNIT_RE.test(diagram.unitName || '')) {
       const index = await fetchCatalogIndex().catch(() => new Map());
       const seen = new Set();
-      const kitParts = diagram.unitParts.filter(p => !seen.has(p.oem) && seen.add(p.oem)).slice(0, 14);
+      // Max 2 variants per position (wiper sets, plug versions...), 20 rows,
+      // so the last positions (fluids) aren't cut off.
+      const perPos = {};
+      const kitParts = diagram.unitParts.filter(p => {
+        if (seen.has(p.oem)) return false;
+        const k = String(p.position || '').replace(/^0+/, '');
+        if ((perPos[k] = (perPos[k] || 0) + 1) > 2) return false;
+        return seen.add(p.oem);
+      }).slice(0, 20);
       const toPrice = kitParts.filter(p => !index.get(p.oem)).map(p => p.oem);
       let kitPrices = {};
       if (toPrice.length && abcpPrices.enabled()) {
-        try { kitPrices = await abcpPrices.livePrices(toPrice, priceBrand, 14); }
+        try { kitPrices = await abcpPrices.livePrices(toPrice, priceBrand, 20); }
         catch (err) { console.error('[prices] kit failed:', err.message); }
       }
       kitFeed = kitParts.map(p => ({ part: p, feed: index.get(p.oem) })).filter(x => x.feed);
