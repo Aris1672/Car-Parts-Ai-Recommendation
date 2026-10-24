@@ -120,6 +120,7 @@ The bot now checks a **part number the customer types** against **their car's or
   - **Answer order:** the set in this order (numbers and prices only from the data) → cards for everything in the price list (up to 12) → **one closing question:** "Нужно ли также моторное масло (допуск…) и тормозные колодки/диски?"
   - **Engine oil and brake pads/discs** are added only after the customer says yes.
   - The catalog kit section, when present, has priority.
+  - **Diagram card = only the red-marked part (owner, 25.10):** the "Состав ТО по каталогу BMW" list made the card very long. The server still builds the kit for the cards and the prompt, but removes `kit` from the diagram payload. The widget's `kitHtml()` stays for older chats.
   - **Short text (owner, 25.10):** the first version listed every position with numbers, prices and alternatives, which was too long on a phone and repeated the cards. Now:
     - one intro line;
     - one line naming the positions, without numbers or prices;
