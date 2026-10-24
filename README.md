@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-24 (session 23: live prices, waiting for `ABCP_PRICE_ROUTES`; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-24 (session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -107,7 +107,9 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Readable notes in the diagram card.** Laximo sent the attribute name `end_of_production` with the value "Не производятся с: 20211116". `noteLabel()` (`lib/laximo.js`) maps technical keys (end_of_production, start_of_production, note), turns `YYYYMMDD` dates into `DD.MM.YYYY`, and uses a "Label: value" inside the value as the label, giving "**Не производится с: 16.11.2021**". The widget shows discontinued notes in **red with ⚠**. The diagram cache key is now `diagram3:`, so old raw notes are rebuilt.
 - **Discontinued parts:** a prompt rule says that if a number's notes say it is no longer produced, the bot says so and that the manager can suggest the current replacement. (Seen with 11428583898, oil filter element for X5 G05 B58, discontinued 16.11.2021.)
 
-### 💰 Session 23 (Oct 24) — live price & delivery time in the chat (built, ⏳ needs the warehouse list)
+### 💰 Session 23 (Oct 24) — live price & delivery time in the chat (cheapest offer, profile "Гость (Опт)")
+
+> **Update 24.10 (owner):** the "Aris Test" export only contains items **with a photo**, so parts shown by diagram / "Открыть деталь" are not in it. Their price therefore comes from the **site search** with profile **"Гость (Опт)"**, **all warehouses** the profile sees, and **only the cheapest offer** is shown; the customer picks the best one on the search page. Live prices are **on by default** (`ABCP_LIVE_PRICES=false` turns them off). `ABCP_PRICE_ROUTES` is only an optional restriction now, and there's no "fastest" offer any more. "В наличии" only for same-day offers (supplier stock with a 70-day delivery is "~70 дн."). Tested with the 13627823945 offers from the site: "от 7 400 ₽, ~70 дн., 5 предложений". The text below describes the first version.
 
 **Михаил's decision (24.10):** "цены будут такими же, как в прайсе, только актуальными". So live prices use the **same rules as the bot's price-list export**: profile **"Гость (Опт)"** and the **export's 6 warehouses** (Экспорт прайсов → "Aris Test" → Склады).
 
@@ -210,7 +212,7 @@ Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Админист
 - [x] **Part-number compatibility check** ("подойдёт ли 11427808443 на мою машину?"): ABCP `search/brands` gives the part name → Laximo searches the car's catalog by name → numbers compared *(session 19, 23.10.2026)*
 - [x] **Order status** by order number or "Код заказа" + phone/email — `cp/order`, `cp/orders`, `cp/users`, `cp/statuses` *(session 17, live 23.10.2026)*
 - [ ] ⭐⭐⭐ **"Оплатить заказ" button** for verified orders with an amount due — `cp/payment/token` (ABCP's own payment link). Small, builds on order status.
-- [~] **Live price & availability** for numbers not in the feed — built (session 23, `lib/abcpPrices.js`), same profile/warehouses as the price list per Михаил; switches on once `ABCP_PRICE_ROUTES` (export warehouses) is set.
+- [x] **Live price & availability** for numbers not in the feed: cheapest offer of the site search, profile "Гость (Опт)" *(session 23, `lib/abcpPrices.js`, 24.10.2026)*
 - [x] **Order timeline**: accepted → ordered from supplier → in transit → ready, with dates, plus the expected delivery date — `cp/orders/statusHistory` *(session 20, 23.10.2026)*
 - [ ] ⭐⭐ **Product details for parts without a feed card**: description, photos, properties (viscosity, approvals, sizes) — `cp/articles/info/batch` (POST, read-only, max 100 per call; images at `https://imgcdn.abcp.ru/p/<name>`). Also lets the bot answer oil-approval questions from real data.
 - [ ] ⭐⭐ **Customer's garage**: after the phone check, use the cars (often with VIN) saved on the site — "Вижу у вас BMW X5 G05 — подбираю для неё?" → VIN to Laximo — `cp/users/garage`.
