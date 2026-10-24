@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-25 (session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-25 (session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -100,6 +100,26 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Sixth live test 23.10:** the part name was now right ("Датчик температуры ОГ" from the ABCP offers), but **the site's browser check was back** (`BROWSER CHECK detected … paused until 22:38 UTC`, the probe was blocked again). The details search never ran, yet the verdict said **part_not_found**, i.e. the bot claimed "ничего не найдено". Fix: `searchPartsForVehicle()` marks the result `searchFailed` when a search errors or is skipped. `findPartsByVin/Model` pass it on, and `compatVerdict()` returns **unavailable** ("couldn't check now" + manager) unless the number was found anyway.
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
+
+### 📋 Session 23f (Oct 25) — "standard ТО" rule in the prompt
+
+- **Why:** the catalog kit only works when Laximo is up and for BMW. A written definition also covers blocked Laximo and other brands, and makes the search find the right price-list items for cards.
+- **Prompt (`SYSTEM_PROMPT`), new skill "## СТАНДАРТНОЕ ТО (Maintenance)":**
+  - **every ТО:** engine oil (by approval), oil filter (+ drain plug/washer if needed), air filter, cabin filter (carbon version optional);
+  - **by interval / condition:**
+    - spark plugs (petrol, ~60 000 km; diesels have none);
+    - brake fluid (every 2 years);
+    - wiper blades front + rear (~yearly);
+    - coolant;
+    - washer fluid;
+    - brake pads/discs are **not** part of ТО, only mentioned as a check.
+  - If mileage or age is known, the agent says what's due; otherwise it asks the mileage.
+  - Up to 12 cards; the catalog kit section has priority; no invented numbers or prices.
+  - **To be confirmed by Михаил** (his shop's actual ТО list and intervals).
+- **Extraction:** a ТО request now expands to `["масляный фильтр","масло","воздушный фильтр","салонный фильтр","микрофильтр","свеча","щетка","жидкость","антифриз"]`. Brake pads/discs are added only when the customer names them.
+- **Name matching fixes (`filterCatalogByPartKeyword`):**
+  - 1–2 letter words of a product name ("к", "т" from "рем.к-т") no longer match every keyword. Before, "рем.к-т торм.накладок" showed up for unrelated keywords.
+  - **Ё → Е** on both sides: "Щётки" used to split into "Щ" + "ТКИ" and never matched.
 
 ### 🧰 Session 23e (Oct 25) — full ТО kit from the original catalog
 
