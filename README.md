@@ -117,6 +117,7 @@ The bot now checks a **part number the customer types** against **their car's or
   - up to 4 are checked with **`laximo.getPartSchemaInfo()`**, which makes only the "Схема" request (1 per part, cached 7 days as `schema1:`), until one opens the service unit; only then is the unit page loaded for the marker; total cap 16 s;
   - if none does, the oil filter element's own diagram (or the usual part without a photo) is shown;
   - logs: `[laximo] service unit via <oem> (<name>): <unit>` / `… not the service unit`.
+- **Cards for the whole kit:** the AI only made cards for what its keywords matched (3 cards for a ~10-item set). Now `mergeKitCards()` adds **every kit position that is in the price list** to the `<<<PRODUCTS>>>` block on the server, or creates the block. Max **12 cards** (`MAX_KIT_CARDS`). The AI's own cards stay, without duplicates. Card note: "Состав ТО по каталогу BMW, поз. N (qty)"; compatibility: "<car> — по оригинальному каталогу BMW". The prompt rule "от 3 до 6 товаров" now says "для ТО — все позиции, до 12". Log: `DIAG kit-cards +N (total M)`.
 
 ### 🗂 Session 23d (Oct 25) — the agent now knows what the diagram card shows
 

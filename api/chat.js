@@ -193,7 +193,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 <<<END_PRODUCTS>>>
 затем продолжи текст с предложением уточнить совместимость или оформить заказ.
 
-Показывай от 3 до 6 товаров. ТОЛЬКО реальные товары из каталога (используй данные ниже).
+Показывай от 3 до 6 товаров (для запроса на ТО — все позиции набора, до 12). ТОЛЬКО реальные товары из каталога (используй данные ниже).
 НИКОГДА не выдумывай артикулы, цены или характеристики.
 ВАЖНО: поле "compatibility" — указывай ТОЛЬКО ту запись из ДАННЫЕ О СОВМЕСТИМОСТИ, которая реально совпадает с маркой/моделью/двигателем пользователя. НИКОГДА не переноси данные о другой модели (например, с A6 на A4) или другом двигателе на автомобиль пользователя, даже если это тот же артикул. Если совпадающей записи нет — ставь null и не утверждай совместимость в тексте ответа.
 ВАЖНО: наличие товара называй ТОЛЬКО словами из его поля "availability" ("в наличии (N шт.)" или "под заказ") — дословно, ничего не добавляя. Для товара "под заказ" можно добавить, что менеджер уточнит срок поставки. ЗАПРЕЩЕНО писать про товары из каталога «нет в наличии», «в наличии нет», «отсутствует», «недоступен» в любом порядке слов — товар можно заказать, и такие слова отпугивают покупателя.
@@ -450,6 +450,35 @@ function isServiceRequest(messages, extracted) {
   return /масл[а-яё]* фильтр/.test(kw) && /воздуш[а-яё]* фильтр/.test(kw) && /салон[а-яё]* фильтр/.test(kw);
 }
 const SERVICE_UNIT_RE = /(^|[^А-ЯЁа-яё])ТО([^А-ЯЁа-яё]|$)|oelservice|inspektion|техобслуж|обслуживан/i;
+/** Adds the price-list items of a ТО kit to the reply's <<<PRODUCTS>>> block (creates it if needed). */
+const MAX_KIT_CARDS = 12;
+function mergeKitCards(text, kitFeed, vehicleName) {
+  const norm = x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = text.match(re);
+  let cards = [];
+  if (m) { try { cards = JSON.parse(m[1].trim()); } catch { cards = []; } }
+  if (!Array.isArray(cards)) cards = [];
+  const have = new Set(cards.map(c => norm(c && c.article)));
+  let added = 0;
+  for (const { part, feed } of kitFeed) {
+    if (cards.length >= MAX_KIT_CARDS) break;
+    if (have.has(norm(feed.article))) continue;
+    have.add(norm(feed.article));
+    cards.push({
+      article: feed.article, name: feed.name, brand: feed.brand, category: feed.category,
+      compatibility: vehicleName ? `${vehicleName} — по оригинальному каталогу BMW` : 'по оригинальному каталогу BMW',
+      price: feed.price, stock: feed.stock, url: feed.url, picture: feed.picture,
+      best_for: `Состав ТО по каталогу BMW${part.position ? `, поз. ${String(part.position).replace(/^0+(?=\d)/, '')}` : ''}${part.qty ? ` (${part.qty})` : ''}`,
+    });
+    added++;
+  }
+  if (!added) return text;
+  console.log(`DIAG kit-cards +${added} (total ${cards.length})`);
+  const block = `<<<PRODUCTS>>>\n${JSON.stringify(cards.slice(0, MAX_KIT_CARDS))}\n<<<END_PRODUCTS>>>`;
+  return m ? text.replace(re, block) : `${text}\n${block}`;
+}
+
 // Which found parts most likely point to the service unit (lower = try first; 9 = no).
 function serviceCandRank(p) {
   const n = String(p.name || '').toLowerCase();
@@ -2163,6 +2192,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // feed product (if any) or the cheapest live offer, shown as a list in the
     // diagram card; the agent gets the same list.
     let serviceKitNote = '';
+    let kitFeed = []; // [{part, feed}] -- kit positions that are in the price list (shown as cards)
     if (diagram && serviceRequest && Array.isArray(diagram.unitParts) && diagram.unitParts.length > 1
         && SERVICE_UNIT_RE.test(diagram.unitName || '')) {
       const index = await fetchCatalogIndex().catch(() => new Map());
@@ -2174,6 +2204,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         try { kitPrices = await abcpPrices.livePrices(toPrice, priceBrand, 14); }
         catch (err) { console.error('[prices] kit failed:', err.message); }
       }
+      kitFeed = kitParts.map(p => ({ part: p, feed: index.get(p.oem) })).filter(x => x.feed);
       diagram.kit = kitParts.map(p => {
         const feed = index.get(p.oem);
         const lp = kitPrices[p.oem];
@@ -2185,7 +2216,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         };
       });
       console.log('DIAG service-kit', JSON.stringify({ unit: diagram.unitName, items: diagram.kit.length, inFeed: diagram.kit.filter(k => k.inFeed).length, priced: diagram.kit.filter(k => k.priceFrom).length }));
-      serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла и СПИСОК всех этих позиций с ценами и ссылками. В тексте коротко перечисли состав ТО по каталогу BMW (сгруппируй: фильтры, свечи, щётки стеклоочистителя, жидкости), не теряй позиции, которых нет в КАТАЛОГЕ ТОВАРОВ. Цены называй только из этого раздела: price (inFeed — товар есть на сайте) или priceFrom ("от … ₽", days — срок в днях, inStock — в наличии). Позиции без цены — "цена по кнопке/у менеджера". discontinued=true — номер снят с производства, менеджер подберёт замену. Скажи, что полный список с ценами и ссылками — под схемой ниже. Товары из КАТАЛОГА ТОВАРОВ, как обычно, можно показать карточками.`;
+      serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла и СПИСОК всех этих позиций с ценами и ссылками. В тексте коротко перечисли состав ТО по каталогу BMW (сгруппируй: фильтры, свечи, щётки стеклоочистителя, жидкости), не теряй позиции, которых нет в КАТАЛОГЕ ТОВАРОВ. Цены называй только из этого раздела: price (inFeed — товар есть на сайте) или priceFrom ("от … ₽", days — срок в днях, inStock — в наличии). Позиции без цены — "цена по кнопке/у менеджера". discontinued=true — номер снят с производства, менеджер подберёт замену. Скажи, что полный список с ценами и ссылками — под схемой ниже. Все позиции с inFeed=true система САМА добавит карточками (до 12 карточек) — в блок <<<PRODUCTS>>> их можно не включать.`;
     }
     if (diagram) delete diagram.unitParts; // the card gets `kit` instead
 
@@ -2246,6 +2277,10 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     if ((extracted.contactPhone || extracted.contactEmail) && !extracted.orderNumber) {
       text = `${text}\n<<<AUTO_MANAGER_HANDOFF>>>`;
     }
+    // ТО kit: every kit position that is in the price list becomes a card
+    // (the AI tends to pick only what its keywords matched -- live test
+    // 25.10 showed 3 cards for a ~10-item service set). Max 12 cards.
+    if (kitFeed.length) text = mergeKitCards(text, kitFeed, laximoResult?.vehicle?.name || [extracted.brand, extracted.model].filter(Boolean).join(' '));
     if (diagram) {
       console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;
@@ -2281,3 +2316,4 @@ module.exports.plausiblePhone = plausiblePhone;
 module.exports.toRussianPartName = toRussianPartName;
 module.exports.clearCaches = clearCaches;
 module.exports.isServiceRequest = isServiceRequest;
+module.exports.mergeKitCards = mergeKitCards;
