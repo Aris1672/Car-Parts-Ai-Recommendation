@@ -101,6 +101,14 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
 
+### 🗣 Session 23c (Oct 25) — never "этого товара нет в нашем каталоге"
+
+- **Owner rule:** the bot must **never** tell a customer that a part "isn't in our catalog / on the site". The feed it reads (KATALOG ТОВАРОВ) only holds items **with a photo**, while the site's search sells far more.
+- **Prompt (`SYSTEM_PROMPT`, `api/chat.js`):**
+  - a general rule next to the anti-hallucination rules;
+  - in "ОРИГИНАЛЬНЫЕ НОМЕРА … КОТОРЫХ НЕТ В КАТАЛОГЕ" the old instruction "объясни, что этой позиции пока нет в каталоге сайта" is replaced by: name the number, say all offers are behind the "Открыть деталь" button, the manager helps with ordering and delivery. Example: «Также по оригинальному каталогу для вашей машины есть номер 11428583898 — «К-т сменного элемента масляного фильтра». Все предложения по нему можно посмотреть по кнопке ниже, менеджер поможет с заказом и сроками.»;
+  - the typed-number button note also forbids "нет в каталоге/на сайте".
+
 ### 🧹 Session 23b (Oct 24) — polish from two live tests
 
 - **"Fits" → only the checked number gets a button.** In "Подойдёт 13627823945? VIN …" the name search also returned 13628506995, a different sensor, and it got an "Открыть деталь" button too. When the compat verdict is `fits`, `laximoNotInCatalog` numbers no longer get buttons. With `other_numbers` they still do, since those are the catalog's correct numbers.
