@@ -24,6 +24,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // LAXIMO_ENABLED=false turns it off without a code change.
 const laximo = require('../lib/laximo');
 const abcpOrders = require('../lib/abcpOrders');
+const abcpPrices = require('../lib/abcpPrices');
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
 const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
 
@@ -2052,7 +2053,21 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     const allLinkCodes = [...new Set([...partLinkCodes, ...missingLinkCodes])].slice(0, 3);
     const missingWithButton = missingLinkCodes.filter(c => allLinkCodes.includes(c));
     const missingLinkNote = missingWithButton.length
-      ? `\n\n═══════════════════════════════════════════\nКНОПКИ ДЛЯ НОМЕРОВ, КОТОРЫХ НЕТ В КАТАЛОГЕ ТОВАРОВ:\n═══════════════════════════════════════════\nДля номеров ${missingWithButton.join(', ')} под ответом автоматически появятся кнопки «Открыть деталь …» — они открывают страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки. Поэтому НЕ пиши, что цену или наличие показать невозможно: скажи, что цену и срок по этим номерам можно посмотреть по кнопкам ниже, а менеджер поможет с заказом. Сами цены НЕ называй (их нет в данных), ссылки в тексте НЕ дублируй.${missingLinkCodes.length > missingWithButton.length ? ' Для остальных номеров кнопок нет — по ним предложи менеджера.' : ''}`
+      ? `\n\n═══════════════════════════════════════════\nКНОПКИ ДЛЯ НОМЕРОВ, КОТОРЫХ НЕТ В КАТАЛОГЕ ТОВАРОВ:\n═══════════════════════════════════════════\nДля номеров ${missingWithButton.join(', ')} под ответом автоматически появятся кнопки «Открыть деталь …» — они открывают страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки. Поэтому НЕ пиши, что цену или наличие показать невозможно: скажи, что все предложения по этим номерам можно посмотреть по кнопкам ниже, а менеджер поможет с заказом. Цены и сроки называй ТОЛЬКО из раздела АКТУАЛЬНЫЕ ЦЕНЫ (если он есть), другие цены НЕ придумывай; ссылки в тексте НЕ дублируй.${missingLinkCodes.length > missingWithButton.length ? ' Для остальных номеров кнопок нет — по ним предложи менеджера.' : ''}`
+      : '';
+    // Live price & delivery (lib/abcpPrices.js) for the numbers with a button
+    // that are NOT in the feed -- same profile/warehouses as the price list.
+    const feedArticles = new Set((matchedCatalog || []).map(p => String(p.article || '').toUpperCase().replace(/[^A-Z0-9]/g, '')));
+    const priceNumbers = allLinkCodes.filter(c => !feedArticles.has(c));
+    const priceBrand = (() => { const b = String(extracted.brand || laximoResult?.vehicle?.brand || 'BMW').trim(); return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b; })();
+    let livePrices = {};
+    if (priceNumbers.length && abcpPrices.enabled()) {
+      try { livePrices = await abcpPrices.livePrices(priceNumbers, priceBrand, 3); }
+      catch (err) { console.error('[prices] failed:', err.message); }
+    }
+    if (Object.keys(livePrices).length) console.log('DIAG live-prices', JSON.stringify(Object.fromEntries(Object.entries(livePrices).map(([n, d]) => [n, { from: d.cheapest.price, days: d.cheapest.days, offers: d.count }]))));
+    const livePriceNote = Object.keys(livePrices).length
+      ? `\n\n═══════════════════════════════════════════\nАКТУАЛЬНЫЕ ЦЕНЫ (прямо сейчас из поиска на сайте, те же условия, что и в прайсе; этот раздел ВАЖНЕЕ запрета называть цену для номеров, которых нет в КАТАЛОГЕ ТОВАРОВ):\n═══════════════════════════════════════════\n${JSON.stringify(livePrices)}\nДля каждого номера: cheapest — самое дешёвое предложение, fastest — самое быстрое (если отличается), days — срок поставки в днях (0 = в наличии/сегодня), daysMax — максимальный срок, noReturn — без возврата. Назови цену "от <cheapest.price> ₽" и срок ("в наличии" при inStock, иначе "~N дн."); если есть fastest — добавь его одной фразой. Если noReturn — предупреди, что без возврата. Скажи, что цены актуальны на сейчас, а все предложения и заказ — по кнопке «Открыть деталь». НЕ добавляй эти номера в блок <<<PRODUCTS>>>. Для номеров, которых нет в этом разделе, цену НЕ называй.`
       : '';
     const partLinkNote = partLinkCodes.length
       ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных" или "нет в наличии": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ${compat ? ' (совместимость — см. раздел ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА)' : ' и проверит совместимость с автомобилем клиента'}. Саму кнопку и ссылку в тексте НЕ дублируй.`
@@ -2064,7 +2079,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
-      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote + missingLinkNote;
+      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote + missingLinkNote + livePriceNote;
 
     // Unit diagram for a catalog part that has no product photo (fetched in
     // parallel with the AI reply; shown as a card under it). One per reply.

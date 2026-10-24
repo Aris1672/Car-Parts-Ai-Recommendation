@@ -40,7 +40,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-23 (session 21: unit diagram card, needs `LAXIMO_SCHEMA_URL`; session 20/20b: order timeline, table fallback while Laximo is blocked; session 19: compatibility check). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-24 (session 23: live prices, waiting for `ABCP_PRICE_ROUTES`; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -100,6 +100,21 @@ The bot now checks a **part number the customer types** against **their car's or
 - **Sixth live test 23.10:** the part name was now right ("Датчик температуры ОГ" from the ABCP offers), but **the site's browser check was back** (`BROWSER CHECK detected … paused until 22:38 UTC`, the probe was blocked again). The details search never ran, yet the verdict said **part_not_found**, i.e. the bot claimed "ничего не найдено". Fix: `searchPartsForVehicle()` marks the result `searchFailed` when a search errors or is skipped. `findPartsByVin/Model` pass it on, and `compatVerdict()` returns **unavailable** ("couldn't check now" + manager) unless the number was found anyway.
 - **Fifth live test 23.10: false manager lead.** The extraction put the part number into **`contactPhone`** ("13627823945"), so no check ran **and the automatic manager handoff fired** ("Заявка принята", a lead with a bogus phone). Now `sanitizeContactPhone()` runs right after extraction. Russian mobiles (9xxxxxxxxx, optional 7/8 prefix) always pass; other 11-digit 7…/8… numbers pass only when written like a phone (+, brackets, dashes, spaces). Anything else is dropped and, if no part number was extracted, used as `vendorCode`. The extraction prompt also says that BMW part numbers (11 digits, usually starting 0–6) are not phones. Log: `[extract] contactPhone "…" doesn't look like a phone -- ignored`.
 - **Third live test 23.10:** the translated "датчик температуры отработавших газов" still found nothing. The owner checked the X5 40dX (E70) catalog: BMW calls it **"Датчик температуры ОГ"** (13627823945). The earlier one-way expansion (ОГ → full) made this worse. Abbreviations are now tried **both ways**, and only when the first spelling finds nothing. Log: `[laximo] "…" found nothing; other spelling "…" -> N part(s)`. For this car the right verdict is **other_numbers → 13627823945** (13628582663 isn't in its catalog).
+
+### 💰 Session 23 (Oct 24) — live price & delivery time in the chat (built, ⏳ needs the warehouse list)
+
+**Михаил's decision (24.10):** "цены будут такими же, как в прайсе, только актуальными". So live prices use the **same rules as the bot's price-list export**: profile **"Гость (Опт)"** and the **export's 6 warehouses** (Экспорт прайсов → "Aris Test" → Склады).
+
+- **`lib/abcpPrices.js`** (read-only, via `lib/abcpOrders.js`): `search/articles` per number (`withOutAnalogs=1`, own number only, online suppliers on unless `ABCP_PRICE_ONLINE=0`, 8 s timeout, cached 20 min, max 3 numbers per reply in parallel).
+  - **Profile:** found by name through `cp/users/profiles` (whitelisted, cached 6 h). Override with `ABCP_PRICE_PROFILE_ID` / `ABCP_PRICE_PROFILE_NAME`.
+  - **Warehouses:** `ABCP_PRICE_ROUTES` = comma-separated IDs as shown in ABCP (`[1669168]` etc.), matched against an offer's `distributorId` or `supplierCode`.
+  - **Offer selection** (`pickOffers()`): own number, price > 0, not used, allowed warehouse. Gives **cheapest**, plus **fastest** if its delivery time differs, with days (hours/24), in stock, no-return flag.
+- **When:** only for numbers that get an "Открыть деталь" button and are **not in the feed** (typed numbers, original numbers from Laximo). Feed items keep their feed price.
+- **Prompt:** section "АКТУАЛЬНЫЕ ЦЕНЫ" (takes precedence over "don't name prices" for these numbers): "от N ₽" plus delivery ("в наличии" / "~N дн."), the fastest offer in one phrase, a no-return warning, "актуальны на сейчас", all offers and ordering via the button. No prices for other numbers.
+- **Safety switch:** live prices stay **OFF until `ABCP_PRICE_ROUTES` is set**, so the bot never shows prices that differ from the price list. One log line until then: `[prices] live prices off: …`. `ABCP_LIVE_PRICES=all` = all routes the profile sees; `=false` = off.
+- **Logs:** `[prices] using profile "Гость (Опт)" (id …)`, `[prices] N number(s) asked, M with offers (routes …)`, `DIAG live-prices {number: {from, days, offers}}`.
+- **Limits:** search calls count under "search"/"others" (10 000–90 000/day) and the monthly search quota (400 000).
+- **Tested** with the chat handler and mocked ABCP: profile found by name, warehouse filter, used/analog/other-warehouse offers dropped, cheapest + fastest in the prompt; off without routes.
 
 ### 🔗 Session 22 (Oct 24) — "Открыть деталь" buttons for catalog numbers missing from the feed
 
@@ -189,7 +204,7 @@ Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Админист
 - [x] **Part-number compatibility check** ("подойдёт ли 11427808443 на мою машину?"): ABCP `search/brands` gives the part name → Laximo searches the car's catalog by name → numbers compared *(session 19, 23.10.2026)*
 - [x] **Order status** by order number or "Код заказа" + phone/email — `cp/order`, `cp/orders`, `cp/users`, `cp/statuses` *(session 17, live 23.10.2026)*
 - [ ] ⭐⭐⭐ **"Оплатить заказ" button** for verified orders with an amount due — `cp/payment/token` (ABCP's own payment link). Small, builds on order status.
-- [ ] ⭐⭐⭐ **Live price & availability for any part number** (not only the photo feed): "13628582663 — 10 100 ₽, под заказ, ~110 дней". **Confirmed possible** ("Общий интерфейс"): `search/articles` (GET, one number+brand, incl. online suppliers and analogs) and `search/batch` (POST, up to 100 brand+number, own price lists only). Limits look fine for chat volume: the full "Статистика вызовов API-операций" table has only 5 groups (articles/info, others, search/brands, users, orders), so `search/articles`/`search/batch` count under **search/brands (90 000/day)** or **others (10 000/day)**. Searches also count toward the monthly **"Поисковые запросы"** service (400 000/month; 16 282 used in Oct 2026). As API-administrator, pass **`profileId`** of the retail profile so prices match what a visitor sees (without it: guest price). Fields: price, availability, deliveryPeriod/Max (hours), noReturn, isUsed, supplierDescription.
+- [~] **Live price & availability** for numbers not in the feed — built (session 23, `lib/abcpPrices.js`), same profile/warehouses as the price list per Михаил; switches on once `ABCP_PRICE_ROUTES` (export warehouses) is set.
 - [x] **Order timeline**: accepted → ordered from supplier → in transit → ready, with dates, plus the expected delivery date — `cp/orders/statusHistory` *(session 20, 23.10.2026)*
 - [ ] ⭐⭐ **Product details for parts without a feed card**: description, photos, properties (viscosity, approvals, sizes) — `cp/articles/info/batch` (POST, read-only, max 100 per call; images at `https://imgcdn.abcp.ru/p/<name>`). Also lets the bot answer oil-approval questions from real data.
 - [ ] ⭐⭐ **Customer's garage**: after the phone check, use the cars (often with VIN) saved on the site — "Вижу у вас BMW X5 G05 — подбираю для неё?" → VIN to Laximo — `cp/users/garage`.
