@@ -104,19 +104,23 @@ The bot now checks a **part number the customer types** against **their car's or
 ### 📋 Session 23f (Oct 25) — "standard ТО" rule in the prompt
 
 - **Why:** the catalog kit only works when Laximo is up and for BMW. A written definition also covers blocked Laximo and other brands, and makes the search find the right price-list items for cards.
-- **Prompt (`SYSTEM_PROMPT`), new skill "## СТАНДАРТНОЕ ТО (Maintenance)":**
-  - **every ТО:** engine oil (by approval), oil filter (+ drain plug/washer if needed), air filter, cabin filter (carbon version optional);
-  - **by interval / condition:**
-    - spark plugs (petrol, ~60 000 km; diesels have none);
-    - brake fluid (every 2 years);
-    - wiper blades front + rear (~yearly);
-    - coolant;
-    - washer fluid;
-    - brake pads/discs are **not** part of ТО, only mentioned as a check.
-  - If mileage or age is known, the agent says what's due; otherwise it asks the mileage.
-  - Up to 12 cards; the catalog kit section has priority; no invented numbers or prices.
-  - **To be confirmed by Михаил** (his shop's actual ТО list and intervals).
-- **Extraction:** a ТО request now expands to `["масляный фильтр","масло","воздушный фильтр","салонный фильтр","микрофильтр","свеча","щетка","жидкость","антифриз"]`. Brake pads/discs are added only when the customer names them.
+- **Prompt (`SYSTEM_PROMPT`), skill "## СТАНДАРТНОЕ ТО (Maintenance)":**
+  - **Owner's decision:** asking about mileage and intervals makes the chat long and painful. So the agent offers the **whole standard set right away**, as in BMW's catalog diagram "ТО по регл.Oelservice / Inspektion", and the customer picks what they want from the cards.
+  - **The 10 items:**
+    1. oil filter;
+    2. spark plugs (petrol only);
+    3. air filter;
+    4. cabin filter (carbon version as an alternative);
+    5. front wipers;
+    6. rear wiper (if the body has one);
+    7. brake fluid;
+    8. coolant;
+    9. washer fluid;
+    10. CHF hydraulic oil (only if the catalog lists it for the car).
+  - **Answer order:** the set in this order (numbers and prices only from the data) → cards for everything in the price list (up to 12) → **one closing question:** "Нужно ли также моторное масло (допуск…) и тормозные колодки/диски?"
+  - **Engine oil and brake pads/discs** are added only after the customer says yes.
+  - The catalog kit section, when present, has priority.
+- **Extraction:** a ТО request now expands to `["масляный фильтр","воздушный фильтр","салонный фильтр","микрофильтр","свеча","щетка","жидкость","антифриз","CHF"]`. Engine oil and brake pads/discs are added only when the customer names them.
 - **Name matching fixes (`filterCatalogByPartKeyword`):**
   - 1–2 letter words of a product name ("к", "т" from "рем.к-т") no longer match every keyword. Before, "рем.к-т торм.накладок" showed up for unrelated keywords.
   - **Ё → Е** on both sides: "Щётки" used to split into "Щ" + "ТКИ" and never matched.
