@@ -106,7 +106,8 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 Порядок ответа — КОРОТКО (клиент часто с телефона; номера, цены, наличие и сроки уже видны в карточках):
 - 1 строка: «Вот стандартный набор ТО для вашего <авто> по оригинальному каталогу BMW — всё в карточках ниже, выберите нужное.»
 - 1 строка с перечнем позиций БЕЗ номеров и цен, например: «масляный фильтр, свечи, воздушный и салонный фильтры, щётки (перед/зад), тормозная жидкость, антифриз, омыватель, CHF».
-- Если какие-то номера сняты с производства или позиций нет в карточках — ОДНО короткое предложение: «Остальные позиции (часть номеров снята с производства) подберёт менеджер.»
+- Если каких-то позиций нет в карточках — ОДНО короткое предложение, например: «Тормозную жидкость, антифриз и омыватель подберёт и закажет менеджер.» Отсутствие карточки НЕ значит, что деталь снята с производства или что её нет в каталоге — такие позиции просто заказываются через менеджера.
+- «Снят(а) с производства» говори ТОЛЬКО про позицию, у которой это прямо указано в данных (discontinued=true в составе ТО или примечание каталога «Не производится с …»), и добавь, что менеджер подберёт актуальную замену. Если есть раздел «ИТОГ ПО ПОЗИЦИЯМ ТО» — бери эти списки из него.
 - В тексте НЕ пиши артикулы, цены, сроки, наличие и альтернативы по каждой позиции — это дублирует карточки. НЕ делай нумерованный список с описанием каждой позиции.
 - Покажи карточками ВСЕ позиции набора, которые есть в КАТАЛОГЕ ТОВАРОВ / ТОВАРАХ ИЗ РУЧНОГО КАТАЛОГА (до 12 карточек).
 - Если есть раздел «ПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ» — он главный для карточек, но в текст его подробности НЕ переписывай.
@@ -500,6 +501,29 @@ function mergeKitCards(text, kitFeed, vehicleName) {
   console.log(`DIAG kit-cards +${added} (total ${cards.length})`);
   const block = `<<<PRODUCTS>>>\n${JSON.stringify(cards.slice(0, MAX_KIT_CARDS))}\n<<<END_PRODUCTS>>>`;
   return m ? text.replace(re, block) : `${text}\n${block}`;
+}
+
+/**
+ * ТО kit -> facts per POSITION for the prompt (owner, 25.10): a position with
+ * any variant in the feed is "inCards"; one whose every variant is marked
+ * discontinued is "discontinued"; anything else is "orderViaManager" (just
+ * not in the price list -- NOT discontinued).
+ */
+function serviceKitFacts(kit) {
+  const byPos = new Map();
+  for (const k of kit || []) {
+    const key = String(k.position || k.oem).replace(/^0+(?=\d)/, '');
+    if (!byPos.has(key)) byPos.set(key, []);
+    byPos.get(key).push(k);
+  }
+  const facts = { inCards: [], orderViaManager: [], discontinued: [] };
+  for (const variants of byPos.values()) {
+    const name = variants[0].name || variants[0].oem;
+    if (variants.some(v => v.inFeed)) facts.inCards.push(name);
+    else if (variants.every(v => v.discontinued)) facts.discontinued.push(name);
+    else facts.orderViaManager.push(name);
+  }
+  return facts;
 }
 
 /**
@@ -2327,8 +2351,16 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
           ...(!feed && lp ? { priceFrom: lp.cheapest.price, days: lp.cheapest.days, inStock: lp.cheapest.inStock, noReturn: lp.cheapest.noReturn, offers: lp.count } : {}),
         };
       });
-      console.log('DIAG service-kit', JSON.stringify({ unit: diagram.unitName, items: diagram.kit.length, inFeed: diagram.kit.filter(k => k.inFeed).length, priced: diagram.kit.filter(k => k.priceFrom).length }));
-      serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла (с отмеченной позицией) и карточки позиций, которые есть на сайте. Ответ КОРОТКИЙ (см. СТАНДАРТНОЕ ТО): одна строка-вступление, одна строка с перечнем позиций БЕЗ номеров и цен, при discontinued=true или если части позиций нет в карточках — одно предложение, что эти позиции (часть номеров снята с производства) подберёт менеджер; затем вопрос про моторное масло и колодки/диски. Номера, цены и сроки по позициям в текст НЕ переписывай — они в карточках. Пробег и интервалы НЕ спрашивай. Это правило ВАЖНЕЕ разделов «АКТУАЛЬНЫЕ ЦЕНЫ» и «КНОПКИ…»: для ответа на ТО цены и сроки отдельных номеров в тексте НЕ называй. Все позиции с inFeed=true система САМА добавит карточками (до 12 карточек) — в блок <<<PRODUCTS>>> их можно не включать.`;
+      // Per POSITION (owner, 25.10): "discontinued" only when the catalog says
+      // so for every variant of the position; positions merely missing from the
+      // price list are "orderable via the manager" (live 25.10 the bot called
+      // brake fluid, coolant and washer fluid "сняты с производства" because the
+      // prompt used one sentence for both cases). A position with any variant
+      // in the feed is covered by its card.
+      const kitFacts = serviceKitFacts(diagram.kit);
+      diagram.kitFacts = kitFacts;
+      console.log('DIAG service-kit', JSON.stringify({ unit: diagram.unitName, items: diagram.kit.length, inFeed: diagram.kit.filter(k => k.inFeed).length, priced: diagram.kit.filter(k => k.priceFrom).length, positions: { inCards: kitFacts.inCards.length, orderViaManager: kitFacts.orderViaManager.length, discontinued: kitFacts.discontinued.length } }));
+      serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла (с отмеченной позицией) и карточки позиций, которые есть на сайте. Ответ КОРОТКИЙ (см. СТАНДАРТНОЕ ТО): одна строка-вступление, одна строка с перечнем позиций БЕЗ номеров и цен, затем по разделу «ИТОГ ПО ПОЗИЦИЯМ ТО» ниже: если список orderViaManager не пуст — одно предложение, что эти позиции подберёт и закажет менеджер (НЕ называй их снятыми с производства и НЕ говори, что их нет в каталоге/на сайте); если список discontinued не пуст — одно предложение, что эти позиции сняты с производства и менеджер подберёт актуальную замену; затем вопрос про моторное масло и колодки/диски. Слова «снят(ы) с производства» — ТОЛЬКО для позиций из списка discontinued. Номера, цены и сроки по позициям в текст НЕ переписывай — они в карточках. Пробег и интервалы НЕ спрашивай. Это правило ВАЖНЕЕ разделов «АКТУАЛЬНЫЕ ЦЕНЫ» и «КНОПКИ…»: для ответа на ТО цены и сроки отдельных номеров в тексте НЕ называй. Все позиции с inFeed=true система САМА добавит карточками (до 12 карточек) — в блок <<<PRODUCTS>>> их можно не включать.\n\nИТОГ ПО ПОЗИЦИЯМ ТО (готовые факты по позициям узла, используй ТОЛЬКО их): ${JSON.stringify(diagram.kitFacts)}\n- inCards: позиции, которые будут в карточках;\n- orderViaManager: позиций нет в карточках, но их можно заказать — подберёт и закажет менеджер;\n- discontinued: позиции, все номера которых по каталогу сняты с производства.`;
     }
     // Extra diagrams (owner, 25.10): an "Открыть деталь" number that is NOT on
     // the main diagram gets its own card with its position marked -- max 2
@@ -2427,7 +2459,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     if (serviceOnly) text = dropNonServiceCards(text, new Set(kitFeed.map(x => String(x.feed.article || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))));
     // The diagram card describes only the part marked in red (owner, 25.10):
     // the kit list is used for the cards and the prompt, not shown in the card.
-    if (diagram) delete diagram.kit;
+    if (diagram) { delete diagram.kit; delete diagram.kitFacts; }
     if (diagram) {
       console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;
@@ -2470,6 +2502,7 @@ module.exports.isServiceRequest = isServiceRequest;
 module.exports.mergeKitCards = mergeKitCards;
 module.exports.repairTruncatedBlocks = repairTruncatedBlocks;
 module.exports.dropNonServiceCards = dropNonServiceCards;
+module.exports.serviceKitFacts = serviceKitFacts;
 module.exports.isNonServicePart = isNonServicePart;
 module.exports.asksForNonServicePart = asksForNonServicePart;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
