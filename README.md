@@ -49,6 +49,17 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
+### ✂️ Session 24b (Oct 25) — ТО answer cut off, raw `<<<PRODUCTS>>>` shown
+
+- **Live test 25.10** (first test of the homepage block): "ТО для моей машины" → X5 → E70 → 3.0d. The answer stopped inside the product JSON ("…\"category\": \"Антиф") and the customer saw the raw block instead of cards.
+- **Cause:** Sonnet 5 **thinks by default** (adaptive thinking, effort high), and the thinking **counts toward `max_tokens`** (Anthropic docs, "Thinking"). With `max_tokens: 4096`, thinking plus an 8–12-card ТО answer didn't fit. The API said `stop_reason: "max_tokens"`, which wasn't checked.
+- **Fix (`api/chat.js`):**
+  - `max_tokens` **16000**; only the tokens actually used are billed;
+  - `stop_reason: "max_tokens"` is logged: `[chat] reply hit max_tokens (output N tokens)`;
+  - **`repairTruncatedBlocks()`**: an unfinished `<<<PRODUCTS>>>` keeps its complete cards and gets closed; an unfinished BUTTONS / DIAGRAM / PART_LINKS block is dropped. Log `[chat] reply cut off inside …`. Tested on the real cut-off answer: 7 complete cards kept, the broken 8th dropped.
+- **Widget:** `parseBotResponse()` cuts any unfinished `<<<…>>>` block, so raw code never reaches a customer even from an older server.
+- **Open decision (owner):** thinking could be turned off (`thinking: {type: "disabled"}`) to make replies faster and cheaper; not done, since it may change answer quality. Also noted in the same test: the generation list from the compatibility table showed wrong years (E70 "2007–2008", E53 "2003–2006"), and the reply started with "Привет! 👋" mid-conversation.
+
 ### 🏠 Session 24 (Oct 25) — the agent built into the homepage (inline mode)
 
 - **Client's request:** instead of only the bubble, the agent should sit at the top of the homepage. Mockup approved by the client 25.10 (desktop before/after the first message + phone).

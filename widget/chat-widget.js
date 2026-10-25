@@ -1601,6 +1601,13 @@
     let partLinks = null;
     let diagram = null;
 
+    // An unfinished block (reply cut off; the server normally repairs it)
+    // must never reach the customer as raw <<<…>>> text.
+    for (const tag of ['PRODUCTS', 'BUTTONS', 'DIAGRAM', 'PART_LINKS']) {
+      const i = text.lastIndexOf(`<<<${tag}>>>`);
+      if (i !== -1 && text.indexOf(`<<<END_${tag}>>>`, i) === -1) text = text.slice(0, i);
+    }
+
     const prodMatch = text.match(/<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/);
     if (prodMatch) {
       try { products = JSON.parse(prodMatch[1].trim()); } catch(e) {}
