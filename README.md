@@ -41,7 +41,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-25 evening (session 24: the agent built into the homepage — photo block, M-red "Подобрать", "AI" avatar, confirmed live; session 24b: ТО answers cut off inside `<<<PRODUCTS>>>`, fixed; session 23g: diagram for every "Открыть деталь" number; session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-25 evening (session 24c: ТО answers show service parts only; session 24: the agent built into the homepage — photo block, M-red "Подобрать", "AI" avatar, confirmed live; session 24b: ТО answers cut off inside `<<<PRODUCTS>>>`, fixed; session 23g: diagram for every "Открыть деталь" number; session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
@@ -49,6 +49,14 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 - **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs (`[chat] reply hit max_tokens`, `[chat] reply cut off inside …`) and the new tab. Open items: see "📝 Open items (25.10)" below.
 
 Read sessions 24 and 24b first for the homepage block, then session 15, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### 🧽 Session 24c (Oct 25) — ТО answers: service parts only
+
+- **Live test 25.10** ("Набор на стандартный ТО. BMW X5 4.0i G05", homepage block): the first card was **"Корпус масляного фильтра B58" (11428488578, 38 500 ₽)**, and the cabin filter cover **"Крышка микрофильтра" (64119460554)** got its own diagram and "Открыть деталь" button. Neither is a service part.
+- **Cause:** the name search for "масляный фильтр", "салонный фильтр"… also returns the parts around them (the oil filter module, sold as the housing; the filter cover). The housing is in the price list, so the AI got it as an available product; the cover isn't, so it got a button + diagram.
+- **Fix (`api/chat.js`):** for a ТО request (`isServiceRequest()`), parts whose name matches `NON_SERVICE_PART_RE` (корпус, крышка, модуль, уплотнение, прокладка, датчик, кронштейн, держатель, теплообменник, патрубок, шланг, трубка, болт, винт, гайка, насос, клапан) are left out of the catalog data the AI gets and of the "not in feed" numbers (so no button/diagram), and **`dropNonServiceCards()`** removes any that still appear in the final cards. Positions of the catalog's service kit always stay. Skipped when the customer's last message asks for such a part (`asksForNonServicePart()`, e.g. "ещё нужен корпус фильтра").
+- **Logs:** `[service] ТО request: N non-service part(s) left out: …`, `[service] dropped non-service card(s): …`.
+- **Tested** on the 13 cards of that live answer: only the housing is dropped, 12 service cards stay (filters, plugs, wipers, ATF, CHF, fluids); the cover is filtered; kit positions are never dropped.
 
 ### ✂️ Session 24b (Oct 25) — ТО answer cut off, raw `<<<PRODUCTS>>>` shown
 
@@ -97,6 +105,7 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 ### 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
+- **"Discontinued" wording in ТО answers:** live 25.10 the bot said brake fluid, coolant and washer fluid were "сняты с производства", although the catalog marked only the oil filter element (11428583898) as discontinued; the fluids were most likely just not in the price list. The ТО prompt rule uses one sentence for both cases ("при discontinued=true или если части позиций нет в карточках — … часть номеров снята с производства …"); it should say "not on the site / the manager will order" for missing items and "discontinued" only for `discontinued=true`.
 - **"Привет! 👋" mid-conversation** in the generation question (Haiku short-cut in `api/chat.js`, `CLARIFY_PROMPT`).
 - **Thinking on Sonnet 5:** on by default; turning it off (`thinking: {type: "disabled"}`) would make replies faster and cheaper but may change quality — owner's decision. Anthropic now lists Sonnet 5 as a legacy model (Sonnet 5.5 is current).
 - **Dashboard:** show `placement` (homepage block vs bubble) in the "Подбор" tab.

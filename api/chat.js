@@ -550,6 +550,37 @@ function serviceCandRank(p) {
   if (/масл/.test(n) && /фильтр/.test(n)) return 4;                   // "Масляный фильтр" module
   return 9;
 }
+
+// ТО answers show SERVICE parts only (owner, 25.10). The name search for
+// "масляный фильтр", "салонный фильтр"... also finds the parts around them:
+// live test X5 G05 40i showed the oil filter module as a card ("Корпус
+// масляного фильтра B58", 38 500 ₽) and the cabin filter cover ("Крышка
+// микрофильтра") with its own diagram and "Открыть деталь" button. These
+// are dropped from the data the AI gets and from the final cards -- unless
+// the customer asks for such a part himself ("нужен корпус фильтра").
+const NON_SERVICE_PART_RE = /корпус|крышк|модул|уплотн|прокладк|датчик|кронштейн|держател|теплообмен|патрубок|шланг|трубк|болт|винт|гайк|насос|клапан/i;
+function isNonServicePart(...names) {
+  return names.some(n => n && NON_SERVICE_PART_RE.test(String(n)));
+}
+function asksForNonServicePart(messages) {
+  const last = [...(messages || [])].reverse().find(m => m && m.role === 'user');
+  const text = last && typeof last.content === 'string' ? last.content : '';
+  return NON_SERVICE_PART_RE.test(text);
+}
+/** ТО: removes non-service cards from the reply's <<<PRODUCTS>>> block (kit positions always stay). */
+function dropNonServiceCards(text, keepArticles) {
+  const norm = x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = String(text || '').match(re);
+  if (!m) return text;
+  let cards;
+  try { cards = JSON.parse(m[1].trim()); } catch { return text; }
+  if (!Array.isArray(cards)) return text;
+  const keep = cards.filter(c => c && (keepArticles.has(norm(c.article)) || !isNonServicePart(c.name, c.category)));
+  if (keep.length === cards.length) return text;
+  console.log(`[service] dropped non-service card(s): ${cards.filter(c => !keep.includes(c)).map(c => `${c && c.article} (${c && c.name})`).join(', ')}`);
+  return keep.length ? text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(keep)}\n<<<END_PRODUCTS>>>`) : text.replace(re, '').trim();
+}
 const isOilFilterPart = p => /масл/i.test(p.name || '') && /фильтр|элемент/i.test(p.name || '') && !/корпус|крышк|уплотн|прокладк|датчик/i.test(p.name || '');
 
 function partLinksForMessage(extracted, messages) {
@@ -1985,8 +2016,13 @@ console.log(JSON.stringify(extracted, null, 2));
     // client sells original parts and can usually order them). Capped so a
     // broad search can't flood the prompt.
     const MAX_LAXIMO_NOT_IN_CATALOG = 15;
+    // ТО request: service parts only (see NON_SERVICE_PART_RE).
+    const serviceRequest = isServiceRequest(messages, extracted);
+    const serviceOnly = serviceRequest && !asksForNonServicePart(messages);
+    const laximoNameOf = code => ((matchedCompatibilityByVehicle[code] || [])[0] || {}).partName || null;
     const laximoNotInCatalog = laximoUsed
-      ? missingVendorCodes.slice(0, MAX_LAXIMO_NOT_IN_CATALOG).map(code => {
+      ? missingVendorCodes.filter(code => !(serviceOnly && isNonServicePart(laximoNameOf(code))))
+          .slice(0, MAX_LAXIMO_NOT_IN_CATALOG).map(code => {
           const r = (matchedCompatibilityByVehicle[code] || [])[0] || {};
           return {
             oem: code,
@@ -2041,6 +2077,13 @@ console.log(JSON.stringify(extracted, null, 2));
       matchedCatalog = matchedCatalogByVehicle.slice(0, MAX_UNFILTERED_CATALOG_ITEMS);
     } else {
       matchedCatalog = matchedCatalogByVehicle;
+    }
+    if (serviceOnly) {
+      const dropped = matchedCatalog.filter(p => isNonServicePart(p.name, p.category, laximoNameOf(p.article)));
+      if (dropped.length) {
+        matchedCatalog = matchedCatalog.filter(p => !dropped.includes(p));
+        console.log(`[service] ТО request: ${dropped.length} non-service part(s) left out: ${dropped.map(p => `${p.article} (${p.name})`).join(', ')}`);
+      }
     }
 
     const matchedVendorCodes = new Set(matchedCatalog.map(p => p.article));
@@ -2210,7 +2253,6 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Unit diagram for a catalog part that has no product photo (fetched in
     // parallel with the AI reply; shown as a card under it). One per reply.
     let diagramPromise = null;
-    const serviceRequest = isServiceRequest(messages, extracted);
     if (laximoUsed && process.env.LAXIMO_DIAGRAMS !== 'false') {
       const withPhoto = new Set(matchedCatalog.filter(p => p.picture).map(p => laximo.normalizeOem(p.article)));
       const first = compat && compat.verdict === 'fits'
@@ -2381,6 +2423,8 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // (the AI tends to pick only what its keywords matched -- live test
     // 25.10 showed 3 cards for a ~10-item service set). Max 12 cards.
     if (kitFeed.length) text = mergeKitCards(text, kitFeed, laximoResult?.vehicle?.name || [extracted.brand, extracted.model].filter(Boolean).join(' '));
+    // ТО: no housings, covers, seals... among the cards (kit positions always stay).
+    if (serviceOnly) text = dropNonServiceCards(text, new Set(kitFeed.map(x => String(x.feed.article || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))));
     // The diagram card describes only the part marked in red (owner, 25.10):
     // the kit list is used for the cards and the prompt, not shown in the card.
     if (diagram) delete diagram.kit;
@@ -2425,4 +2469,7 @@ module.exports.clearCaches = clearCaches;
 module.exports.isServiceRequest = isServiceRequest;
 module.exports.mergeKitCards = mergeKitCards;
 module.exports.repairTruncatedBlocks = repairTruncatedBlocks;
+module.exports.dropNonServiceCards = dropNonServiceCards;
+module.exports.isNonServicePart = isNonServicePart;
+module.exports.asksForNonServicePart = asksForNonServicePart;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
