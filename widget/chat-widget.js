@@ -72,7 +72,7 @@
 
   // ─── INLINE MODE (homepage block, see the header comment) ───────────────────
   const INLINE_HOST_ID   = 'bmw-ai-agent';
-  const INLINE_TITLE     = 'Подберём запчасть для вашего автомобиля';
+  const INLINE_TITLE     = 'Подберём запчасти вместе с ИИ-консультантом'; // owner, 25.10 (was 'Подберём запчасть для вашего автомобиля')
   const INLINE_TEXT      = 'ИИ-консультант ответит сразу: по VIN, модели или номеру детали — с ценой, сроком и схемой из оригинального каталога.';
   const INLINE_CHIPS     = ['ТО для моей машины', 'Подбор по VIN', 'Подойдёт ли номер?', 'Где мой заказ?'];
   const INLINE_PLACEHOLDER       = 'Например: ТО для X5 G05 30d или VIN WBA…';
