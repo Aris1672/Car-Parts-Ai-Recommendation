@@ -87,8 +87,13 @@
     { label: 'Не знаю номер',    text: 'Не знаю номер детали — помогите подобрать' },
   ];
   const INLINE_SEND_LABEL = 'Подобрать с ИИ';
+  // Phones (<= 767 px) keep the PREVIOUS dark design (owner, 26.10): its texts.
+  const INLINE_M_TITLE   = 'Подберём запчасти вместе с ИИ-консультантом'; // shown in uppercase
+  const INLINE_M_TEXT    = 'ИИ-консультант ответит сразу: по VIN, модели или номеру детали — с ценой, сроком и схемой из оригинального каталога.';
+  const INLINE_M_CHIPS   = ['ТО для моей машины', 'Подбор по VIN', 'Подойдёт ли номер?', 'Где мой заказ?']; // sent as typed
+  const INLINE_M_PLACEHOLDER = 'ТО для X5 G05 или VIN…';
+  const INLINE_M_SEND_LABEL  = 'Подобрать';
   const INLINE_PLACEHOLDER       = 'Например: передние колодки на BMW X5 G05 30d';
-  const INLINE_PLACEHOLDER_SHORT = 'Колодки на X5 G05 или VIN…'; // phones
   const INLINE_PLACEHOLDER_CHAT  = 'Напишите сообщение…';
   const INLINE_MANAGER_TEXT = 'Менеджер поможет с подбором и заказом. Позвоните по кнопке ниже — или напишите здесь свой телефон, и менеджер перезвонит.';
   // Phones: the agent goes ABOVE the icon row (.benefits-block), so it's on
@@ -122,7 +127,8 @@
       --pc-messages-bg-image: url('${BASE_URL}/chat-bg.jpg');
       --pc-messages-bg: #f5f5f5;
       /* Homepage block background (compact state only), repo root like chat-bg.jpg */
-      --pc-hero-bg-image: url('${BASE_URL}/agent-hero-mountains.jpg');
+      --pc-hero-bg-image: url('${BASE_URL}/agent-hero-mountains.jpg'); /* light hero, desktop */
+      --pc-hero-bg-dark: url('${BASE_URL}/agent-hero-bg.jpg');           /* dark design, phones */
     }
 
     /* Explicit font reset — without this the widget silently inherits
@@ -602,84 +608,186 @@
        accents. Desktop (>= 768 px): full window width (.pc-bleed; JS sets
        --pc-page-w and --pc-col-left from the placeholder's column) with the
        content aligned to the site's column. Phones: a card with the photo as
-       a band on top. Earlier dark version (blue M5 in smoke) kept as
-       agent-hero-bg.jpg; see README session 24. */
-    #pc-hero, #pc-chips, #pc-hero-note { display: none; }
+       a band on top -- replaced 26.10 by the previous dark design on phones
+       (see the <= 767 px block below). */
+    #pc-hero, #pc-hero-m, #pc-chips, #pc-chips-m, #pc-hero-note { display: none; }
     #pc-panel.pc-compact #pc-header, #pc-panel.pc-compact #pc-messages { display: none; }
-    #pc-panel.pc-inline.pc-compact {
-      --pc-hero-accent: #0a5cc4;
-      background-color: #e9eff5;
-      background-image:
-        linear-gradient(90deg, rgba(255,255,255,0.94) 0%, rgba(255,255,255,0.88) 40%, rgba(255,255,255,0.35) 56%, rgba(255,255,255,0) 66%),
-        var(--pc-hero-bg-image);
-      background-size: 100% 100%, cover;
-      background-position: 0 0, right 70%;
-      background-repeat: no-repeat;
-      border: 1px solid #e3e8ef;
-      min-height: 400px; justify-content: center; padding: 36px 0;
-    }
+    /* Desktop and large tablets (>= 768 px): the light hero */
     @media (min-width: 768px) {
-      #pc-panel.pc-inline.pc-compact.pc-bleed {
-        width: var(--pc-page-w) !important; margin-left: calc(-1 * var(--pc-col-left));
-        border-radius: 0; border-left: none; border-right: none;
-        min-height: 500px; /* owner, 26.10 (was 440); a minimum, so a wrapped title never gets cut */
-        /* more room at the top: the hero now starts right under the header
-           and the search tab hangs ~35 px into it (owner, 26.10) */
-        padding-top: 64px; padding-bottom: 40px;
+      #pc-panel.pc-inline.pc-compact {
+        --pc-hero-accent: #0a5cc4;
+        background-color: #e9eff5;
+        background-image:
+          linear-gradient(90deg, rgba(255,255,255,0.94) 0%, rgba(255,255,255,0.88) 40%, rgba(255,255,255,0.35) 56%, rgba(255,255,255,0) 66%),
+          var(--pc-hero-bg-image);
+        background-size: 100% 100%, cover;
+        background-position: 0 0, right 70%;
+        background-repeat: no-repeat;
+        border: 1px solid #e3e8ef;
+        min-height: 400px; justify-content: center; padding: 36px 0;
       }
+      @media (min-width: 768px) {
+        #pc-panel.pc-inline.pc-compact.pc-bleed {
+          width: var(--pc-page-w) !important; margin-left: calc(-1 * var(--pc-col-left));
+          border-radius: 0; border-left: none; border-right: none;
+          min-height: 500px; /* owner, 26.10 (was 440); a minimum, so a wrapped title never gets cut */
+          /* more room at the top: the hero now starts right under the header
+             and the search tab hangs ~35 px into it (owner, 26.10) */
+          padding-top: 64px; padding-bottom: 40px;
+        }
+      }
+      #pc-panel.pc-compact #pc-hero {
+        display: block; padding: 0 28px 0 calc(var(--pc-col-left, 0px) + 28px);
+        max-width: calc(var(--pc-col-left, 0px) + 700px);
+      }
+      #pc-panel .pc-hero-eyebrow {
+        display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+        color: var(--pc-hero-accent); font-family: Montserrat, var(--pc-font);
+        font-weight: 700; font-size: 14px; letter-spacing: 1px; text-transform: uppercase;
+      }
+      .pc-hero-eyebrow svg { width: 20px; height: 20px; flex-shrink: 0; }
+      #pc-panel .pc-hero-title {
+        margin: 0; font-family: Montserrat, var(--pc-font); font-size: 42px; font-weight: 800;
+        line-height: 1.15; color: #0f2440; text-transform: none; letter-spacing: normal;
+      }
+      .pc-hero-title .pc-accent { color: var(--pc-hero-accent); }
+      .pc-hero-text { margin: 14px 0 0; font-size: 17px; line-height: 1.5; color: #33404f; max-width: 520px; }
+      #pc-panel.pc-compact #pc-input-area {
+        margin: 22px 28px 0 calc(var(--pc-col-left, 0px) + 28px); max-width: 600px;
+        padding: 6px; gap: 6px; align-items: center;
+        background: #fff; border: 1.5px solid #c7d6ea; border-radius: 12px;
+        box-shadow: 0 6px 24px rgba(15,36,64,0.10);
+      }
+      #pc-panel.pc-compact #pc-input-area:focus-within { border-color: var(--pc-hero-accent); }
+      #pc-panel.pc-compact #pc-input {
+        border: none; border-radius: 8px; padding: 13px 12px 13px 40px; font-size: 16px;
+        background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7480' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E") no-repeat 12px center / 20px 20px;
+      }
+      #pc-panel.pc-compact #pc-send { background: var(--pc-hero-accent); min-height: 50px; border-radius: 9px; }
+      #pc-panel.pc-compact #pc-send:hover { background: #084a9e; }
+      #pc-panel.pc-compact #pc-send:focus-visible { outline: 2px solid var(--pc-hero-accent); outline-offset: 2px; }
+      #pc-panel.pc-compact #pc-chips {
+        display: flex; flex-wrap: wrap; gap: 10px; padding: 18px 28px 0 calc(var(--pc-col-left, 0px) + 28px);
+      }
+      #pc-panel .pc-chip {
+        min-height: 44px; padding: 0 20px; border-radius: 10px; border: 1px solid #d3dce8;
+        background: #fff; color: #1d2b3c; font-size: 14px; font-weight: 500; cursor: pointer;
+        box-shadow: 0 2px 8px rgba(15,36,64,0.06); transition: border-color 0.15s, color 0.15s;
+      }
+      #pc-panel .pc-chip:hover { border-color: var(--pc-hero-accent); color: var(--pc-hero-accent); }
+      #pc-panel.pc-compact #pc-hero-note {
+        display: block; padding: 16px 28px 0 calc(var(--pc-col-left, 0px) + 28px); font-size: 13px; color: #4a5565;
+      }
+      #pc-hero-note button {
+        border: none; background: none; padding: 0; color: var(--pc-hero-accent, #0a5cc4); font-size: inherit;
+        text-decoration: underline; cursor: pointer;
+      }
+      #pc-panel.pc-inline.pc-compact .pc-powered {
+        background: transparent; text-align: left; font-size: 11px; color: #5b6573;
+        padding: 4px 28px 0 calc(var(--pc-col-left, 0px) + 28px);
+      }
+      #pc-panel.pc-inline.pc-compact .pc-powered a { color: var(--pc-hero-accent); }
+      #pc-panel.pc-inline.pc-compact .pc-powered a:hover { text-decoration: underline; }
     }
-    #pc-panel.pc-compact #pc-hero {
-      display: block; padding: 0 28px 0 calc(var(--pc-col-left, 0px) + 28px);
-      max-width: calc(var(--pc-col-left, 0px) + 700px);
+
+    /* ── Phones and small tablets (<= 767 px): the PREVIOUS dark design ──
+       (owner, 26.10: "in mobile we should keep the old design"). Taken
+       unchanged from session 24 (commit 6a7700d), with its own names so it
+       can't clash with the light hero: #pc-hero-m, .pc-hm-title/.pc-hm-text,
+       #pc-chips-m, photo --pc-hero-bg-dark (agent-hero-bg.jpg). */
+    @media (max-width: 767px) {
+      #pc-panel.pc-inline.pc-compact .pc-powered {
+        background: transparent; text-align: left; padding: 0 28px 18px; font-size: 11px;
+        color: rgba(255,255,255,0.8); text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 8px rgba(0,0,0,0.6);
+      }
+      #pc-panel.pc-inline.pc-compact .pc-powered a { color: rgba(255,255,255,0.92); }
+      #pc-panel.pc-inline.pc-compact .pc-powered a:hover { color: #fff; text-decoration: underline; }
+      #pc-panel.pc-compact #pc-hero-m { display: flex; align-items: flex-start; gap: 16px; padding: 26px 28px 4px; }
+      #pc-panel.pc-compact #pc-input-area { border-top: none; padding: 14px 28px; }
+      #pc-panel.pc-compact #pc-chips-m { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
+      #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 6px; font-size: 13px; color: #5f646c; }
+      /* As tall as the title + 2 description lines next to it (owner, 25.10):
+         22px x 1.25 + 4px + 2 x 15px x 1.45 = 75px. A fixed size on purpose --
+         stretching it to the text let the 192px image set the size (live
+         25.10: a ~175px avatar). */
+      .pc-hero-icon {
+        width: 75px; height: 75px;
+        border-radius: 10px; color: #fff;
+        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      }
+      .pc-hero-icon svg { width: 34px; height: 34px; }
+      /* Uppercase like the site's own headings (owner, 25.10): 22 px / 16 px on phones, weight 800 */
+      .pc-hm-title { margin: 0; font-size: 22px; font-weight: 800; line-height: 1.25; color: var(--pc-dark); text-transform: uppercase; letter-spacing: 0.3px; }
+      .pc-hm-text { margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: #4a4f57; }
+      #pc-panel .pc-chip {
+        min-height: 44px; padding: 0 18px; border-radius: 22px; border: 1px solid #c9d6e8;
+        background: #f0f5fc; color: #13499c; font-size: 14px; font-weight: 500; cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      #pc-panel .pc-chip:hover { border-color: var(--pc-red); color: var(--pc-red); }
+      #pc-hero-note button {
+        border: none; background: none; padding: 0; color: #428af9; font-size: inherit;
+        text-decoration: underline; cursor: pointer;
+      }
+
+      /* Compact state on the photo (owner, 25.10): dark overlay, stronger on the
+         left where the text is, so white text stays readable; the car shows
+         through on the right. The chat itself keeps its plain light background.
+         Current photo: the owner's original 1920x1200 (blue M5 in smoke, car
+         ~485 px wide in the file). It is shown at its NATURAL size, never
+         enlarged (an enlarged crop looked soft, 25.10): the image's right edge
+         sits 680 px beyond the block's right edge and its bottom 458 px below,
+         which puts the car at the right with the headlights beside the quick
+         buttons. On blocks wider than 1240 px it grows just enough to leave no
+         gap on the left.
+         Overlay ONLY behind the text (owner, 25.10: "the lights look dim"):
+         0.78 -> 0.66 at 45% -> 0 from 62%, so the car and headlights are at
+         full brightness; the description wraps at 600 px to stay on the dark
+         side. Contrast: title 5.3:1, description 4.6:1, plus a soft text shadow.
+         (No overlay at all = about 2:1 over the smoke: unreadable.)
+         For the light photo (agent-hero-bg-light.jpg, 854 px) use overlay
+         0.82 / 0.62 / 0.45 across and size cover / position center 48%. */
+      #pc-panel.pc-inline.pc-compact {
+        background-color: #0b1626;
+        background-image:
+          linear-gradient(90deg, rgba(8,18,32,0.78) 0%, rgba(8,18,32,0.66) 45%, rgba(8,18,32,0) 62%),
+          var(--pc-hero-bg-dark);
+        background-size: 100% 100%, max(1920px, calc(100% + 680px)) auto;
+        background-position: 0 0, right -680px bottom -458px;
+        background-repeat: no-repeat;
+        border-color: transparent;
+      }
+      #pc-panel.pc-compact .pc-hm-title,
+      #pc-panel.pc-compact .pc-hm-text,
+      #pc-panel.pc-compact #pc-hero-note { text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 10px rgba(0,0,0,0.6); }
+      #pc-panel.pc-compact .pc-hm-text { max-width: 600px; }
+      /* Phones: half size (sharp on 2x screens), car centered at the bottom;
+         the fade runs top to bottom and stops above the car (text 12.5:1; the
+         note over the car relies on its text shadow). */
+      @media (max-width: 540px) {
+        #pc-panel.pc-inline.pc-compact {
+          background-image: linear-gradient(180deg, rgba(8,18,32,0.55) 0%, rgba(8,18,32,0.45) 40%, rgba(8,18,32,0) 62%), var(--pc-hero-bg-dark);
+          background-size: 100% 100%, 960px 600px;
+          background-position: 0 0, center bottom -200px;
+        }
+      }
+      #pc-panel.pc-compact .pc-hm-title { color: #fff; }
+      #pc-panel.pc-compact .pc-hm-text { color: rgba(255,255,255,0.88); }
+      #pc-panel.pc-compact .pc-hero-icon { box-shadow: 0 0 0 3px rgba(255,255,255,0.35); }
+      #pc-panel.pc-compact #pc-input-area { background: transparent; }
+      #pc-panel.pc-compact #pc-input { border-color: #fff; }
+      #pc-panel.pc-compact #pc-input:focus { border-color: #8cc4ff; }
+      /* "Подобрать" on the photo: BMW M red (owner, 25.10; the blue button
+         blended into the blue photo). White on #E7222E = 4.5:1, hover 6:1.
+         The chat's send button stays blue. */
+      #pc-panel.pc-compact #pc-send { background: #E7222E; }
+      #pc-panel.pc-compact #pc-send:hover { background: #C41B25; }
+      #pc-panel.pc-compact #pc-send:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+      #pc-panel.pc-compact .pc-chip { background: rgba(255,255,255,0.94); border-color: transparent; }
+      #pc-panel.pc-compact .pc-chip:hover { background: #fff; }
+      #pc-panel.pc-compact #pc-hero-note { color: rgba(255,255,255,0.85); }
+      #pc-panel.pc-compact #pc-hero-note button { color: #9cc9ff; }
     }
-    #pc-panel .pc-hero-eyebrow {
-      display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
-      color: var(--pc-hero-accent); font-family: Montserrat, var(--pc-font);
-      font-weight: 700; font-size: 14px; letter-spacing: 1px; text-transform: uppercase;
-    }
-    .pc-hero-eyebrow svg { width: 20px; height: 20px; flex-shrink: 0; }
-    #pc-panel .pc-hero-title {
-      margin: 0; font-family: Montserrat, var(--pc-font); font-size: 42px; font-weight: 800;
-      line-height: 1.15; color: #0f2440; text-transform: none; letter-spacing: normal;
-    }
-    .pc-hero-title .pc-accent { color: var(--pc-hero-accent); }
-    .pc-hero-text { margin: 14px 0 0; font-size: 17px; line-height: 1.5; color: #33404f; max-width: 520px; }
-    #pc-panel.pc-compact #pc-input-area {
-      margin: 22px 28px 0 calc(var(--pc-col-left, 0px) + 28px); max-width: 600px;
-      padding: 6px; gap: 6px; align-items: center;
-      background: #fff; border: 1.5px solid #c7d6ea; border-radius: 12px;
-      box-shadow: 0 6px 24px rgba(15,36,64,0.10);
-    }
-    #pc-panel.pc-compact #pc-input-area:focus-within { border-color: var(--pc-hero-accent); }
-    #pc-panel.pc-compact #pc-input {
-      border: none; border-radius: 8px; padding: 13px 12px 13px 40px; font-size: 16px;
-      background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7480' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E") no-repeat 12px center / 20px 20px;
-    }
-    #pc-panel.pc-compact #pc-send { background: var(--pc-hero-accent); min-height: 50px; border-radius: 9px; }
-    #pc-panel.pc-compact #pc-send:hover { background: #084a9e; }
-    #pc-panel.pc-compact #pc-send:focus-visible { outline: 2px solid var(--pc-hero-accent); outline-offset: 2px; }
-    #pc-panel.pc-compact #pc-chips {
-      display: flex; flex-wrap: wrap; gap: 10px; padding: 18px 28px 0 calc(var(--pc-col-left, 0px) + 28px);
-    }
-    #pc-panel .pc-chip {
-      min-height: 44px; padding: 0 20px; border-radius: 10px; border: 1px solid #d3dce8;
-      background: #fff; color: #1d2b3c; font-size: 14px; font-weight: 500; cursor: pointer;
-      box-shadow: 0 2px 8px rgba(15,36,64,0.06); transition: border-color 0.15s, color 0.15s;
-    }
-    #pc-panel .pc-chip:hover { border-color: var(--pc-hero-accent); color: var(--pc-hero-accent); }
-    #pc-panel.pc-compact #pc-hero-note {
-      display: block; padding: 16px 28px 0 calc(var(--pc-col-left, 0px) + 28px); font-size: 13px; color: #4a5565;
-    }
-    #pc-hero-note button {
-      border: none; background: none; padding: 0; color: var(--pc-hero-accent, #0a5cc4); font-size: inherit;
-      text-decoration: underline; cursor: pointer;
-    }
-    #pc-panel.pc-inline.pc-compact .pc-powered {
-      background: transparent; text-align: left; font-size: 11px; color: #5b6573;
-      padding: 4px 28px 0 calc(var(--pc-col-left, 0px) + 28px);
-    }
-    #pc-panel.pc-inline.pc-compact .pc-powered a { color: var(--pc-hero-accent); }
-    #pc-panel.pc-inline.pc-compact .pc-powered a:hover { text-decoration: underline; }
 
     /* Full screen ("Во весь экран") */
     #pc-panel.pc-inline.pc-full {
@@ -694,29 +802,17 @@
       #pc-panel.pc-inline #pc-header { padding: 0 12px; }
       #pc-panel.pc-inline #pc-send { width: 52px; padding: 0; justify-content: center; }
       #pc-panel.pc-inline #pc-send .pc-send-label { display: none; }
-      /* Hero on phones: a card, the photo as a 150 px band on top */
-      #pc-panel.pc-inline.pc-compact {
-        background-image: var(--pc-hero-bg-image); background-color: #fff;
-        background-size: auto 150px; background-position: 78% 0;
-        padding: 166px 0 18px; min-height: 0;
-      }
-      #pc-panel.pc-compact #pc-hero { padding: 0 16px; }
-      #pc-panel .pc-hero-eyebrow { font-size: 12px; margin-bottom: 8px; }
-      .pc-hero-eyebrow svg { width: 16px; height: 16px; }
-      #pc-panel .pc-hero-title { font-size: 25px; line-height: 1.18; }
-      .pc-hero-title .pc-hero-br { display: none; }
-      .pc-hero-text { font-size: 14px; margin-top: 8px; }
-      #pc-panel.pc-compact #pc-input-area {
-        margin: 14px 16px 0; flex-direction: column; align-items: stretch; gap: 10px;
-        padding: 0; border: none; box-shadow: none; background: transparent;
-      }
-      #pc-panel.pc-compact #pc-input { border: 1.5px solid #c7d6ea; border-radius: 10px; background-color: #fff; }
-      #pc-panel.pc-inline.pc-compact #pc-send { width: 100%; padding: 0 16px; justify-content: center; }
-      #pc-panel.pc-inline.pc-compact #pc-send .pc-send-label { display: inline; }
-      #pc-panel.pc-compact #pc-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 16px 0; }
-      #pc-panel.pc-compact #pc-hero-note { padding: 12px 16px 0; font-size: 12px; }
-      #pc-panel.pc-inline.pc-compact .pc-powered { padding: 4px 16px 0; }
+      /* dark design on phones (as before 26.10) */
+      #pc-panel.pc-compact #pc-hero-m { padding: 18px 16px 2px; gap: 12px; align-items: center; }
+      #pc-panel.pc-compact #pc-input-area { padding: 12px 16px; }
+      #pc-panel.pc-compact #pc-chips-m { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 2px; }
+      #pc-panel.pc-compact #pc-hero-note { padding: 10px 16px 6px; font-size: 12px; }
+      #pc-panel.pc-inline.pc-compact .pc-powered { padding: 0 16px 16px; }
       #pc-panel .pc-chip { padding: 0 10px; font-size: 13px; }
+      .pc-hero-icon { width: 44px; height: 44px; }
+      .pc-hero-icon svg { width: 28px; height: 28px; }
+      .pc-hm-title { font-size: 16px; }
+      .pc-hm-text { font-size: 14px; }
     }
   `;
 
@@ -1047,12 +1143,20 @@
         <h2 class="pc-hero-title">${escHtml(INLINE_TITLE_1)}<br class="pc-hero-br"> ${escHtml(INLINE_TITLE_2)} <span class="pc-accent">${escHtml(INLINE_TITLE_ACCENT)}</span></h2>
         <p class="pc-hero-text">${escHtml(INLINE_TEXT)}</p>
       </div>
+      <div id="pc-hero-m">
+        <div class="pc-hero-icon">${INLINE_AVATAR_IMG}</div>
+        <div>
+          <h2 class="pc-hm-title">${escHtml(INLINE_M_TITLE)}</h2>
+          <p class="pc-hm-text">${escHtml(INLINE_M_TEXT)}</p>
+        </div>
+      </div>
       <div id="pc-messages"></div>
       <div id="pc-input-area">
         <textarea id="pc-input" rows="1" placeholder="Марка авто, VIN или запчасть…" aria-label="Сообщение"></textarea>
         <button id="pc-send" aria-label="Отправить"><span class="pc-send-label">Подобрать</span>${ICON_SEND}</button>
       </div>
       <div id="pc-chips"></div>
+      <div id="pc-chips-m"></div>
       <div id="pc-hero-note">Ответы готовит ИИ. Если нужен человек — <button type="button" id="pc-hero-manager">позвать менеджера</button>.</div>
       <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru/" target="_blank" rel="noopener">ASSISTANT24</a></div>
     `;
@@ -1071,6 +1175,15 @@
       let bleedFrame = 0;
       window.addEventListener('resize', () => { cancelAnimationFrame(bleedFrame); bleedFrame = requestAnimationFrame(updateBleed); });
       if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
+      const chipsM = document.getElementById('pc-chips-m'); // phones: previous chips, sent as typed
+      INLINE_M_CHIPS.forEach(label => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'pc-chip';
+        b.textContent = label;
+        b.addEventListener('click', () => doSend(label));
+        chipsM.appendChild(b);
+      });
       const chips = document.getElementById('pc-chips');
       INLINE_CHIPS.forEach(({ label, text }) => {
         const b = document.createElement('button');
@@ -1214,9 +1327,9 @@
   function setCompact(on) {
     const panel = document.getElementById('pc-panel');
     panel.classList.toggle('pc-compact', on);
-    const short = window.matchMedia(INLINE_MOBILE_QUERY).matches;
-    document.getElementById('pc-input').placeholder = on ? (short ? INLINE_PLACEHOLDER_SHORT : INLINE_PLACEHOLDER) : INLINE_PLACEHOLDER_CHAT;
-    document.querySelector('#pc-send .pc-send-label').textContent = on ? INLINE_SEND_LABEL : 'Отправить';
+    const phone = window.matchMedia(INLINE_MOBILE_QUERY).matches; // phones: previous dark design
+    document.getElementById('pc-input').placeholder = on ? (phone ? INLINE_M_PLACEHOLDER : INLINE_PLACEHOLDER) : INLINE_PLACEHOLDER_CHAT;
+    document.querySelector('#pc-send .pc-send-label').textContent = on ? (phone ? INLINE_M_SEND_LABEL : INLINE_SEND_LABEL) : 'Отправить';
     if (!on) {
       const c = document.getElementById('pc-messages');
       c.scrollTop = c.scrollHeight;
