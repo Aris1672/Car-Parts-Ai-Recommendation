@@ -549,7 +549,11 @@
     .pc-has-inline #pc-launcher, .pc-has-inline #pc-teasers { display: none !important; }
     #pc-panel.pc-inline {
       position: relative; top: auto; right: auto; transform: none; transition: none;
-      width: 100% !important; height: auto; padding-top: 0 !important;
+      width: 100% !important; height: auto;
+      /* 0 here (cancels the phone panel's safe-area padding) -- NOT !important:
+         that blocked the hero's own top padding (live 26.10: the label sat
+         ~12 px from the top edge whatever padding was set) */
+      padding-top: 0;
       background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
       box-shadow: none; z-index: auto; margin: 16px 0 40px; text-align: left;
     }
@@ -617,7 +621,8 @@
     @media (min-width: 768px) {
       #pc-panel.pc-inline.pc-compact.pc-bleed {
         width: var(--pc-page-w) !important; margin-left: calc(-1 * var(--pc-col-left));
-        border-radius: 0; border-left: none; border-right: none; min-height: 440px;
+        border-radius: 0; border-left: none; border-right: none;
+        min-height: 500px; /* owner, 26.10 (was 440); a minimum, so a wrapped title never gets cut */
         /* more room at the top: the hero now starts right under the header
            and the search tab hangs ~35 px into it (owner, 26.10) */
         padding-top: 64px; padding-bottom: 40px;
