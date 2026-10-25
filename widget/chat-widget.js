@@ -1169,6 +1169,7 @@
       inlineHost.appendChild(panel);
       placeInlineHost();
       updateBleed();
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateBleed); // button widths change once fonts load
       const mq = window.matchMedia(INLINE_MOBILE_QUERY);
       const onMq = () => { placeInlineHost(); if (panel.classList.contains('pc-compact')) setCompact(true); updateBleed(); };
       let bleedFrame = 0;
@@ -1286,6 +1287,8 @@
     if (!inlineHost) return;
     const panel = document.getElementById('pc-panel');
     panel.style.marginTop = ''; // back to the CSS margin before measuring
+    const inputArea = document.getElementById('pc-input-area');
+    inputArea.style.width = inputArea.style.maxWidth = '';
     if (window.matchMedia(INLINE_MOBILE_QUERY).matches) {
       panel.classList.remove('pc-bleed');
       panel.style.removeProperty('--pc-col-left');
@@ -1296,7 +1299,23 @@
     panel.style.setProperty('--pc-col-left', left + 'px');
     panel.style.setProperty('--pc-page-w', document.documentElement.clientWidth + 'px');
     panel.classList.add('pc-bleed');
-    if (panel.classList.contains('pc-compact')) pullUnderHeader(panel);
+    if (panel.classList.contains('pc-compact')) {
+      pullUnderHeader(panel);
+      matchInputToChips(inputArea);
+    }
+  }
+
+  // Desktop hero: the input box ends exactly where the quick buttons end
+  // (right edge of "Где мой заказ?"; owner, 26.10). Measured, because the
+  // buttons' width depends on the font the browser renders. CSS max-width
+  // (820px / 60vw) stays as the fallback.
+  function matchInputToChips(inputArea) {
+    const chips = [...document.querySelectorAll('#pc-chips .pc-chip')];
+    if (!chips.length) return;
+    const right = Math.max(...chips.map(c => c.getBoundingClientRect().right));
+    const width = Math.round(right - inputArea.getBoundingClientRect().left);
+    if (width < 320) return; // not laid out yet / unexpected: keep the CSS width
+    inputArea.style.width = inputArea.style.maxWidth = width + 'px';
   }
 
   // Desktop hero directly under the site header, so the header's search tab
