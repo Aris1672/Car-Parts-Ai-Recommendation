@@ -502,6 +502,43 @@ function mergeKitCards(text, kitFeed, vehicleName) {
   return m ? text.replace(re, block) : `${text}\n${block}`;
 }
 
+/**
+ * A reply cut off at max_tokens (seen 25.10: ТО answer stopped inside the
+ * <<<PRODUCTS>>> JSON, and the widget showed the raw text) gets its open
+ * blocks repaired: the complete product cards are kept and the block is
+ * closed; an unfinished BUTTONS / DIAGRAM / PART_LINKS block is dropped.
+ * Returns the text unchanged when every block is closed.
+ */
+function repairTruncatedBlocks(text) {
+  let out = String(text || '');
+  const p = out.lastIndexOf('<<<PRODUCTS>>>');
+  if (p !== -1 && out.indexOf('<<<END_PRODUCTS>>>', p) === -1) {
+    const body = out.slice(p + '<<<PRODUCTS>>>'.length);
+    const cards = [];
+    let depth = 0, inStr = false, esc = false, start = -1;
+    for (let i = 0; i < body.length; i++) {           // complete top-level {...} objects only
+      const ch = body[i];
+      if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') { if (depth++ === 0) start = i; }
+      else if (ch === '}' && depth > 0 && --depth === 0) {
+        try { const c = JSON.parse(body.slice(start, i + 1)); if (c && c.article) cards.push(c); } catch { /* skip */ }
+      }
+    }
+    out = out.slice(0, p).trimEnd();
+    if (cards.length) out += `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+    console.warn(`[chat] reply cut off inside PRODUCTS: kept ${cards.length} complete card(s)`);
+  }
+  for (const tag of ['BUTTONS', 'DIAGRAM', 'PART_LINKS']) {
+    const i = out.lastIndexOf(`<<<${tag}>>>`);
+    if (i !== -1 && out.indexOf(`<<<END_${tag}>>>`, i) === -1) {
+      out = out.slice(0, i).trimEnd();
+      console.warn(`[chat] reply cut off inside ${tag}: block dropped`);
+    }
+  }
+  return out;
+}
+
 // Which found parts most likely point to the service unit (lower = try first; 9 = no).
 function serviceCandRank(p) {
   const n = String(p.name || '').toLowerCase();
@@ -2291,7 +2328,11 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
                                          // limit vs a prompt issue. Sonnet 5 REJECTS non-default
                                          // temperature/top_p/top_k with a 400 error, so temperature
                                          // is intentionally omitted here (was 0.2 for Haiku).
-        max_tokens:  4096, // was 2048 -- too tight for a full TO service kit
+        max_tokens:  16000, // 25.10: 4096 cut a ТО answer off inside <<<PRODUCTS>>> again.
+                            // Sonnet 5 THINKS BY DEFAULT (adaptive, effort high) and the
+                            // thinking counts toward max_tokens, so a long answer plus its
+                            // thinking didn't fit. Only tokens actually used are billed.
+                            // History: was 2048 -- too tight for a full TO service kit
                            // (5+ verbose product entries with long URLs/
                            // picture links + intro prose sharing the same
                            // budget), causing the response to cut off
@@ -2321,6 +2362,10 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Haiku, which never produced thinking blocks so this bug was latent.
     const textBlock = (data.content || []).find(block => block.type === 'text');
     let text = textBlock?.text ?? '';
+    if (data.stop_reason === 'max_tokens') {
+      console.warn(`[chat] reply hit max_tokens (output ${data.usage?.output_tokens ?? '?'} tokens)`);
+    }
+    text = repairTruncatedBlocks(text);
 
     // If the customer typed a phone/email instead of clicking the manager
     // button, tell the widget to trigger the same handoff automatically
@@ -2379,4 +2424,5 @@ module.exports.toRussianPartName = toRussianPartName;
 module.exports.clearCaches = clearCaches;
 module.exports.isServiceRequest = isServiceRequest;
 module.exports.mergeKitCards = mergeKitCards;
+module.exports.repairTruncatedBlocks = repairTruncatedBlocks;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;

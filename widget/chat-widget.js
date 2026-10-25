@@ -9,6 +9,14 @@
  *
  * To open programmatically:
  *   window.AutoChat && window.AutoChat.open()
+ *
+ * Inline mode (homepage, session 24): if the page has an element
+ *   <div id="bmw-ai-agent"></div>
+ * (ABCP infoblock "page_main", top), the chat is built INTO that element
+ * instead of the bottom-right bubble: a compact block (title, input, quick
+ * buttons) that turns into the full conversation on the first message.
+ * Same chat, history and analytics as the bubble. Without the element
+ * (every other page, or if it's removed) the bubble works as before.
  */
 (function () {
   'use strict';
@@ -61,6 +69,19 @@
     'Здравствуйте! Я ИИ-консультант по запчастям 👋',
     'Подберу деталь по вашему авто быстро и точно',
   ];
+
+  // ─── INLINE MODE (homepage block, see the header comment) ───────────────────
+  const INLINE_HOST_ID   = 'bmw-ai-agent';
+  const INLINE_TITLE     = 'Подберём запчасть для вашего автомобиля';
+  const INLINE_TEXT      = 'ИИ-консультант ответит сразу: по VIN, модели или номеру детали — с ценой, сроком и схемой из оригинального каталога.';
+  const INLINE_CHIPS     = ['ТО для моей машины', 'Подбор по VIN', 'Подойдёт ли номер?', 'Где мой заказ?'];
+  const INLINE_PLACEHOLDER       = 'Например: ТО для X5 G05 30d или VIN WBA…';
+  const INLINE_PLACEHOLDER_SHORT = 'ТО для X5 G05 или VIN…'; // phones
+  const INLINE_PLACEHOLDER_CHAT  = 'Напишите сообщение…';
+  const INLINE_MANAGER_TEXT = 'Менеджер поможет с подбором и заказом. Позвоните по кнопке ниже — или напишите здесь свой телефон, и менеджер перезвонит.';
+  // Phones: the agent goes ABOVE the icon row (.benefits-block), so it's on
+  // the first screen; from 768 px up it stays where the placeholder is.
+  const INLINE_MOBILE_QUERY = '(max-width: 767px)';
 
   // ─── STYLES ─────────────────────────────────────────────────────────────────
   const STYLES = `
@@ -503,6 +524,97 @@
       line-height: 1;
     }
     @keyframes pc-teaser-in { to { opacity: 1; transform: translateY(0); } }
+
+    /* ── Inline mode: the agent built into the homepage (#bmw-ai-agent) ── */
+    .pc-has-inline #pc-launcher, .pc-has-inline #pc-teasers { display: none !important; }
+    #pc-panel.pc-inline {
+      position: relative; top: auto; right: auto; transform: none; transition: none;
+      width: 100% !important; height: auto; padding-top: 0 !important;
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+      box-shadow: none; z-index: auto; margin: 16px 0 40px; text-align: left;
+    }
+    #pc-panel.pc-inline #pc-header {
+      background: #fff; color: var(--pc-dark); height: 60px;
+      border-bottom: 1px solid #ececec; border-radius: 10px 10px 0 0;
+    }
+    #pc-panel.pc-inline .pc-avatar { background: var(--pc-red); box-shadow: none; }
+    #pc-panel.pc-inline #pc-clear, #pc-panel.pc-inline #pc-close { display: none; }
+    .pc-inline-btn { display: none; }
+    #pc-panel.pc-inline .pc-inline-btn {
+      display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px;
+      border: 1px solid #d6d6d6; border-radius: 8px; background: #fff; color: #33373d;
+      font-size: 13px; cursor: pointer; white-space: nowrap;
+    }
+    #pc-panel.pc-inline .pc-inline-btn:hover { border-color: var(--pc-red); color: var(--pc-red); }
+    #pc-panel.pc-inline .pc-inline-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+    #pc-panel.pc-inline #pc-messages {
+      flex: none; height: clamp(320px, calc(100vh - 240px), 640px);
+      background-image: none; background-color: #f7f9fc;
+    }
+    #pc-panel.pc-inline #pc-input-area {
+      background: #fff; border-top: 1px solid #ececec; padding: 14px 16px; align-items: stretch;
+    }
+    #pc-panel.pc-inline #pc-input {
+      border: 2px solid var(--pc-red); border-radius: 10px; padding: 13px 16px; font-size: 16px;
+    }
+    #pc-send .pc-send-label { display: none; }
+    #pc-panel.pc-inline #pc-send {
+      width: auto; height: auto; min-height: 52px; border-radius: 10px; padding: 0 22px; gap: 8px;
+      color: #fff; font-size: 15px; font-weight: 700;
+    }
+    #pc-panel.pc-inline #pc-send:hover { transform: none; }
+    #pc-panel.pc-inline #pc-send .pc-send-label { display: inline; }
+    #pc-panel.pc-inline .pc-powered { background: #fff; border-radius: 0 0 10px 10px; }
+
+    /* Compact state (before the first message): title, input, quick buttons */
+    #pc-hero, #pc-chips, #pc-hero-note { display: none; }
+    #pc-panel.pc-compact #pc-header, #pc-panel.pc-compact #pc-messages,
+    #pc-panel.pc-compact .pc-powered { display: none; }
+    #pc-panel.pc-compact #pc-hero { display: flex; align-items: center; gap: 16px; padding: 26px 28px 4px; }
+    #pc-panel.pc-compact #pc-input-area { border-top: none; padding: 14px 28px; }
+    #pc-panel.pc-compact #pc-chips { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
+    #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 22px; font-size: 13px; color: #5f646c; }
+    .pc-hero-icon {
+      width: 52px; height: 52px; border-radius: 50%; background: var(--pc-red); color: #fff;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .pc-hero-icon svg { width: 34px; height: 34px; }
+    .pc-hero-title { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.25; color: var(--pc-dark); text-transform: none; letter-spacing: normal; }
+    .pc-hero-text { margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: #4a4f57; }
+    .pc-chip {
+      min-height: 44px; padding: 0 18px; border-radius: 22px; border: 1px solid #c9d6e8;
+      background: #f0f5fc; color: #13499c; font-size: 14px; font-weight: 500; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .pc-chip:hover { border-color: var(--pc-red); color: var(--pc-red); }
+    #pc-hero-note button {
+      border: none; background: none; padding: 0; color: #428af9; font-size: inherit;
+      text-decoration: underline; cursor: pointer;
+    }
+
+    /* Full screen ("Во весь экран") */
+    #pc-panel.pc-inline.pc-full {
+      position: fixed; inset: 0; width: 100vw !important; height: 100dvh;
+      margin: 0; border: none; border-radius: 0; z-index: 999999;
+    }
+    #pc-panel.pc-inline.pc-full #pc-messages { flex: 1; height: auto; }
+    #pc-panel.pc-inline.pc-full #pc-header, #pc-panel.pc-inline.pc-full .pc-powered { border-radius: 0; }
+
+    @media (max-width: 540px) {
+      #pc-panel.pc-inline .pc-inline-btn-text, #pc-panel.pc-inline .pc-header-status { display: none; }
+      #pc-panel.pc-inline #pc-header { padding: 0 12px; }
+      #pc-panel.pc-inline #pc-send { width: 52px; padding: 0; justify-content: center; }
+      #pc-panel.pc-inline #pc-send .pc-send-label { display: none; }
+      #pc-panel.pc-compact #pc-hero { padding: 18px 16px 2px; gap: 12px; }
+      #pc-panel.pc-compact #pc-input-area { padding: 12px 16px; }
+      #pc-panel.pc-compact #pc-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 2px; }
+      #pc-panel.pc-compact #pc-hero-note { padding: 10px 16px 18px; font-size: 12px; }
+      .pc-chip { padding: 0 10px; font-size: 13px; }
+      .pc-hero-icon { width: 44px; height: 44px; }
+      .pc-hero-icon svg { width: 28px; height: 28px; }
+      .pc-hero-title { font-size: 18px; }
+      .pc-hero-text { font-size: 14px; }
+    }
   `;
 
   // ─── SVG ICONS ───────────────────────────────────────────────────────────────
@@ -512,6 +624,8 @@
   const ICON_SEND  = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
   const ICON_CLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
   const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+  const ICON_EXPAND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>`;
+  const ICON_SHRINK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10h-6V4M14 10l7-7M4 14h6v6M10 14l-7 7"/></svg>`;
   const ICON_PHONE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.62 3.38 2 2 0 0 1 3.62 1.19h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.69a16 16 0 0 0 6 6l.86-.86a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7a2 2 0 0 1 1.72 2.04z"/></svg>`;
 
   // ─── STATE ───────────────────────────────────────────────────────────────────
@@ -540,6 +654,11 @@
   // greet again?" meant that exact (very common) case was indistinguishable
   // from a genuinely fresh session, so the greeting repeated every reopen.
   let greeted = false;
+
+  // Inline mode (see INLINE MODE above): the #bmw-ai-agent element, if any.
+  let inlineHost   = null;
+  let inlineMarker = null; // comment node at the placeholder's own spot (to move back after a phone layout)
+  let inlineFull   = false;
 
   // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
   // Fixes: clicking a product's "Подробнее" link opens a NEW TAB
@@ -816,16 +935,53 @@
         <div class="pc-header-actions">
           <button class="pc-header-btn" id="pc-clear" aria-label="Очистить чат" title="Очистить чат">${ICON_CLEAR}</button>
           <button class="pc-header-btn" id="pc-close" aria-label="Закрыть">${ICON_CLOSE}</button>
+          <button class="pc-inline-btn" id="pc-restart" type="button" title="Начать заново" aria-label="Начать заново">${ICON_CLEAR}<span class="pc-inline-btn-text">Начать заново</span></button>
+          <button class="pc-inline-btn" id="pc-full" type="button" title="Во весь экран" aria-label="Во весь экран" aria-pressed="false">${ICON_EXPAND}<span class="pc-inline-btn-text">Во весь экран</span></button>
+        </div>
+      </div>
+      <div id="pc-hero">
+        <div class="pc-hero-icon">${ICON_AGENT}</div>
+        <div>
+          <h2 class="pc-hero-title">${escHtml(INLINE_TITLE)}</h2>
+          <p class="pc-hero-text">${escHtml(INLINE_TEXT)}</p>
         </div>
       </div>
       <div id="pc-messages"></div>
       <div id="pc-input-area">
         <textarea id="pc-input" rows="1" placeholder="Марка авто, VIN или запчасть…" aria-label="Сообщение"></textarea>
-        <button id="pc-send" aria-label="Отправить">${ICON_SEND}</button>
+        <button id="pc-send" aria-label="Отправить"><span class="pc-send-label">Подобрать</span>${ICON_SEND}</button>
       </div>
+      <div id="pc-chips"></div>
+      <div id="pc-hero-note">Ответы готовит ИИ. Если нужен человек — <button type="button" id="pc-hero-manager">позвать менеджера</button>.</div>
       <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru" target="_blank">ASSISTANT24</a></div>
     `;
-    document.body.appendChild(panel);
+    // Homepage placeholder present -> build the chat into it (inline mode).
+    inlineHost = document.getElementById(INLINE_HOST_ID);
+    if (inlineHost) {
+      panel.classList.add('pc-inline', 'pc-compact');
+      panel.setAttribute('role', 'region');
+      document.documentElement.classList.add('pc-has-inline');
+      inlineHost.appendChild(panel);
+      placeInlineHost();
+      const mq = window.matchMedia(INLINE_MOBILE_QUERY);
+      const onMq = () => { placeInlineHost(); if (panel.classList.contains('pc-compact')) setCompact(true); };
+      if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
+      const chips = document.getElementById('pc-chips');
+      INLINE_CHIPS.forEach(label => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'pc-chip';
+        b.textContent = label;
+        b.addEventListener('click', () => doSend(label));
+        chips.appendChild(b);
+      });
+      document.getElementById('pc-hero-manager').addEventListener('click', inlineManager);
+      document.getElementById('pc-restart').addEventListener('click', clearChat);
+      document.getElementById('pc-full').addEventListener('click', () => setFull(!inlineFull));
+      isOpen = true; // always visible here; close() only leaves full screen
+    } else {
+      document.body.appendChild(panel);
+    }
 
     document.getElementById('pc-close').addEventListener('click', close);
     document.getElementById('pc-clear').addEventListener('click', clearChat);
@@ -888,13 +1044,93 @@
       // appears the moment the customer taps the launcher.
     }
 
+    if (inlineHost) {
+      // A conversation already going (here or in the bubble on another page)
+      // shows as the chat; otherwise the compact block.
+      setCompact(!displayLog.some(e => e.type === 'user'));
+      return; // no launcher, teasers or badge on this page
+    }
     setTimeout(() => { if (!isOpen && teasersAllowed()) { showTeasers(); showBadge(2); } }, 2000);
   }
 
+  // ─── INLINE MODE: helpers ────────────────────────────────────────────────────
+  // Phones: move the block above the icon row so it's on the first screen;
+  // wider screens: back to where the placeholder was put in ABCP.
+  function placeInlineHost() {
+    if (!inlineHost || !inlineHost.parentNode) return;
+    if (!inlineMarker) {
+      inlineMarker = document.createComment('bmw-ai-agent');
+      inlineHost.parentNode.insertBefore(inlineMarker, inlineHost);
+    }
+    const benefits = document.querySelector('.benefits-block');
+    const small = window.matchMedia(INLINE_MOBILE_QUERY).matches;
+    if (small && benefits && benefits.parentNode && !benefits.contains(inlineHost)
+        && (benefits.compareDocumentPosition(inlineHost) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      benefits.parentNode.insertBefore(inlineHost, benefits);
+    } else if (!small && inlineMarker.parentNode && inlineMarker.nextSibling !== inlineHost) {
+      inlineMarker.parentNode.insertBefore(inlineHost, inlineMarker.nextSibling);
+    }
+  }
+
+  function setCompact(on) {
+    const panel = document.getElementById('pc-panel');
+    panel.classList.toggle('pc-compact', on);
+    const short = window.matchMedia(INLINE_MOBILE_QUERY).matches;
+    document.getElementById('pc-input').placeholder = on ? (short ? INLINE_PLACEHOLDER_SHORT : INLINE_PLACEHOLDER) : INLINE_PLACEHOLDER_CHAT;
+    document.querySelector('#pc-send .pc-send-label').textContent = on ? 'Подобрать' : 'Отправить';
+    if (!on) {
+      const c = document.getElementById('pc-messages');
+      c.scrollTop = c.scrollHeight;
+    }
+  }
+
+  // Compact block -> conversation (first message, or "позвать менеджера").
+  function expandInline() {
+    const panel = document.getElementById('pc-panel');
+    greeted = true; // the bubble on other pages must not greet in the middle of this chat
+    if (!panel.classList.contains('pc-compact')) return;
+    if (displayLog.length === 0) {
+      addDateSep('Сегодня');
+      displayLog.push({ type: 'dateSep', payload: 'Сегодня' });
+    }
+    setCompact(false);
+    const r = panel.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > window.innerHeight) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function inlineManager() {
+    expandInline();
+    addBotBubble(INLINE_MANAGER_TEXT);
+    displayLog.push({ type: 'bot', payload: INLINE_MANAGER_TEXT });
+    addManagerButton();
+    displayLog.push({ type: 'manager', payload: null });
+    saveState();
+  }
+
+  function setFull(on) {
+    inlineFull = on;
+    document.getElementById('pc-panel').classList.toggle('pc-full', on);
+    document.documentElement.style.overflow = on ? 'hidden' : '';
+    const b = document.getElementById('pc-full');
+    const label = on ? 'Свернуть' : 'Во весь экран';
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', label);
+    b.title = label;
+    b.innerHTML = `${on ? ICON_SHRINK : ICON_EXPAND}<span class="pc-inline-btn-text">${label}</span>`;
+    const c = document.getElementById('pc-messages');
+    c.scrollTop = c.scrollHeight;
+  }
+
   // ─── OPEN / CLOSE / TOGGLE ───────────────────────────────────────────────────
-  function toggle() { isOpen ? close() : open(); }
+  function toggle() { inlineHost ? open() : (isOpen ? close() : open()); }
 
   function open() {
+    if (inlineHost) { // AutoChat.open() on the homepage: show the block and put the cursor in it
+      const panel = document.getElementById('pc-panel');
+      panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => document.getElementById('pc-input').focus({ preventScroll: true }), 350);
+      return;
+    }
     if (isOpen) return;
     isOpen = true;
     removeTeasers();
@@ -922,6 +1158,7 @@
   }
 
   function close() {
+    if (inlineHost) { if (inlineFull) setFull(false); return; }
     if (!isOpen) return;
     isOpen = false;
     document.getElementById('pc-panel').classList.remove('pc-open');
@@ -946,6 +1183,12 @@
     clearPersistedState();
     const container = document.getElementById('pc-messages');
     container.innerHTML = '';
+    if (inlineHost) { // back to the compact block, no greeting
+      greeted = false;
+      if (inlineFull) setFull(false);
+      setCompact(true);
+      return;
+    }
     addDateSep('Сегодня');
     displayLog.push({ type: 'dateSep', payload: 'Сегодня' });
     PROACTIVE.forEach((text, i) => {
@@ -1358,6 +1601,13 @@
     let partLinks = null;
     let diagram = null;
 
+    // An unfinished block (reply cut off; the server normally repairs it)
+    // must never reach the customer as raw <<<…>>> text.
+    for (const tag of ['PRODUCTS', 'BUTTONS', 'DIAGRAM', 'PART_LINKS']) {
+      const i = text.lastIndexOf(`<<<${tag}>>>`);
+      if (i !== -1 && text.indexOf(`<<<END_${tag}>>>`, i) === -1) text = text.slice(0, i);
+    }
+
     const prodMatch = text.match(/<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/);
     if (prodMatch) {
       try { products = JSON.parse(prodMatch[1].trim()); } catch(e) {}
@@ -1418,6 +1668,7 @@
     if (isLoading) return;
     lastUserText = userText;
     userMessageCount++;
+    if (inlineHost) expandInline();
 
     addUserBubble(userText);
     messages.push({ role: 'user', content: userText });
@@ -1471,7 +1722,7 @@
         // The session is created only after the first reply, so the first
         // message is logged now. It's the first entry in `messages`.
         const first = messages.find(m => m.role === 'user');
-        if (first) logEvent('first_message', { text: first.content });
+        if (first) logEvent('first_message', { text: first.content, placement: inlineHost ? 'inline' : 'bubble' });
       }
 
       if (text) {
@@ -1542,7 +1793,7 @@
     } finally {
       isLoading = false;
       document.getElementById('pc-send').disabled = false;
-      document.getElementById('pc-input').focus();
+      document.getElementById('pc-input').focus({ preventScroll: !!inlineHost });
     }
   }
 
