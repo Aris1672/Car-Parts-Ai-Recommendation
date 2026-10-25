@@ -582,12 +582,19 @@
 
     /* Compact state (before the first message): title, input, quick buttons */
     #pc-hero, #pc-chips, #pc-hero-note { display: none; }
-    #pc-panel.pc-compact #pc-header, #pc-panel.pc-compact #pc-messages,
-    #pc-panel.pc-compact .pc-powered { display: none; }
+    #pc-panel.pc-compact #pc-header, #pc-panel.pc-compact #pc-messages { display: none; }
+    /* "Powered by AI · ASSISTANT24" under the note, on the dark left side of
+       the photo (owner, 25.10) */
+    #pc-panel.pc-inline.pc-compact .pc-powered {
+      background: transparent; text-align: left; padding: 0 28px 18px; font-size: 11px;
+      color: rgba(255,255,255,0.8); text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 8px rgba(0,0,0,0.6);
+    }
+    #pc-panel.pc-inline.pc-compact .pc-powered a { color: rgba(255,255,255,0.92); }
+    #pc-panel.pc-inline.pc-compact .pc-powered a:hover { color: #fff; text-decoration: underline; }
     #pc-panel.pc-compact #pc-hero { display: flex; align-items: center; gap: 16px; padding: 26px 28px 4px; }
     #pc-panel.pc-compact #pc-input-area { border-top: none; padding: 14px 28px; }
     #pc-panel.pc-compact #pc-chips { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
-    #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 22px; font-size: 13px; color: #5f646c; }
+    #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 6px; font-size: 13px; color: #5f646c; }
     .pc-hero-icon {
       width: 52px; height: 52px; border-radius: 10px; color: #fff;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -680,7 +687,8 @@
       #pc-panel.pc-compact #pc-hero { padding: 18px 16px 2px; gap: 12px; }
       #pc-panel.pc-compact #pc-input-area { padding: 12px 16px; }
       #pc-panel.pc-compact #pc-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 2px; }
-      #pc-panel.pc-compact #pc-hero-note { padding: 10px 16px 18px; font-size: 12px; }
+      #pc-panel.pc-compact #pc-hero-note { padding: 10px 16px 6px; font-size: 12px; }
+      #pc-panel.pc-inline.pc-compact .pc-powered { padding: 0 16px 16px; }
       .pc-chip { padding: 0 10px; font-size: 13px; }
       .pc-hero-icon { width: 44px; height: 44px; }
       .pc-hero-icon svg { width: 28px; height: 28px; }
@@ -1025,7 +1033,7 @@
       </div>
       <div id="pc-chips"></div>
       <div id="pc-hero-note">Ответы готовит ИИ. Если нужен человек — <button type="button" id="pc-hero-manager">позвать менеджера</button>.</div>
-      <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru" target="_blank">ASSISTANT24</a></div>
+      <div class="pc-powered">Powered by AI · <a href="https://assistant24info.ru/" target="_blank" rel="noopener">ASSISTANT24</a></div>
     `;
     // Homepage placeholder present -> build the chat into it (inline mode).
     inlineHost = document.getElementById(INLINE_HOST_ID);
