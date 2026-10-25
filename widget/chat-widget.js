@@ -603,24 +603,34 @@
        sits 680 px beyond the block's right edge and its bottom 458 px below,
        which puts the car at the right with the headlights beside the quick
        buttons. On blocks wider than 1240 px it grows just enough to leave no
-       gap on the left. Overlay 0.72 / 0.58 / 0.30, text contrast 5.6:1.
+       gap on the left.
+       Overlay ONLY behind the text (owner, 25.10: "the lights look dim"):
+       0.78 -> 0.66 at 45% -> 0 from 62%, so the car and headlights are at
+       full brightness; the description wraps at 600 px to stay on the dark
+       side. Contrast: title 5.3:1, description 4.6:1, plus a soft text shadow.
+       (No overlay at all = about 2:1 over the smoke: unreadable.)
        For the light photo (agent-hero-bg-light.jpg, 854 px) use overlay
-       0.82 / 0.62 / 0.45 and size cover / position center 48% (6.5:1). */
+       0.82 / 0.62 / 0.45 across and size cover / position center 48%. */
     #pc-panel.pc-inline.pc-compact {
       background-color: #0b1626;
       background-image:
-        linear-gradient(90deg, rgba(8,18,32,0.72) 0%, rgba(8,18,32,0.58) 55%, rgba(8,18,32,0.30) 100%),
+        linear-gradient(90deg, rgba(8,18,32,0.78) 0%, rgba(8,18,32,0.66) 45%, rgba(8,18,32,0) 62%),
         var(--pc-hero-bg-image);
       background-size: 100% 100%, max(1920px, calc(100% + 680px)) auto;
       background-position: 0 0, right -680px bottom -458px;
       background-repeat: no-repeat;
       border-color: transparent;
     }
-    /* Phones: half size (sharp on 2x screens), car centered at the bottom,
-       even overlay since the text runs full width (contrast 11:1). */
+    #pc-panel.pc-compact .pc-hero-title,
+    #pc-panel.pc-compact .pc-hero-text,
+    #pc-panel.pc-compact #pc-hero-note { text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 10px rgba(0,0,0,0.6); }
+    #pc-panel.pc-compact .pc-hero-text { max-width: 600px; }
+    /* Phones: half size (sharp on 2x screens), car centered at the bottom;
+       the fade runs top to bottom and stops above the car (text 12.5:1; the
+       note over the car relies on its text shadow). */
     @media (max-width: 540px) {
       #pc-panel.pc-inline.pc-compact {
-        background-image: linear-gradient(rgba(8,18,32,0.55), rgba(8,18,32,0.55)), var(--pc-hero-bg-image);
+        background-image: linear-gradient(180deg, rgba(8,18,32,0.55) 0%, rgba(8,18,32,0.45) 40%, rgba(8,18,32,0) 62%), var(--pc-hero-bg-image);
         background-size: 100% 100%, 960px 600px;
         background-position: 0 0, center bottom -200px;
       }
