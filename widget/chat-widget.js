@@ -82,8 +82,9 @@
   // Phones: the agent goes ABOVE the icon row (.benefits-block), so it's on
   // the first screen; from 768 px up it stays where the placeholder is.
   const INLINE_MOBILE_QUERY = '(max-width: 767px)';
-  // Agent avatar on the homepage block (owner, 25.10): the "AI" logo with
-  // M-style stripes on black (192 px, repo root). The bubble on other pages
+  // Agent avatar on the homepage block (owner, 25.10): "AI" with a single
+  // red slash on black, centered (192 px, repo root). Replaced a version with
+  // M-style tricolour stripes (BMW trade dress). The bubble on other pages
   // keeps AI_Agent.png.
   const INLINE_AVATAR_URL = BASE_URL + '/agent-avatar.jpg';
   const INLINE_AVATAR_IMG = `<img src="${INLINE_AVATAR_URL}" alt="" class="pc-avatar-img" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
