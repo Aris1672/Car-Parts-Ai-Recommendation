@@ -51,15 +51,6 @@ app.use('/widget', (req, res, next) => {
   next();
 });
 
-// /fonts/* — fonts used by the widget on the client's site (bmwclub77.ru).
-// Browsers load cross-origin fonts only with an Access-Control-Allow-Origin
-// header (images don't need it). Files never change under the same name.
-app.use('/fonts', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  next();
-});
-
 // /dashboard/manifest.json and /dashboard/sw.js — specific content types
 app.use('/dashboard/manifest.json', (req, res, next) => {
   res.setHeader('Content-Type', 'application/manifest+json');

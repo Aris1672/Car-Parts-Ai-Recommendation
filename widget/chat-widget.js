@@ -79,7 +79,6 @@
   const INLINE_TITLE_2   = 'для вашего';               // + the accent word
   const INLINE_TITLE_ACCENT = 'BMW';
   const INLINE_TEXT      = 'Опишите, что вам нужно, и ИИ подберёт подходящие детали по VIN, модели или номеру запчасти.';
-  const INLINE_HAND_NOTE = ['Правильные детали', 'для вашего BMW']; // handwritten, pointing at the car
   // Quick buttons: label shown -> message sent (a full sentence, so the bot knows what to ask).
   const INLINE_CHIPS     = [
     { label: 'По VIN',           text: 'Хочу подобрать запчасти по VIN' },
@@ -601,7 +600,7 @@
        content aligned to the site's column. Phones: a card with the photo as
        a band on top. Earlier dark version (blue M5 in smoke) kept as
        agent-hero-bg.jpg; see README session 24. */
-    #pc-hero, #pc-chips, #pc-hero-note, .pc-hero-hand { display: none; }
+    #pc-hero, #pc-chips, #pc-hero-note { display: none; }
     #pc-panel.pc-compact #pc-header, #pc-panel.pc-compact #pc-messages { display: none; }
     #pc-panel.pc-inline.pc-compact {
       --pc-hero-accent: #0a5cc4;
@@ -673,23 +672,6 @@
     }
     #pc-panel.pc-inline.pc-compact .pc-powered a { color: var(--pc-hero-accent); }
     #pc-panel.pc-inline.pc-compact .pc-powered a:hover { text-decoration: underline; }
-    /* Handwritten note pointing at the car (self-hosted Caveat, SIL OFL) */
-    @font-face { font-family: 'PC Caveat'; font-weight: 600; font-display: swap;
-      src: url('${BASE_URL}/fonts/caveat-cyrillic-600-normal.woff2') format('woff2');
-      unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
-    @font-face { font-family: 'PC Caveat'; font-weight: 600; font-display: swap;
-      src: url('${BASE_URL}/fonts/caveat-latin-600-normal.woff2') format('woff2');
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
-    #pc-panel.pc-compact .pc-hero-hand {
-      display: flex; flex-direction: column; align-items: flex-end; pointer-events: none;
-      position: absolute; top: 24px; right: calc(var(--pc-col-left, 0px) + 120px);
-    }
-    #pc-panel .pc-hero-hand-text {
-      font-family: 'PC Caveat', cursive; font-weight: 600; font-size: 24px; line-height: 1.05;
-      color: #0f2440; text-align: right; transform: rotate(-6deg);
-    }
-    .pc-hero-hand svg { width: 70px; height: 56px; margin-right: 90px; }
-    @media (max-width: 1023px) { #pc-panel.pc-compact .pc-hero-hand { display: none; } }
 
     /* Full screen ("Во весь экран") */
     #pc-panel.pc-inline.pc-full {
@@ -1056,10 +1038,6 @@
         <div class="pc-hero-eyebrow">${ICON_SPARK}${escHtml(INLINE_EYEBROW)}</div>
         <h2 class="pc-hero-title">${escHtml(INLINE_TITLE_1)}<br class="pc-hero-br"> ${escHtml(INLINE_TITLE_2)} <span class="pc-accent">${escHtml(INLINE_TITLE_ACCENT)}</span></h2>
         <p class="pc-hero-text">${escHtml(INLINE_TEXT)}</p>
-      </div>
-      <div class="pc-hero-hand" aria-hidden="true">
-        <div class="pc-hero-hand-text">${INLINE_HAND_NOTE.map(escHtml).join('<br>')}</div>
-        <svg viewBox="0 0 70 56" fill="none" stroke="#0f2440" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M64 4C50 10 30 14 22 32c-3 7-4 13-4 20"/><path d="M10 44l8 8 7-9"/></svg>
       </div>
       <div id="pc-messages"></div>
       <div id="pc-input-area">
