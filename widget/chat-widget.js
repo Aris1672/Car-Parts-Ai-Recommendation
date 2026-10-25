@@ -82,6 +82,11 @@
   // Phones: the agent goes ABOVE the icon row (.benefits-block), so it's on
   // the first screen; from 768 px up it stays where the placeholder is.
   const INLINE_MOBILE_QUERY = '(max-width: 767px)';
+  // Agent avatar on the homepage block (owner, 25.10): the "AI" logo with
+  // M-style stripes on black (192 px, repo root). The bubble on other pages
+  // keeps AI_Agent.png.
+  const INLINE_AVATAR_URL = BASE_URL + '/agent-avatar.jpg';
+  const INLINE_AVATAR_IMG = `<img src="${INLINE_AVATAR_URL}" alt="" class="pc-avatar-img" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
 
   // ─── STYLES ─────────────────────────────────────────────────────────────────
   const STYLES = `
@@ -539,7 +544,10 @@
       background: #fff; color: var(--pc-dark); height: 60px;
       border-bottom: 1px solid #ececec; border-radius: 10px 10px 0 0;
     }
-    #pc-panel.pc-inline .pc-avatar { background: var(--pc-red); box-shadow: none; }
+    #pc-panel.pc-inline .pc-avatar, #pc-panel.pc-inline .pc-msg-icon, .pc-hero-icon {
+      background: #1a1a1a; box-shadow: none; overflow: hidden;
+    }
+    #pc-panel .pc-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
     #pc-panel.pc-inline #pc-clear, #pc-panel.pc-inline #pc-close { display: none; }
     .pc-inline-btn { display: none; }
     #pc-panel.pc-inline .pc-inline-btn {
@@ -577,7 +585,7 @@
     #pc-panel.pc-compact #pc-chips { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
     #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 22px; font-size: 13px; color: #5f646c; }
     .pc-hero-icon {
-      width: 52px; height: 52px; border-radius: 50%; background: var(--pc-red); color: #fff;
+      width: 52px; height: 52px; border-radius: 50%; color: #fff;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
     .pc-hero-icon svg { width: 34px; height: 34px; }
@@ -1000,7 +1008,7 @@
         </div>
       </div>
       <div id="pc-hero">
-        <div class="pc-hero-icon">${ICON_AGENT}</div>
+        <div class="pc-hero-icon">${INLINE_AVATAR_IMG}</div>
         <div>
           <h2 class="pc-hero-title">${escHtml(INLINE_TITLE)}</h2>
           <p class="pc-hero-text">${escHtml(INLINE_TEXT)}</p>
@@ -1019,6 +1027,7 @@
     inlineHost = document.getElementById(INLINE_HOST_ID);
     if (inlineHost) {
       panel.classList.add('pc-inline', 'pc-compact');
+      panel.querySelector('.pc-avatar').innerHTML = INLINE_AVATAR_IMG;
       panel.setAttribute('role', 'region');
       document.documentElement.classList.add('pc-has-inline');
       inlineHost.appendChild(panel);
@@ -1296,10 +1305,16 @@
     const el = document.createElement('div');
     el.className = 'pc-msg pc-msg-bot';
     el.innerHTML = `
-      <div class="pc-msg-icon"><img src="${BASE_URL}/AI_Agent.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
+      <div class="pc-msg-icon">${botIconHtml()}</div>
       <div class="pc-bubble">${renderMarkdown(text)}</div>
     `;
     appendMsg(el);
+  }
+
+  // Bot icon next to messages: the homepage avatar inline, AI_Agent.png in the bubble.
+  function botIconHtml() {
+    return inlineHost ? INLINE_AVATAR_IMG
+      : `<img src="${BASE_URL}/AI_Agent.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'">`;
   }
 
   function renderMarkdown(text) {
@@ -1343,7 +1358,7 @@
     el.className = 'pc-msg pc-msg-bot';
     el.id = 'pc-typing';
     el.innerHTML = `
-      <div class="pc-msg-icon"><img src="${BASE_URL}/AI_Agent.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
+      <div class="pc-msg-icon">${botIconHtml()}</div>
       <div class="pc-bubble" style="padding:0;">
         <div class="pc-typing-wrap">
           <div class="pc-typing"><span></span><span></span><span></span></div>
