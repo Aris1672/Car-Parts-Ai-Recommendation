@@ -111,6 +111,7 @@ The bot now checks a **part number the customer types** against **their car's or
   - the agent gets their unit, position and notes (for "снят с производства").
   - Log: `DIAG extra-diagrams <codes> -> N`.
 - **Widget:** parses **all** `<<<DIAGRAM>>>` blocks (`matchAll`) and renders one card per block; all of them come back after a page reload.
+- **Buttons under their diagram (owner, 25.10):** each diagram card is followed by the "Открыть деталь" button of its marked part. Buttons without a diagram come after all the cards. The display log keeps this order, so it's the same after a reload.
 
 ### 📋 Session 23f (Oct 25) — "standard ТО" rule in the prompt
 

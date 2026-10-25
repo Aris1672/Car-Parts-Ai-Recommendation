@@ -1487,13 +1487,23 @@
           .trim();
         messages.push({ role: 'assistant', content: cleanedForHistory });
       }
+      // Each diagram is followed by the "Открыть деталь" button of its marked
+      // part; buttons without a diagram come after all of them.
+      const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      let restLinks = Array.isArray(partLinks) ? partLinks.slice() : [];
       for (const d of (diagrams || (diagram ? [diagram] : []))) {
         addDiagram(d);
         displayLog.push({ type: 'diagram', payload: d });
+        const own = restLinks.filter(c => normCode(c) === normCode(d.oem));
+        if (own.length) {
+          restLinks = restLinks.filter(c => normCode(c) !== normCode(d.oem));
+          addPartLinks(own);
+          displayLog.push({ type: 'partlinks', payload: own });
+        }
       }
-      if (partLinks && partLinks.length > 0) {
-        addPartLinks(partLinks);
-        displayLog.push({ type: 'partlinks', payload: partLinks });
+      if (restLinks.length > 0) {
+        addPartLinks(restLinks);
+        displayLog.push({ type: 'partlinks', payload: restLinks });
       }
       if (products && products.length > 0) {
         addProductCarousel(products);
