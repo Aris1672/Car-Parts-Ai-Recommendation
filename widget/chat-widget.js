@@ -544,10 +544,13 @@
       background: #fff; color: var(--pc-dark); height: 60px;
       border-bottom: 1px solid #ececec; border-radius: 10px 10px 0 0;
     }
+    /* Square avatar with rounded corners (owner, 25.10: suits the wide logo) */
     #pc-panel.pc-inline .pc-avatar, #pc-panel.pc-inline .pc-msg-icon, .pc-hero-icon {
       background: #1a1a1a; box-shadow: none; overflow: hidden;
     }
-    #pc-panel .pc-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+    #pc-panel.pc-inline .pc-avatar { border-radius: 8px; }
+    #pc-panel.pc-inline .pc-msg-icon { border-radius: 6px; }
+    #pc-panel .pc-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
     #pc-panel.pc-inline #pc-clear, #pc-panel.pc-inline #pc-close { display: none; }
     .pc-inline-btn { display: none; }
     #pc-panel.pc-inline .pc-inline-btn {
@@ -585,7 +588,7 @@
     #pc-panel.pc-compact #pc-chips { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
     #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 22px; font-size: 13px; color: #5f646c; }
     .pc-hero-icon {
-      width: 52px; height: 52px; border-radius: 50%; color: #fff;
+      width: 52px; height: 52px; border-radius: 10px; color: #fff;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
     .pc-hero-icon svg { width: 34px; height: 34px; }
