@@ -79,18 +79,15 @@
   const INLINE_TITLE_2   = 'для вашего';               // + the accent word
   const INLINE_TITLE_ACCENT = 'BMW';
   const INLINE_TEXT      = 'Опишите, что вам нужно, и ИИ подберёт подходящие детали по VIN, модели или номеру запчасти.';
-  // Quick buttons: label shown -> message sent (a full sentence, so the bot knows what to ask).
-  const INLINE_CHIPS     = [
-    { label: 'По VIN',           text: 'Хочу подобрать запчасти по VIN' },
-    { label: 'По модели',        text: 'Хочу подобрать запчасти по марке и модели автомобиля' },
-    { label: 'По номеру детали', text: 'Хочу подобрать запчасть по номеру детали' },
-    { label: 'Не знаю номер',    text: 'Не знаю номер детали — помогите подобрать' },
-  ];
+  // Quick buttons -- the SAME on desktop and phones (owner, 26.10: the
+  // phone set has the right commands). Each sends its text as typed. The
+  // desktop-only set of 26.10 (По VIN / По модели / По номеру детали / Не знаю
+  // номер, sending full sentences) was replaced the same day.
+  const INLINE_CHIPS     = ['ТО для моей машины', 'Подбор по VIN', 'Подойдёт ли номер?', 'Где мой заказ?'];
   const INLINE_SEND_LABEL = 'Подобрать с ИИ';
   // Phones (<= 767 px) keep the PREVIOUS dark design (owner, 26.10): its texts.
   const INLINE_M_TITLE   = 'Подберём запчасти вместе с ИИ-консультантом'; // shown in uppercase
   const INLINE_M_TEXT    = 'ИИ-консультант ответит сразу: по VIN, модели или номеру детали — с ценой, сроком и схемой из оригинального каталога.';
-  const INLINE_M_CHIPS   = ['ТО для моей машины', 'Подбор по VIN', 'Подойдёт ли номер?', 'Где мой заказ?']; // sent as typed
   const INLINE_M_PLACEHOLDER = 'ТО для X5 G05 или VIN…';
   const INLINE_M_SEND_LABEL  = 'Подобрать';
   const INLINE_PLACEHOLDER       = 'Например: передние колодки на BMW X5 G05 30d';
@@ -1175,23 +1172,17 @@
       let bleedFrame = 0;
       window.addEventListener('resize', () => { cancelAnimationFrame(bleedFrame); bleedFrame = requestAnimationFrame(updateBleed); });
       if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
-      const chipsM = document.getElementById('pc-chips-m'); // phones: previous chips, sent as typed
-      INLINE_M_CHIPS.forEach(label => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'pc-chip';
-        b.textContent = label;
-        b.addEventListener('click', () => doSend(label));
-        chipsM.appendChild(b);
-      });
-      const chips = document.getElementById('pc-chips');
-      INLINE_CHIPS.forEach(({ label, text }) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'pc-chip';
-        b.textContent = label;
-        b.addEventListener('click', () => doSend(text));
-        chips.appendChild(b);
+      // Same quick buttons in both designs (desktop #pc-chips, phones #pc-chips-m).
+      ['pc-chips', 'pc-chips-m'].forEach(id => {
+        const box = document.getElementById(id);
+        INLINE_CHIPS.forEach(label => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'pc-chip';
+          b.textContent = label;
+          b.addEventListener('click', () => doSend(label));
+          box.appendChild(b);
+        });
       });
       document.getElementById('pc-hero-manager').addEventListener('click', inlineManager);
       document.getElementById('pc-restart').addEventListener('click', clearChat);
