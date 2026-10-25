@@ -645,7 +645,7 @@
       .pc-hero-eyebrow svg { width: 20px; height: 20px; flex-shrink: 0; }
       #pc-panel .pc-hero-title {
         margin: 0; font-family: Montserrat, var(--pc-font); font-size: 42px; font-weight: 800;
-        line-height: 1.15; color: #0f2440; text-transform: none; letter-spacing: normal;
+        line-height: 1.15; color: #0f2440; text-transform: uppercase; letter-spacing: 0.5px; /* owner, 26.10 */
       }
       .pc-hero-title .pc-accent { color: var(--pc-hero-accent); }
       .pc-hero-text { margin: 14px 0 0; font-size: 17px; line-height: 1.5; color: #33404f; max-width: 520px; }
