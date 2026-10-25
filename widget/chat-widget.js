@@ -641,6 +641,12 @@
     #pc-panel.pc-compact #pc-input-area { background: transparent; }
     #pc-panel.pc-compact #pc-input { border-color: #fff; }
     #pc-panel.pc-compact #pc-input:focus { border-color: #8cc4ff; }
+    /* "Подобрать" on the photo: BMW M red (owner, 25.10; the blue button
+       blended into the blue photo). White on #E7222E = 4.5:1, hover 6:1.
+       The chat's send button stays blue. */
+    #pc-panel.pc-compact #pc-send { background: #E7222E; }
+    #pc-panel.pc-compact #pc-send:hover { background: #C41B25; }
+    #pc-panel.pc-compact #pc-send:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     #pc-panel.pc-compact .pc-chip { background: rgba(255,255,255,0.94); border-color: transparent; }
     #pc-panel.pc-compact .pc-chip:hover { background: #fff; }
     #pc-panel.pc-compact #pc-hero-note { color: rgba(255,255,255,0.85); }
