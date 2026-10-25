@@ -600,7 +600,8 @@
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
     .pc-hero-icon svg { width: 34px; height: 34px; }
-    .pc-hero-title { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.25; color: var(--pc-dark); text-transform: none; letter-spacing: normal; }
+    /* Uppercase like the site's own headings (owner, 25.10): 22 px / 16 px on phones, weight 800 */
+    .pc-hero-title { margin: 0; font-size: 22px; font-weight: 800; line-height: 1.25; color: var(--pc-dark); text-transform: uppercase; letter-spacing: 0.3px; }
     .pc-hero-text { margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: #4a4f57; }
     .pc-chip {
       min-height: 44px; padding: 0 18px; border-radius: 22px; border: 1px solid #c9d6e8;
@@ -692,7 +693,7 @@
       .pc-chip { padding: 0 10px; font-size: 13px; }
       .pc-hero-icon { width: 44px; height: 44px; }
       .pc-hero-icon svg { width: 28px; height: 28px; }
-      .pc-hero-title { font-size: 18px; }
+      .pc-hero-title { font-size: 16px; }
       .pc-hero-text { font-size: 14px; }
     }
   `;
