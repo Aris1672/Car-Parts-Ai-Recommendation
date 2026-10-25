@@ -41,14 +41,30 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-25 evening (session 24d: "снят с производства" only when the catalog says so; session 24c: ТО answers show service parts only; session 24: the agent built into the homepage — photo block, M-red "Подобрать", "AI" avatar, confirmed live; session 24b: ТО answers cut off inside `<<<PRODUCTS>>>`, fixed; session 23g: diagram for every "Открыть деталь" number; session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-26 (session 25: new light hero on the homepage — owner's design, full width, above the icon row; session 24d: "снят с производства" only when the catalog says so; session 24c: ТО answers show service parts only; session 24: the agent built into the homepage — photo block, M-red "Подобрать", "AI" avatar, confirmed live; session 24b: ТО answers cut off inside `<<<PRODUCTS>>>`, fixed; session 23g: diagram for every "Открыть деталь" number; session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
-- **Homepage block** (session 24): the agent at the top of the homepage, placeholder `#bmw-ai-agent` in infoblock `page_main`.
+- **Homepage block** (sessions 24 + 25): the agent as the homepage hero, placeholder `#bmw-ai-agent` in infoblock `page_main`. Current look: session 25 (light, full width); session 24 describes the mechanics and the earlier dark version.
 - **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs (`[chat] reply hit max_tokens`, `[chat] reply cut off inside …`) and the new tab. Open items: see "📝 Open items (25.10)" below.
 
 Read sessions 24 and 24b first for the homepage block, then session 15, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### ☀️ Session 25 (Oct 26) — new light hero on the homepage (owner's design)
+
+- **Owner's design**, mockup approved 26.10 (canvas "ИИ-консультант на главной BmwClub77", row 2: "Новый hero"). Replaces the dark compact block of session 24; the chat state after the first message is unchanged.
+- **Look** (`widget/chat-widget.js`, compact state):
+  - photo **`agent-hero-mountains.jpg`** (owner's, 1872 × 576, re-saved at quality 85: 161 KB): mountains on the left, dark BMW on the right; white fade 0.94 → 0.88 at 40 % → 0 at 66 % behind the text; `cover`, `right 70%`;
+  - label **«✦ ИИ-КОНСУЛЬТАНТ»**, title **«Найдём нужные запчасти / для вашего BMW»** (Montserrat 800, 42 px / 25 px on phones, "BMW" in the accent blue `#0a5cc4`), description «Опишите, что вам нужно, и ИИ подберёт подходящие детали по VIN, модели или номеру запчасти.» — texts in `INLINE_EYEBROW`, `INLINE_TITLE_1/2`, `INLINE_TITLE_ACCENT`, `INLINE_TEXT`;
+  - one white input box (search icon) with the blue **«Подобрать с ИИ»** button (`INLINE_SEND_LABEL`); placeholder «Например: передние колодки на BMW X5 G05 30d»;
+  - chips **По VIN / По модели / По номеру детали / Не знаю номер** — each sends a full sentence (`INLINE_CHIPS`: label → text, e.g. «Не знаю номер детали — помогите подобрать»). The "ТО для моей машины" and "Где мой заказ?" chips are gone (the bot still handles both when typed);
+  - manager link + «Powered by AI · ASSISTANT24» in small lines under the chips;
+  - handwritten note «Правильные детали / для вашего BMW» with an arrow towards the car (desktop ≥ 1024 px only), font **Caveat 600, self-hosted** in `fonts/` (Cyrillic + Latin woff2, SIL OFL licence in `fonts/Caveat-OFL-LICENSE.txt`), no Google dependency. `server.js` serves `/fonts/*` with `Access-Control-Allow-Origin: *` (needed for cross-origin fonts) and a 1-year cache.
+- **Position:** the hero now goes **above the icon row** (`.benefits-block`) on every screen size (before: only on phones). No ABCP change; the placeholder stays in `page_main`.
+- **Full window width on desktop** (≥ 768 px, class `pc-bleed`): `updateBleed()` measures the placeholder's column and sets `--pc-col-left` (column start from the window edge) and `--pc-page-w` (`documentElement.clientWidth`, so no horizontal scrollbar); the panel gets that width and a negative left margin, and the content is indented by `--pc-col-left` to stay aligned with the site's column. Re-measured on resize. If an ABCP container ever clips it (`overflow: hidden`), the hero would be cut at the column edges — check after layout changes.
+- **Phones (≤ 540 px):** a card in the column; the photo is a 150 px band on top (`78% 0`), input and a full-width button stacked, chips 2 × 2.
+- **Kept for switching back:** `agent-hero-bg.jpg` (dark M5 in smoke, session 24) and `agent-hero-bg-light.jpg` (white car); the square "AI" avatar stays in the chat header and beside bot messages.
+- **Tested:** the 12 jsdom checks updated to the new texts, chips (full sentences), position above the icon row, full width on desktop / card on phones; fonts and photo served with the right headers (local server). Look to be checked live.
 
 ### 🏷 Session 24d (Oct 25) — "снят с производства" only when the catalog says so
 
