@@ -597,24 +597,33 @@
     /* Compact state on the photo (owner, 25.10): dark overlay, stronger on the
        left where the text is, so white text stays readable; the car shows
        through on the right. The chat itself keeps its plain light background.
-       Overlay for the current DARK photo (blue M5 in smoke): 0.70 / 0.50 / 0.30.
-       For the light photo (agent-hero-bg-light.jpg) use 0.82 / 0.62 / 0.45
-       and background-size cover / position center 48% (6.5:1). */
+       Current photo: the owner's original 1920x1200 (blue M5 in smoke, car
+       ~485 px wide in the file). It is shown at its NATURAL size, never
+       enlarged (an enlarged crop looked soft, 25.10): the image's right edge
+       sits 680 px beyond the block's right edge and its bottom 458 px below,
+       which puts the car at the right with the headlights beside the quick
+       buttons. On blocks wider than 1240 px it grows just enough to leave no
+       gap on the left. Overlay 0.72 / 0.58 / 0.30, text contrast 5.6:1.
+       For the light photo (agent-hero-bg-light.jpg, 854 px) use overlay
+       0.82 / 0.62 / 0.45 and size cover / position center 48% (6.5:1). */
     #pc-panel.pc-inline.pc-compact {
       background-color: #0b1626;
       background-image:
-        linear-gradient(90deg, rgba(8,18,32,0.70) 0%, rgba(8,18,32,0.50) 55%, rgba(8,18,32,0.30) 100%),
+        linear-gradient(90deg, rgba(8,18,32,0.72) 0%, rgba(8,18,32,0.58) 55%, rgba(8,18,32,0.30) 100%),
         var(--pc-hero-bg-image);
-      /* Photo enlarged and anchored left, so the car's grille and headlights
-         sit in the free space at bottom right, beside the quick buttons
-         (centered, the input bar covered them). Contrast there: 6.6:1. */
-      background-size: 100% 100%, 144% auto;
-      background-position: 0 0, 0% 46%;
+      background-size: 100% 100%, max(1920px, calc(100% + 680px)) auto;
+      background-position: 0 0, right -680px bottom -458px;
       background-repeat: no-repeat;
       border-color: transparent;
     }
+    /* Phones: half size (sharp on 2x screens), car centered at the bottom,
+       even overlay since the text runs full width (contrast 11:1). */
     @media (max-width: 540px) {
-      #pc-panel.pc-inline.pc-compact { background-size: 100% 100%, cover; background-position: 0 0, center 60%; }
+      #pc-panel.pc-inline.pc-compact {
+        background-image: linear-gradient(rgba(8,18,32,0.55), rgba(8,18,32,0.55)), var(--pc-hero-bg-image);
+        background-size: 100% 100%, 960px 600px;
+        background-position: 0 0, center bottom -200px;
+      }
     }
     #pc-panel.pc-compact .pc-hero-title { color: #fff; }
     #pc-panel.pc-compact .pc-hero-text { color: rgba(255,255,255,0.88); }
