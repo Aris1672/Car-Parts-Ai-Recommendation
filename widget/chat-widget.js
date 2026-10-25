@@ -650,7 +650,9 @@
       .pc-hero-title .pc-accent { color: var(--pc-hero-accent); }
       .pc-hero-text { margin: 14px 0 0; font-size: 17px; line-height: 1.5; color: #33404f; max-width: 520px; }
       #pc-panel.pc-compact #pc-input-area {
-        margin: 22px 28px 0 calc(var(--pc-col-left, 0px) + 28px); max-width: 600px;
+        /* wider than the title, as in the owner's design (26.10; was 600 px):
+           the full placeholder fits; at most 60% of the window, clear of the car */
+        margin: 22px 28px 0 calc(var(--pc-col-left, 0px) + 28px); max-width: min(820px, 60vw);
         padding: 6px; gap: 6px; align-items: center;
         background: #fff; border: 1.5px solid #c7d6ea; border-radius: 12px;
         box-shadow: 0 6px 24px rgba(15,36,64,0.10);
