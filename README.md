@@ -41,13 +41,14 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## 📍 PROJECT STATUS — read this first if resuming work
 
-**Last updated:** 2026-10-25 (session 23g: diagram for every "Открыть деталь" number; session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
+**Last updated:** 2026-10-25 evening (session 24: the agent built into the homepage — photo block, M-red "Подобрать", "AI" avatar, confirmed live; session 24b: ТО answers cut off inside `<<<PRODUCTS>>>`, fixed; session 23g: diagram for every "Открыть деталь" number; session 23f: "standard ТО" rule + search words; session 23e: full ТО kit from the catalog service unit; session 23d: agent sees the diagram notes, e.g. discontinued; session 23: live prices, cheapest offer with profile "Гость (Опт)"; session 22: "Открыть деталь" for catalog numbers; session 21: diagram card, confirmed live). **Everything below is live on `main` and confirmed working by the project owner:**
 - Laximo VIN search and car-model search (session 14). ABCP exempted our server, 168.222.202.222, from its browser check.
 - New dashboard tab **"Подбор"**: first message, shown cards, opened cards. Click tracking confirmed live after the beacon fix.
 - Greeting bubbles shown **once per visitor** (7-day repeat).
-- **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs and the new tab.
+- **Homepage block** (session 24): the agent at the top of the homepage, placeholder `#bmw-ai-agent` in infoblock `page_main`.
+- **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs (`[chat] reply hit max_tokens`, `[chat] reply cut off inside …`) and the new tab. Open items: see "📝 Open items (25.10)" below.
 
-Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
+Read sessions 24 and 24b first for the homepage block, then session 15, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
 ### ✂️ Session 24b (Oct 25) — ТО answer cut off, raw `<<<PRODUCTS>>>` shown
 
@@ -60,25 +61,50 @@ Read session 15 first, then session 14's "Status", then session 13 for the compa
 - **Widget:** `parseBotResponse()` cuts any unfinished `<<<…>>>` block, so raw code never reaches a customer even from an older server.
 - **Open decision (owner):** thinking could be turned off (`thinking: {type: "disabled"}`) to make replies faster and cheaper; not done, since it may change answer quality. Also noted in the same test: the generation list from the compatibility table showed wrong years (E70 "2007–2008", E53 "2003–2006"), and the reply started with "Привет! 👋" mid-conversation.
 
-### 🏠 Session 24 (Oct 25) — the agent built into the homepage (inline mode)
+### 🏠 Session 24 (Oct 25) — the agent built into the homepage (inline mode) ✅ confirmed live 25.10
 
-- **Client's request:** instead of only the bubble, the agent should sit at the top of the homepage. Mockup approved by the client 25.10 (desktop before/after the first message + phone).
-- **Placeholder in ABCP:** `<div id="bmw-ai-agent"></div>` at the top of infoblock `page_main`, above "Подбирайте по каталогам*:" (see the embed section above). Confirmed in the live page source 25.10.
-- **Widget (`widget/chat-widget.js`):** if that element exists, the same chat panel is moved into it (`pc-inline`), so cards, diagrams, "Открыть деталь", manager handoff, history and analytics work unchanged.
-  - **Compact state** (`pc-compact`): title "Подберём запчасти вместе с ИИ-консультантом" (owner, 25.10; first version "Подберём запчасть для вашего автомобиля"), in UPPERCASE, weight 800, 22 px (16 px on phones), letter-spacing 0.3 px, one line of text, a large input with "Подобрать", 4 quick buttons (ТО для моей машины / Подбор по VIN / Подойдёт ли номер? / Где мой заказ?) and "позвать менеджера". No greeting bubbles.
-  - **First message** (typed or a quick button) → the block becomes the chat: header with "Начать заново" and "Во весь экран", message area of up to 640 px (fits the window), input below. "Во весь экран" = fixed full screen, Esc or "Свернуть" returns.
-  - **"Начать заново"** clears the chat and goes back to the compact block. **`AutoChat.open()`** on the homepage scrolls to the block and puts the cursor in it.
-  - **Phones (≤ 767 px):** the block moves above the icon row (`.benefits-block`) so it's on the first screen; it moves back on wider screens. No ABCP change needed for that.
-  - **Background photo (owner, 25.10):** the compact state shows `agent-hero-bg.jpg` (repo root, served at `/agent-hero-bg.jpg`) with a dark left-to-right overlay; title and text are white. The chat state keeps the plain light background.
-    - **Current: dark photo, owner's original** (blue M5 in blue smoke, 1920 × 1200, re-saved at JPEG quality 85: 253 KB instead of 826 KB). The first version ("Backgr -3.jpg", a 1025 px crop enlarged 144 %) looked soft, so the original is shown at its **natural size, never enlarged**: `background-size: max(1920px, calc(100% + 680px)) auto; background-position: right -680px bottom -458px` puts the car at the right with the headlights beside the quick buttons (and grows only on blocks wider than 1240 px, to leave no gap on the left). **Overlay only behind the text** (owner: "the lights look dim"): 0.78 → 0.66 at 45 % → 0 from 62 %, so the car and headlights are at full brightness; the description wraps at 600 px to stay on the dark side; soft text shadow on all white text. Contrast: title 5.3:1, description 4.6:1 (with no overlay at all it's ~2:1 over the smoke). Phones (≤ 540 px): 960 × 600 (sharp on 2× screens), centered, `bottom -200px`, vertical fade 0.55 → 0 at 62 % (text 12.5:1; the note over the car relies on the text shadow).
-    - **Agent avatar (owner, 25.10):** `agent-avatar.jpg` (repo root, 192 × 192; the owner's "AI" logo with a single red slash on black, centered and cropped close) as a **rounded square** (10 / 8 / 6 px corners) in the homepage block (next to the title: a fixed 75 px = title + 2 description lines, top-aligned; 44 px on phones. A first try with `align-self: stretch` + `aspect-ratio` let the 192 px image set the size: ~175 px live): the round icon next to the title, the chat header and the icon beside each bot message. If it fails to load, the headset icon is shown. The bubble on other pages keeps `AI_Agent.png`. The first version had M-style three-colour stripes (BMW trade dress); replaced the same day by the single-slash logo.
-    - **"Powered by AI · ASSISTANT24"** (link to https://assistant24info.ru/, new tab) is also shown in the compact block, as a small line under the note on the dark left side (owner, 25.10). Before, it appeared only once the chat was open.
-    - **"Подобрать" button on the photo: BMW M red `#E7222E`** (owner, 25.10; the blue button blended into the blue photo), hover `#C41B25`; white text 4.5:1 / 6:1. The chat's send button stays blue.
-    - **Previous: light photo** (owner's "Backgr -2.jpg": white car on a wet road, 854 px), kept as `agent-hero-bg-light.jpg`. To switch back, swap the two file names, set the overlay to 0.82 / 0.62 / 0.45 and the photo to `cover` / `center 48%` (6.5:1; the lighter overlay is too weak for that photo).
-    - Both are about 1 000 px wide, slightly soft on wide screens; a ~1920 px version under the same name looks sharper.
-  - **No bubble, teasers or badge** on the homepage. Other pages keep the bubble, and a chat started on the homepage continues there (same `localStorage` state; `greeted` is set so the bubble doesn't greet mid-chat). A chat already running is shown as the chat when the homepage is opened again.
-- **Analytics:** `first_message` now carries `placement: "inline" | "bubble"` (`lib/chatEvents.js` keeps only those two values), so the dashboard data can show which placement starts more chats. Not yet shown in the "Подбор" tab.
-- **Tested** in jsdom with a copy of the homepage structure and a mocked API (11 checks: build into the placeholder, quick button → chat + cards + placement event, restore, continuation in the bubble, full screen + Esc, restart, manager link, phone move and back, `AutoChat.open()`, bubble unchanged without the placeholder, server validation). **Not yet checked in a real browser** — check the look on the live homepage after deploying.
+**What:** on the homepage the chat is no longer only the bottom-right bubble: it sits at the top of the page, above "Подбирайте по каталогам*:", as a block with a photo, a title, a large input and quick buttons. On the first message the block turns into the full chat. Requested by the client; mockup approved 25.10; the final look confirmed live by the owner 25.10 (screenshots).
+
+**How it's switched on (ABCP):** infoblock **`page_main`** → Редактировать HTML → third line `<div id="bmw-ai-agent"></div>` (see the embed section above). No other ABCP change. Removing that line brings the bubble back on the homepage, without a redeploy.
+
+**How it works (`widget/chat-widget.js`):** if the page has `#bmw-ai-agent`, the same chat panel is moved into it (class `pc-inline`). Cards, diagrams, "Открыть деталь", manager handoff, history and analytics are the same code as the bubble.
+- **Compact state** (`pc-compact`, before the first message):
+  - title **«ПОДБЕРЁМ ЗАПЧАСТИ ВМЕСТЕ С ИИ-КОНСУЛЬТАНТОМ»** (text in `INLINE_TITLE` is normal case; `text-transform: uppercase`), weight 800, 22 px / 16 px on phones, letter-spacing 0.3 px;
+  - description "ИИ-консультант ответит сразу: …" (`INLINE_TEXT`), wraps at 600 px;
+  - input with the **"Подобрать"** button in **BMW M red `#E7222E`** (hover `#C41B25`; white text 4.5:1 / 6:1). The chat's send button stays blue;
+  - 4 quick buttons (`INLINE_CHIPS`): ТО для моей машины / Подбор по VIN / Подойдёт ли номер? / Где мой заказ? — each sends its text as the first message;
+  - note "Ответы готовит ИИ. Если нужен человек — позвать менеджера." (opens the chat with the manager button) and **"Powered by AI · ASSISTANT24"** (link to https://assistant24info.ru/, new tab).
+  - No bubble, teasers or badge on the homepage.
+- **Chat state** (after the first message): header with "Начать заново" (back to the compact block, history cleared) and "Во весь экран" (fixed full screen; Esc or "Свернуть" returns), messages, input, "Powered by" line. Plain light background.
+  - **Message area height:** `clamp(320px, calc(100vh - 240px), 640px)` — the window height minus 240 px, at least 320 px, **at most 640 px**; it takes this height as soon as the chat opens (no growing/jumping), then scrolls inside. With the header (60 px), input (~80 px) and "Powered by" line, the whole chat block is at most ~800 px. Full screen removes the limit.
+- **Same conversation everywhere:** a chat started on the homepage continues in the bubble on other pages (same `localStorage` state; `greeted` is set so the bubble doesn't greet mid-chat), and a running chat is shown as the chat when the homepage is opened again. `AutoChat.open()` on the homepage scrolls to the block and puts the cursor in it.
+- **Phones:** ≤ 767 px the block moves above the icon row (`.benefits-block`) so it's on the first screen, and back on wider screens. ≤ 540 px: compact paddings, quick buttons 2 × 2, icon-only "Подобрать".
+
+**Background photo** (compact state only):
+- `agent-hero-bg.jpg` (repo root, served at `/agent-hero-bg.jpg`): the owner's original **1920 × 1200** (blue M5 in blue smoke), re-saved at JPEG quality 85 (253 KB instead of 826 KB). To change the photo, replace this file under the same name.
+- Shown at its **natural size, never enlarged** (an enlarged 1025 px crop looked soft): `background-size: max(1920px, calc(100% + 680px)) auto; background-position: right -680px bottom -458px` puts the car at the right with the headlights beside the quick buttons; it grows only on blocks wider than 1240 px, to leave no gap on the left.
+- **Overlay only behind the text** (owner: the headlights looked dim under a full overlay): dark navy fade 0.78 → 0.66 at 45 % → 0 from 62 %, so the car is at full brightness; soft text shadow on all white text. Contrast: title 5.3:1, description 4.6:1 (with no overlay at all it's ~2:1 over the smoke).
+- Phones (≤ 540 px): 960 × 600 (sharp on 2× screens), centered, `bottom -200px`, vertical fade 0.55 → 0 at 62 % (text 12.5:1; the note over the car relies on the text shadow).
+- Earlier light photo (white car on a wet road, 854 px) kept as `agent-hero-bg-light.jpg`. To switch back: swap the file names, overlay 0.82 / 0.62 / 0.45 across, photo `cover` / `center 48%` (6.5:1).
+
+**Agent avatar:** `agent-avatar.jpg` (repo root, 192 × 192, ~4 KB): the owner's "AI" logo with a single red slash on black, cropped centered. A **rounded square**: next to the title a **fixed 75 px** (= title + 2 description lines, top-aligned; 44 px on phones), 8 px corners in the chat header, 6 px beside each bot message, white ring on the photo. If it fails to load, the headset icon is shown. The bubble on other pages keeps `AI_Agent.png`.
+- History: the first version had BMW M-style three-colour stripes (BMW trade dress) and was replaced the same day; a first sizing attempt (`align-self: stretch` + `aspect-ratio`) let the 192 px image set the size (~175 px live), hence the fixed 75 px.
+
+**Analytics:** `first_message` events carry `placement: "inline" | "bubble"` (`lib/chatEvents.js` keeps only those two values) to compare the two placements. Stored, not yet shown in the "Подбор" tab.
+
+**Tested:** jsdom with a copy of the homepage structure and a mocked API, 12 checks (build into the placeholder, quick button → chat + cards + placement event, restore, continuation in the bubble, full screen + Esc, restart, manager link, phone move and back, `AutoChat.open()`, bubble unchanged without the placeholder, unfinished `<<<…>>>` block never shown, server validation). Look and layout checked live by the owner. The test script is not in the repo (it needs `jsdom`).
+
+### 📝 Open items (25.10)
+
+- **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
+- **"Привет! 👋" mid-conversation** in the generation question (Haiku short-cut in `api/chat.js`, `CLARIFY_PROMPT`).
+- **Thinking on Sonnet 5:** on by default; turning it off (`thinking: {type: "disabled"}`) would make replies faster and cheaper but may change quality — owner's decision. Anthropic now lists Sonnet 5 as a legacy model (Sonnet 5.5 is current).
+- **Dashboard:** show `placement` (homepage block vs bubble) in the "Подбор" tab.
+- **Security (found 25.10, not fixed yet — details were given to the owner in the chat, deliberately not written here because this README may itself be publicly downloadable):**
+  - `server.js` serves the whole repo root as static files (`express.static(__dirname)`), so source files and this README are probably downloadable from the live domain. Serve only the needed images instead. Fix this first.
+  - Two secrets are committed in plain text (one in this repo, one in `abcp-catalog-proxy`): rotate both, keep them only in Coolify, delete them from the files.
+  - `abcp-catalog-proxy`: `.github/workflows/refresh-catalog.yml` still calls the old Vercel URL every 6 hours although `server.js` refreshes in-process.
+  - `api/chat.js` falls back to `https://abcp-catalog-proxy.vercel.app/api/catalog` if `CATALOG_API_URL` is missing.
 
 ### 🖼️ Session 18 (Oct 23) — "Нет фото": check against ABCP's catalog
 
