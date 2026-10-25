@@ -284,13 +284,10 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 // the vehicle (see handler below) — it now happens AFTER
 // extractVehicleInfo(), once we know which series to query.
 //
-// Two separate reads:
-//  - fetchCompatibilityVendorCodes(): just the distinct vendor_codes across
-//    ALL series — cheap (one column, one DISTINCT), used only to filter the
-//    catalog down to parts we have ANY fitment data for (independent of
-//    which specific vehicle this conversation is about).
-//  - fetchCompatibilityBySeries(series): the actual vehicle records for one
-//    series — this is the slice matchCompatibility() runs against.
+// fetchCompatibilityBySeries(series): the vehicle records for one series --
+// the slice matchCompatibility() runs against. (A second read of all
+// distinct vendor codes, used to pre-filter the downloaded price list, was
+// removed 26.10.2026 with the whole-list download -- see lookupCatalog().)
 const { Client } = require('pg');
 const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
 
@@ -337,35 +334,6 @@ function detectGenerationAmbiguity(matchedCompatibility) {
     }
   }
   return [...generations.values()];
-}
-
-let vendorCodesCache      = null; // Set
-let vendorCodesCachedAt   = 0;
-const VENDOR_CODES_TTL_MS = 6 * 60 * 60 * 1000;
-
-async function fetchCompatibilityVendorCodes() {
-  if (!SUPABASE_DB_URL) return new Set();
-
-  const now = Date.now();
-  if (vendorCodesCache && (now - vendorCodesCachedAt) < VENDOR_CODES_TTL_MS) {
-    return vendorCodesCache;
-  }
-
-  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
-  try {
-    await client.connect();
-    const result = await client.query('select distinct vendor_code from compatibility');
-    const codes = new Set(result.rows.map(r => r.vendor_code));
-    vendorCodesCache    = codes;
-    vendorCodesCachedAt = now;
-    return codes;
-  } catch (err) {
-    console.error('fetchCompatibilityVendorCodes DB error:', err.message, '— falling back to',
-      vendorCodesCache ? `stale cache (${vendorCodesCache.size} codes)` : 'empty Set (no cache yet)');
-    return vendorCodesCache || new Set();
-  } finally {
-    await client.end().catch(() => {});
-  }
 }
 
 // Per-series cache — a handful of series get asked about repeatedly within
@@ -432,26 +400,21 @@ const VENDOR_CODE_COMPAT_TTL_MS = 6 * 60 * 60 * 1000;
 // as long as this Coolify container does (unlike the old Vercel serverless
 // setup, where a cold start naturally reset them often). That means
 // push-compatibility-to-supabase.js's `truncate + reinsert` can silently go
-// unnoticed for up to VENDOR_CODES_TTL_MS/SERIES_TTL_MS (6h) after a push,
+// unnoticed for up to SERIES_TTL_MS (6h) after a push,
 // since nothing here ever told this running process the DB changed.
 // clearCaches() resets every cache that reads from the `compatibility`
-// table (plus the derived catalog cache, since fetchCatalog() filters by
-// the vendor-codes cache) so a push takes effect immediately instead of
+// table (plus the price-list caches) so a push takes effect immediately instead of
 // waiting out the TTL. Called via the /api/admin/clear-cache endpoint --
 // see api/admin/clear-cache.js.
 function clearCaches() {
-  vendorCodesCache    = null;
-  vendorCodesCachedAt = 0;
   seriesCache.clear();
   vendorCodeCompatCache.clear();
-  catalogCache    = null;
-  catalogCachedAt = 0;
   catalogIndexCache    = null;
   catalogIndexCachedAt = 0;
   catalogLookupCache.clear();
   catalogTableMissingAt = 0;
   laximo.resetPause().catch(() => {});
-  console.log('clearCaches(): laximo pause lifted; vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache, catalogIndexCache all cleared');
+  console.log('clearCaches(): laximo pause lifted; seriesCache, vendorCodeCompatCache, catalogIndexCache, catalogLookupCache all cleared');
 }
 
 /**
@@ -645,13 +608,10 @@ async function fetchCompatibilityByVendorCode(vendorCode) {
   }
 }
 
-// ─── CATALOG CACHE (module-level, survives warm Vercel instances) ──────────────
-// Filtered down to only vendorCodes that appear in the compatibility data --
-// there is no reason to send Claude pricing/description info for a part we
-// have no confirmed vehicle fitment for, since the agent can't safely
-// recommend it anyway. This is what keeps the prompt size bounded as the
-// catalog grows (currently ~22k products; only ~a few hundred have
-// confirmed compatibility so far).
+// ─── PRICE LIST ─────────────────────────────────────────────────────────────
+// Products are looked up by part number (lookupCatalog() below, table
+// catalog_products). fetchCatalogIndex() -- the old whole-list download --
+// is kept only as the fallback when that table isn't there.
 // Same wording the widget's product card shows (widget/chat-widget.js:
 // stock > 0 -> "В наличии: N шт.", otherwise "Под заказ"). Given to the
 // agent as a ready-made label so its text can't contradict the card --
@@ -662,60 +622,13 @@ function availabilityLabel(stock) {
   return n > 0 ? `в наличии (${n} шт.)` : 'под заказ';
 }
 
-let catalogCache     = null;
-let catalogCachedAt  = 0;
-const CATALOG_TTL_MS = 30 * 60 * 1000; // refresh every 30 minutes
+const CATALOG_TTL_MS = 30 * 60 * 1000; // fallback whole-list index: refresh at most every 30 minutes
 
-async function fetchCatalog(compatibilityKeys) {
-  const now = Date.now();
-  if (catalogCache && (now - catalogCachedAt) < CATALOG_TTL_MS) {
-    return catalogCache;
-  }
-
-  // No known compatible vendorCodes yet (compatibility API not configured,
-  // or fetch failed with nothing cached) -- return empty rather than
-  // falling back to the full unfiltered catalog, which would re-trigger
-  // the token-limit crash. Safe default: agent treats everything as
-  // unconfirmed and escalates, per its existing instructions.
-  if (!compatibilityKeys || compatibilityKeys.size === 0) {
-    return catalogCache || '[]';
-  }
-
-  try {
-    const res = await fetch(CATALOG_API, { signal: AbortSignal.timeout(25000) });
-    const data = await res.json();
-    if (!data.products) return catalogCache || '[]';
-
-    const compact = data.products
-      .filter(p => compatibilityKeys.has(p.vendorCode))
-      .map(p => ({
-        article:  p.vendorCode,
-        name:     p.name,
-        brand:    p.vendor,
-        category: p.category,
-        price:    p.price,
-        stock:    p.available,
-        availability: availabilityLabel(p.available),
-        url:      p.url     ? p.url.replace('http://', 'https://')     : null,
-        picture:  p.picture ? p.picture.replace('http://', 'https://') : null,
-      }));
-    catalogCache    = JSON.stringify(compact);
-    catalogCachedAt = now;
-    return catalogCache;
-  } catch (err) {
-    console.error('fetchCatalog fetch error:', err.message, '— CATALOG_API:', CATALOG_API, '— falling back to',
-      catalogCache ? 'stale cache' : 'empty [] (no cache yet)');
-    return catalogCache || '[]';
-  }
-}
-
-// ─── FULL CATALOG INDEX (for the Laximo/VIN path) ────────────────────────────
-// fetchCatalog() above deliberately keeps only products that appear in the
-// compatibility table. Laximo returns OEM numbers straight from the original
-// BMW catalog, many of which were never in that table -- so the VIN path
-// needs the WHOLE catalog, looked up by article. Kept as a Map (normalized
-// article -> compact product) and never put into the prompt wholesale; only
-// the handful of Laximo-matched products are.
+// ─── FALLBACK: WHOLE-LIST INDEX ──────────────────────────────────────────────
+// Downloads the WHOLE price list through the catalog proxy (CATALOG_API) into
+// a Map (normalized article -> product). Used only by lookupCatalog() when the
+// catalog_products table is missing or there is no SUPABASE_DB_URL; at
+// 300 000+ products this download is too big to work reliably (26.10.2026).
 let catalogIndexCache    = null; // Map
 let catalogIndexCachedAt = 0;
 
@@ -1821,12 +1734,6 @@ function matchManualProductsByVehicle(products, extracted) {
     });
   });
 }
-
-// Pre-warm caches on cold start -- vendor codes (lightweight) first, since
-// catalog filtering depends on it. Per-series compatibility data is fetched
-// on-demand per request instead (see handler below), since which series
-// matters isn't known until the conversation is read.
-fetchCompatibilityVendorCodes().catch(() => {});
 
 // ─── CORS HEADERS ──────────────────────────────────────────────────────────────
 function corsHeaders() {

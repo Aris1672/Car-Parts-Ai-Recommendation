@@ -2,8 +2,8 @@
  * api/admin/clear-cache.js
  *
  * Clears the in-memory compatibility/catalog caches inside chat.js's
- * handler module. Needed because those caches (vendorCodesCache,
- * seriesCache, vendorCodeCompatCache, catalogCache) are module-level and
+ * handler module. Needed because those caches (seriesCache,
+ * vendorCodeCompatCache, catalogIndexCache, catalogLookupCache) are module-level and
  * now persist for their full TTL (up to 6h) on this Coolify container,
  * unlike the old Vercel serverless setup where a cold start reset them
  * often. push-compatibility-to-supabase.js calls this endpoint right after
