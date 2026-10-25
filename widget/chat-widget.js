@@ -1171,6 +1171,7 @@
   function updateBleed() {
     if (!inlineHost) return;
     const panel = document.getElementById('pc-panel');
+    panel.style.marginTop = ''; // back to the CSS margin before measuring
     if (window.matchMedia(INLINE_MOBILE_QUERY).matches) {
       panel.classList.remove('pc-bleed');
       panel.style.removeProperty('--pc-col-left');
@@ -1181,6 +1182,25 @@
     panel.style.setProperty('--pc-col-left', left + 'px');
     panel.style.setProperty('--pc-page-w', document.documentElement.clientWidth + 'px');
     panel.classList.add('pc-bleed');
+    if (panel.classList.contains('pc-compact')) pullUnderHeader(panel);
+  }
+
+  // Desktop hero directly under the site header, so the header's search tab
+  // ("Поиск по номеру детали", which hangs below the header) overlaps the top
+  // of the photo (owner, 26.10: there was a ~30 px grey strip). The distance
+  // is MEASURED (header bottom -> hero top), not a fixed number, so ABCP's own
+  // spacing can change. The header is kept above the hero (z-index) so the
+  // tab stays visible. Only the compact hero; the chat keeps its spacing.
+  function pullUnderHeader(panel) {
+    const header = document.querySelector('header');
+    if (!header) return;
+    const gap = Math.round(panel.getBoundingClientRect().top - header.getBoundingClientRect().bottom);
+    if (gap <= 0 || gap > 150) return; // nothing to close, or an unexpected layout: leave it
+    const current = parseFloat(getComputedStyle(panel).marginTop) || 0;
+    panel.style.marginTop = (current - gap) + 'px';
+    const hs = getComputedStyle(header);
+    if (!hs.position || hs.position === 'static') header.style.position = 'relative';
+    if (!hs.zIndex || hs.zIndex === 'auto') header.style.zIndex = '5';
   }
 
   function setCompact(on) {
@@ -1193,6 +1213,7 @@
       const c = document.getElementById('pc-messages');
       c.scrollTop = c.scrollHeight;
     }
+    updateBleed(); // the pull-up under the header applies to the hero only
   }
 
   // Compact block -> conversation (first message, or "позвать менеджера").
