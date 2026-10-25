@@ -591,12 +591,14 @@
     }
     #pc-panel.pc-inline.pc-compact .pc-powered a { color: rgba(255,255,255,0.92); }
     #pc-panel.pc-inline.pc-compact .pc-powered a:hover { color: #fff; text-decoration: underline; }
-    #pc-panel.pc-compact #pc-hero { display: flex; align-items: center; gap: 16px; padding: 26px 28px 4px; }
+    /* The avatar is as tall as the title + description next to it (owner, 25.10) */
+    #pc-panel.pc-compact #pc-hero { display: flex; align-items: stretch; gap: 16px; padding: 26px 28px 4px; }
     #pc-panel.pc-compact #pc-input-area { border-top: none; padding: 14px 28px; }
     #pc-panel.pc-compact #pc-chips { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
     #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 6px; font-size: 13px; color: #5f646c; }
     .pc-hero-icon {
-      width: 52px; height: 52px; border-radius: 10px; color: #fff;
+      align-self: stretch; height: auto; width: auto; aspect-ratio: 1 / 1; min-width: 52px;
+      border-radius: 10px; color: #fff;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
     .pc-hero-icon svg { width: 34px; height: 34px; }
@@ -685,13 +687,13 @@
       #pc-panel.pc-inline #pc-header { padding: 0 12px; }
       #pc-panel.pc-inline #pc-send { width: 52px; padding: 0; justify-content: center; }
       #pc-panel.pc-inline #pc-send .pc-send-label { display: none; }
-      #pc-panel.pc-compact #pc-hero { padding: 18px 16px 2px; gap: 12px; }
+      #pc-panel.pc-compact #pc-hero { padding: 18px 16px 2px; gap: 12px; align-items: center; }
       #pc-panel.pc-compact #pc-input-area { padding: 12px 16px; }
       #pc-panel.pc-compact #pc-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 2px; }
       #pc-panel.pc-compact #pc-hero-note { padding: 10px 16px 6px; font-size: 12px; }
       #pc-panel.pc-inline.pc-compact .pc-powered { padding: 0 16px 16px; }
       .pc-chip { padding: 0 10px; font-size: 13px; }
-      .pc-hero-icon { width: 44px; height: 44px; }
+      .pc-hero-icon { align-self: center; width: 44px; height: 44px; min-width: 44px; aspect-ratio: auto; }
       .pc-hero-icon svg { width: 28px; height: 28px; }
       .pc-hero-title { font-size: 16px; }
       .pc-hero-text { font-size: 14px; }
