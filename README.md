@@ -35,6 +35,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 - **If it's gone:** paste the two lines back into "Блок в подвале", save, then reload the site. Nothing needs changing on our server.
 - **Common mistakes:** keeping only the second line (without `AGENT_URL` the widget falls back to the same server, but keep both); using an old `vercel.app` or `api2.o2plus.ru` address; pasting into a block that's only on the home page; editors that turn `'` into curly quotes or strip `<script>` tags. Paste in the HTML/source mode of the editor.
 - Optional: any element on the site can open the chat with `onclick="window.AutoChat && window.AutoChat.open()"`.
+- **Homepage block (inline agent, session 24):** ABCP → Внешний вид и контент → Инфоблоки → **`page_main`** ("Главная") → **Редактировать HTML** has, as its third line, the placeholder `<div id="bmw-ai-agent"></div>` (right after `<div class="mainSectionIn">`, before `<div class="mainBanners">`). On a page with this element the widget builds the chat into it instead of the bubble. If the line disappears, the homepage simply gets the bubble again. Put it in **one** infoblock only.
 
 ---
 
@@ -47,6 +48,19 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 - **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs and the new tab.
 
 Read session 15 first, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### 🏠 Session 24 (Oct 25) — the agent built into the homepage (inline mode)
+
+- **Client's request:** instead of only the bubble, the agent should sit at the top of the homepage. Mockup approved by the client 25.10 (desktop before/after the first message + phone).
+- **Placeholder in ABCP:** `<div id="bmw-ai-agent"></div>` at the top of infoblock `page_main`, above "Подбирайте по каталогам*:" (see the embed section above). Confirmed in the live page source 25.10.
+- **Widget (`widget/chat-widget.js`):** if that element exists, the same chat panel is moved into it (`pc-inline`), so cards, diagrams, "Открыть деталь", manager handoff, history and analytics work unchanged.
+  - **Compact state** (`pc-compact`): title "Подберём запчасть для вашего автомобиля", one line of text, a large input with "Подобрать", 4 quick buttons (ТО для моей машины / Подбор по VIN / Подойдёт ли номер? / Где мой заказ?) and "позвать менеджера". No greeting bubbles.
+  - **First message** (typed or a quick button) → the block becomes the chat: header with "Начать заново" and "Во весь экран", message area of up to 640 px (fits the window), input below. "Во весь экран" = fixed full screen, Esc or "Свернуть" returns.
+  - **"Начать заново"** clears the chat and goes back to the compact block. **`AutoChat.open()`** on the homepage scrolls to the block and puts the cursor in it.
+  - **Phones (≤ 767 px):** the block moves above the icon row (`.benefits-block`) so it's on the first screen; it moves back on wider screens. No ABCP change needed for that.
+  - **No bubble, teasers or badge** on the homepage. Other pages keep the bubble, and a chat started on the homepage continues there (same `localStorage` state; `greeted` is set so the bubble doesn't greet mid-chat). A chat already running is shown as the chat when the homepage is opened again.
+- **Analytics:** `first_message` now carries `placement: "inline" | "bubble"` (`lib/chatEvents.js` keeps only those two values), so the dashboard data can show which placement starts more chats. Not yet shown in the "Подбор" tab.
+- **Tested** in jsdom with a copy of the homepage structure and a mocked API (11 checks: build into the placeholder, quick button → chat + cards + placement event, restore, continuation in the bubble, full screen + Esc, restart, manager link, phone move and back, `AutoChat.open()`, bubble unchanged without the placeholder, server validation). **Not yet checked in a real browser** — check the look on the live homepage after deploying.
 
 ### 🖼️ Session 18 (Oct 23) — "Нет фото": check against ABCP's catalog
 
