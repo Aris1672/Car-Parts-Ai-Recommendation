@@ -618,6 +618,9 @@
       #pc-panel.pc-inline.pc-compact.pc-bleed {
         width: var(--pc-page-w) !important; margin-left: calc(-1 * var(--pc-col-left));
         border-radius: 0; border-left: none; border-right: none; min-height: 440px;
+        /* more room at the top: the hero now starts right under the header
+           and the search tab hangs ~35 px into it (owner, 26.10) */
+        padding-top: 64px; padding-bottom: 40px;
       }
     }
     #pc-panel.pc-compact #pc-hero {
