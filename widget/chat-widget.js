@@ -591,13 +591,16 @@
     }
     #pc-panel.pc-inline.pc-compact .pc-powered a { color: rgba(255,255,255,0.92); }
     #pc-panel.pc-inline.pc-compact .pc-powered a:hover { color: #fff; text-decoration: underline; }
-    /* The avatar is as tall as the title + description next to it (owner, 25.10) */
-    #pc-panel.pc-compact #pc-hero { display: flex; align-items: stretch; gap: 16px; padding: 26px 28px 4px; }
+    #pc-panel.pc-compact #pc-hero { display: flex; align-items: flex-start; gap: 16px; padding: 26px 28px 4px; }
     #pc-panel.pc-compact #pc-input-area { border-top: none; padding: 14px 28px; }
     #pc-panel.pc-compact #pc-chips { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
     #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 6px; font-size: 13px; color: #5f646c; }
+    /* As tall as the title + 2 description lines next to it (owner, 25.10):
+       22px x 1.25 + 4px + 2 x 15px x 1.45 = 75px. A fixed size on purpose --
+       stretching it to the text let the 192px image set the size (live
+       25.10: a ~175px avatar). */
     .pc-hero-icon {
-      align-self: stretch; height: auto; width: auto; aspect-ratio: 1 / 1; min-width: 52px;
+      width: 75px; height: 75px;
       border-radius: 10px; color: #fff;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
@@ -693,7 +696,7 @@
       #pc-panel.pc-compact #pc-hero-note { padding: 10px 16px 6px; font-size: 12px; }
       #pc-panel.pc-inline.pc-compact .pc-powered { padding: 0 16px 16px; }
       .pc-chip { padding: 0 10px; font-size: 13px; }
-      .pc-hero-icon { align-self: center; width: 44px; height: 44px; min-width: 44px; aspect-ratio: auto; }
+      .pc-hero-icon { width: 44px; height: 44px; }
       .pc-hero-icon svg { width: 28px; height: 28px; }
       .pc-hero-title { font-size: 16px; }
       .pc-hero-text { font-size: 14px; }
