@@ -448,6 +448,8 @@ function clearCaches() {
   catalogCachedAt = 0;
   catalogIndexCache    = null;
   catalogIndexCachedAt = 0;
+  catalogLookupCache.clear();
+  catalogTableMissingAt = 0;
   laximo.resetPause().catch(() => {});
   console.log('clearCaches(): laximo pause lifted; vendorCodesCache, seriesCache, vendorCodeCompatCache, catalogCache, catalogIndexCache all cleared');
 }
@@ -749,6 +751,94 @@ async function fetchCatalogIndex() {
       catalogIndexCache ? 'stale index' : 'empty Map (no index yet)');
     return catalogIndexCache || new Map();
   }
+}
+
+// ─── PRICE LIST LOOKUP BY PART NUMBER (table catalog_products) ──────────────
+// 26.10.2026: the price list grew from ~20 000 to 309 607 products. The bot
+// used to download the WHOLE list (fetchCatalog / fetchCatalogIndex via the
+// catalog proxy, 25 s limit) -- at that size it no longer arrived, and ТО
+// answers lost their spark plug / fluid cards. Now the catalog proxy loads
+// the list into Postgres, one row per offer (abcp-catalog-proxy,
+// lib/catalogTable.js), and the bot asks only for the numbers of the current
+// answer. Several suppliers can offer the same number: one is picked --
+// the car's brand first, then in stock, with a photo, cheapest.
+// Fallback: no DB connection or no table yet -> the old whole-list index.
+const CATALOG_LOOKUP_TTL_MS = 10 * 60 * 1000;
+const catalogLookupCache = new Map();      // `${brand}|${code}` -> { product | null, at }
+let catalogTableMissingAt = 0;             // table not found: use the old path for 10 min
+
+/** One price-list row -> the product shape the rest of the handler uses. */
+function catalogRowToProduct(r) {
+  return {
+    article:  r.vendor_code || r.code,
+    name:     r.name,
+    brand:    r.brand,
+    category: r.category,
+    price:    r.price,
+    stock:    r.available,
+    availability: availabilityLabel(r.available),
+    url:      r.url || null,
+    picture:  r.picture || null,
+  };
+}
+
+/** Part numbers -> Map(normalized number -> product) for the numbers found in the price list. */
+async function lookupCatalog(codes, preferBrand) {
+  const want = [...new Set((codes || []).map(c => laximo.normalizeOem(c)).filter(Boolean))];
+  const out = new Map();
+  if (!want.length) return out;
+  const fromOldIndex = async () => {
+    const idx = await fetchCatalogIndex();
+    for (const c of want) if (idx.has(c)) out.set(c, idx.get(c));
+    return out;
+  };
+  if (!SUPABASE_DB_URL || (Date.now() - catalogTableMissingAt) < 10 * 60 * 1000) return fromOldIndex();
+
+  const brand = String(preferBrand || '').trim().toUpperCase();
+  const now = Date.now();
+  const ask = [];
+  for (const c of want) {
+    const hit = catalogLookupCache.get(`${brand}|${c}`);
+    if (hit && (now - hit.at) < CATALOG_LOOKUP_TTL_MS) { if (hit.product) out.set(c, hit.product); }
+    else ask.push(c);
+  }
+  if (!ask.length) return out;
+
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
+  try {
+    await client.connect();
+    const { rows } = await client.query(
+      `select distinct on (code) code, vendor_code, name, brand, category, price, available, url, picture
+         from catalog_products
+        where code = any($1)
+        order by code, (upper(coalesce(brand, '')) = $2) desc, available desc,
+                 (picture is not null) desc, price asc nulls last`,
+      [ask, brand]);
+    const found = new Map(rows.map(r => [r.code, catalogRowToProduct(r)]));
+    for (const c of ask) {
+      const product = found.get(c) || null;
+      catalogLookupCache.set(`${brand}|${c}`, { product, at: now });
+      if (product) out.set(c, product);
+    }
+    if (catalogLookupCache.size > 20000) catalogLookupCache.clear(); // keep memory bounded
+    return out;
+  } catch (err) {
+    if (err.code === '42P01') { // table doesn't exist yet (proxy not updated / never refreshed)
+      catalogTableMissingAt = Date.now();
+      console.warn('[catalog] table catalog_products not found -- using the old whole-list path for 10 min');
+      return fromOldIndex();
+    }
+    console.error('[catalog] lookup failed:', err.message);
+    return out;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+/** Brand used to choose between offers of the same number (BMW/MINI cars -> "BMW"). */
+function catalogBrand(extracted, laximoResult) {
+  const b = String((extracted && extracted.brand) || (laximoResult && laximoResult.vehicle && laximoResult.vehicle.brand) || 'BMW').trim();
+  return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b;
 }
 
 /**
@@ -1736,9 +1826,7 @@ function matchManualProductsByVehicle(products, extracted) {
 // catalog filtering depends on it. Per-series compatibility data is fetched
 // on-demand per request instead (see handler below), since which series
 // matters isn't known until the conversation is read.
-fetchCompatibilityVendorCodes()
-  .then((codes) => fetchCatalog(codes))
-  .catch(() => {});
+fetchCompatibilityVendorCodes().catch(() => {});
 
 // ─── CORS HEADERS ──────────────────────────────────────────────────────────────
 function corsHeaders() {
@@ -1781,13 +1869,8 @@ async function handler(req, res) {
       return res.status(400).json({ error: 'messages array required' });
     }
 
-    // Vendor codes (lightweight, all series) -- used only to filter the
-    // catalog down to parts we have ANY fitment data for. The actual
-    // vehicle-matched compatibility records come later, once we know the
-    // series (see below) -- can't query by series before extraction runs.
-    const vendorCodes = await fetchCompatibilityVendorCodes();
-    const catalog = await fetchCatalog(vendorCodes);
-    const catalogParsed = JSON.parse(catalog);
+    // (The whole price list is no longer downloaded here: products are looked
+    // up by part number further down -- see lookupCatalog().)
 
     // Deterministic matching layer (see functions above) -- extract vehicle
     // fields cheaply, match them in plain JS, and only send Claude the
@@ -1942,7 +2025,7 @@ console.log(JSON.stringify(extracted, null, 2));
     let matchedCatalogByVehicle;
 
     if (laximoUsed) {
-      const catalogIndex = await fetchCatalogIndex();
+      const catalogIndex = await lookupCatalog(laximoResult.parts.map(p => p.oem), catalogBrand(extracted, laximoResult));
       const v = laximoResult.vehicle;
       matchedCompatibilityByVehicle = {};
       for (const p of laximoResult.parts) {
@@ -2016,7 +2099,10 @@ console.log(JSON.stringify(extracted, null, 2));
 
     matchedCompatibilityByVehicle = matchCompatibility(compatibilityData, extracted);
     const vendorCodesMatched = new Set(Object.keys(matchedCompatibilityByVehicle));
-    matchedCatalogByVehicle = catalogParsed.filter(p => vendorCodesMatched.has(p.article));
+    const foundInList = await lookupCatalog([...vendorCodesMatched], catalogBrand(extracted, laximoResult));
+    matchedCatalogByVehicle = [...vendorCodesMatched]
+      .map(code => { const p = foundInList.get(laximo.normalizeOem(code)); return p ? { ...p, article: code } : null; })
+      .filter(Boolean);
     } // end compatibility-table path (non-VIN)
 
     const matchedVendorCodesByVehicle = new Set(Object.keys(matchedCompatibilityByVehicle));
@@ -2323,7 +2409,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     let kitFeed = []; // [{part, feed}] -- kit positions that are in the price list (shown as cards)
     if (diagram && serviceRequest && Array.isArray(diagram.unitParts) && diagram.unitParts.length > 1
         && SERVICE_UNIT_RE.test(diagram.unitName || '')) {
-      const index = await fetchCatalogIndex().catch(() => new Map());
+      const index = await lookupCatalog(diagram.unitParts.map(p => p.oem), priceBrand).catch(() => new Map());
       const seen = new Set();
       // Max 2 variants per position (wiper sets, plug versions...), 20 rows,
       // so the last positions (fluids) aren't cut off.
@@ -2503,6 +2589,7 @@ module.exports.mergeKitCards = mergeKitCards;
 module.exports.repairTruncatedBlocks = repairTruncatedBlocks;
 module.exports.dropNonServiceCards = dropNonServiceCards;
 module.exports.serviceKitFacts = serviceKitFacts;
+module.exports.lookupCatalog = lookupCatalog;
 module.exports.isNonServicePart = isNonServicePart;
 module.exports.asksForNonServicePart = asksForNonServicePart;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
