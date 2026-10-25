@@ -103,6 +103,8 @@
          needed for a CSS background-image, unlike the <img> icons below. */
       --pc-messages-bg-image: url('${BASE_URL}/chat-bg.jpg');
       --pc-messages-bg: #f5f5f5;
+      /* Homepage block background (compact state only), repo root like chat-bg.jpg */
+      --pc-hero-bg-image: url('${BASE_URL}/agent-hero-bg.jpg');
     }
 
     /* Explicit font reset — without this the widget silently inherits
@@ -591,6 +593,30 @@
       border: none; background: none; padding: 0; color: #428af9; font-size: inherit;
       text-decoration: underline; cursor: pointer;
     }
+
+    /* Compact state on the photo (owner, 25.10): dark overlay, stronger on the
+       left where the text is, so white text stays readable; the car shows
+       through on the right. The chat itself keeps its plain light background. */
+    #pc-panel.pc-inline.pc-compact {
+      background-color: #1b2533;
+      background-image:
+        linear-gradient(90deg, rgba(8,18,32,0.82) 0%, rgba(8,18,32,0.62) 55%, rgba(8,18,32,0.45) 100%),
+        var(--pc-hero-bg-image);
+      background-size: cover;
+      background-position: center 48%;
+      background-repeat: no-repeat;
+      border-color: transparent;
+    }
+    #pc-panel.pc-compact .pc-hero-title { color: #fff; }
+    #pc-panel.pc-compact .pc-hero-text { color: rgba(255,255,255,0.88); }
+    #pc-panel.pc-compact .pc-hero-icon { box-shadow: 0 0 0 3px rgba(255,255,255,0.35); }
+    #pc-panel.pc-compact #pc-input-area { background: transparent; }
+    #pc-panel.pc-compact #pc-input { border-color: #fff; }
+    #pc-panel.pc-compact #pc-input:focus { border-color: #8cc4ff; }
+    #pc-panel.pc-compact .pc-chip { background: rgba(255,255,255,0.94); border-color: transparent; }
+    #pc-panel.pc-compact .pc-chip:hover { background: #fff; }
+    #pc-panel.pc-compact #pc-hero-note { color: rgba(255,255,255,0.85); }
+    #pc-panel.pc-compact #pc-hero-note button { color: #9cc9ff; }
 
     /* Full screen ("Во весь экран") */
     #pc-panel.pc-inline.pc-full {
