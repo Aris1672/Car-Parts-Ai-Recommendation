@@ -2472,6 +2472,22 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // The diagram card describes only the part marked in red (owner, 25.10):
     // the kit list is used for the cards and the prompt, not shown in the card.
     if (diagram) { delete diagram.kit; delete diagram.kitFacts; }
+    // Button under each diagram (owner, 26.10): the marked part's product page
+    // when it's in the price list; the widget falls back to the site search.
+    {
+      const urlByCode = new Map();
+      for (const p of matchedCatalog || []) if (p && p.url) urlByCode.set(laximo.normalizeOem(p.article), p.url);
+      for (const x of kitFeed || []) if (x.feed && x.feed.url) urlByCode.set(laximo.normalizeOem(x.feed.article), x.feed.url);
+      const missing = [diagram, ...extraDiagrams].filter(d => d && d.oem && !urlByCode.has(laximo.normalizeOem(d.oem))).map(d => d.oem);
+      if (missing.length) {
+        const more = await lookupCatalog(missing, priceBrand).catch(() => new Map());
+        for (const [code, p] of more) if (p && p.url) urlByCode.set(code, p.url);
+      }
+      for (const d of [diagram, ...extraDiagrams]) {
+        const u = d && d.oem ? urlByCode.get(laximo.normalizeOem(d.oem)) : null;
+        if (u) d.productUrl = u;
+      }
+    }
     if (diagram) {
       console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;

@@ -933,6 +933,7 @@
         case 'buttons':  addButtonsBubble(entry.payload); break;
         case 'manager':  addManagerButton(); break;
         case 'partlinks': addPartLinks(entry.payload); break;
+        case 'diaglink': addDiagramLink(entry.payload); break;
         case 'diagram':  addDiagram(entry.payload); break;
       }
     });
@@ -1678,6 +1679,25 @@
     appendMsg(wrap);
   }
 
+  // Button under a diagram card (owner, 26.10): the marked part's product page
+  // if the server found it in the price list, else the site search page.
+  function addDiagramLink(d) {
+    const code = String((d && d.oem) || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length < 5) return;
+    const product = safeUrl(d.productUrl);
+    const wrap = document.createElement('div');
+    wrap.className = 'pc-partlink-wrap';
+    const a = document.createElement('a');
+    a.className = 'pc-partlink-btn';
+    a.href = product || `${SITE_URL}/search?pcode=${encodeURIComponent(code)}`;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.innerHTML = `<span style="font-size:18px;">🔎</span><span class="pc-partlink-label"><span>Открыть деталь ${escHtml(code)}</span><span class="pc-partlink-sub">${product ? 'страница товара на сайте' : 'цены и сроки на сайте'}</span></span>`;
+    a.addEventListener('click', () => logEvent('product_open', { article: code, name: product ? 'Страница товара (схема)' : 'Страница детали (схема)', url: a.href }));
+    wrap.appendChild(a);
+    appendMsg(wrap);
+  }
+
   // ─── UNIT DIAGRAM ────────────────────────────────────────────────────────────
   // Laximo diagram for a catalog part that has no product photo: image via
   // our proxy (/api/laximo-image), the part's position marked in red (box
@@ -1742,6 +1762,56 @@
     appendMsg(wrap);
   }
 
+  // ─── MISSING CARD PHOTOS (owner, 26.10) ─────────────────────────────────────
+  // Items from the new suppliers come WITHOUT a photo in the price-list export
+  // (wipers, fuel filter, ATF...), but the site's product page shows one (from
+  // ABCP's reference catalogue). The widget runs on the site itself, so it
+  // loads that product page in the visitor's browser (same site: no CORS, no
+  // load on our server) and takes the product image. Max 4 per carousel, one
+  // after another; remembered per page URL. Not found -> placeholder stays.
+  const productImageCache = new Map(); // product url -> image url | null
+  function sameSite(u) {
+    try {
+      const a = new URL(u, location.href).hostname.replace(/^www\./, '');
+      return a === location.hostname.replace(/^www\./, '');
+    } catch (e) { return false; }
+  }
+  async function findProductImage(pageUrl) {
+    if (!pageUrl || !sameSite(pageUrl)) return null;
+    if (productImageCache.has(pageUrl)) return productImageCache.get(pageUrl);
+    let img = null;
+    try {
+      const res = await fetch(pageUrl, { credentials: 'same-origin' });
+      if (res.ok) {
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        // 1) the page's share image, 2) the first image from ABCP's image server
+        const og = doc.querySelector('meta[property="og:image"]');
+        const abcpImg = doc.querySelector('img[src*="nodacdn.net/images/"]');
+        const cand = (og && og.getAttribute('content')) || (abcpImg && abcpImg.getAttribute('src')) || null;
+        img = cand ? safeUrl(new URL(cand, pageUrl).href) : null;
+      }
+    } catch (e) { img = null; }
+    productImageCache.set(pageUrl, img);
+    return img;
+  }
+  async function fillMissingImages(items) {
+    let changed = false;
+    for (const { p, ph } of items.slice(0, 4)) {
+      const src = await findProductImage(p.url);
+      if (!src || !ph.isConnected) continue;
+      const img = document.createElement('img');
+      img.className = 'pc-product-img';
+      img.alt = String(p.article || '');
+      img.loading = 'lazy';
+      img.src = src;
+      img.onerror = () => img.replaceWith(ph);
+      ph.replaceWith(img);
+      p.picture = src; // the same object is in displayLog -> kept after a reload
+      changed = true;
+    }
+    if (changed) saveState();
+  }
+
   // ─── PRODUCT CAROUSEL ────────────────────────────────────────────────────────
   function addProductCarousel(products) {
     if (!products || products.length === 0) return;
@@ -1763,6 +1833,7 @@
 
     const cardW = 207;
     let currentIndex = 0;
+    const needImage = []; // cards without a photo -> fillMissingImages()
 
     products.forEach(p => {
       // Card fields come from the AI's reply. Only allow real web addresses
@@ -1799,6 +1870,7 @@
       `;
       const link = card.querySelector('.pc-product-link');
       if (link) link.addEventListener('click', () => logEvent('product_open', cardInfo(p), true));
+      if (!p.picture && p.url) needImage.push({ p, ph: card.querySelector('.pc-product-img-ph') });
       track.appendChild(card);
     });
 
@@ -1866,6 +1938,7 @@
 
     el.appendChild(outer);
     appendMsg(el);
+    if (needImage.length) fillMissingImages(needImage.filter(x => x.ph)).catch(() => {});
   }
 
   function appendMsg(el) {
@@ -2033,6 +2106,10 @@
           restLinks = restLinks.filter(c => normCode(c) !== normCode(d.oem));
           addPartLinks(own);
           displayLog.push({ type: 'partlinks', payload: own });
+        } else if (d.oem) {
+          const link = { oem: d.oem, productUrl: d.productUrl || null };
+          addDiagramLink(link);
+          displayLog.push({ type: 'diaglink', payload: link });
         }
       }
       if (restLinks.length > 0) {
