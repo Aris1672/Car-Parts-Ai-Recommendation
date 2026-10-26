@@ -993,14 +993,19 @@ function offeredCodes(text, codes, linkCodes) {
  */
 function groupPartDiagrams(cards, ready) {
   const norm = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // The picture links are signed (?s=…&k=…, a new signature on every fetch),
+  // so two parts of the same unit cached at different times have different
+  // links (live 26.10: the left rear shock absorber got its own card, and the
+  // right one was marked on the shared card). Key = link without the query.
+  const unitKey = c => `${String(c.image || '').split('?')[0]}|${c.unitName || ''}`;
   const out = [...cards];
-  const byImage = new Map(out.map(c => [c.image, c]));
+  const byImage = new Map(out.map(c => [unitKey(c), c]));
   const markOf = x => ({ position: x.position, oem: x.oem, name: x.name, qty: x.qty, notes: x.notes, box: x.box });
   for (const d0 of ready || []) {
     if (!d0 || !d0.image) continue;
     const d = JSON.parse(JSON.stringify(d0)); delete d.unitParts; delete d.kit;
-    const card = byImage.get(d.image);
-    if (!card) { byImage.set(d.image, d); out.push(d); continue; }
+    const card = byImage.get(unitKey(d));
+    if (!card) { byImage.set(unitKey(d), d); out.push(d); continue; }
     if (!card.marks) card.marks = [markOf(card)];
     if (!card.marks.some(m => norm(m.oem) === norm(d.oem))) card.marks.push(markOf(d));
   }
