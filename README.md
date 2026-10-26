@@ -183,6 +183,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Footer: blue / navy restyle tried (26.10) and reverted by the owner — the original white ABCP footer stays. The styles are in git history (`abcp-infoblocks/footer-style.html`, commit c6ae4b2) if wanted later.
 
+- Phones (≤ 767 px), owner's design 26.10 (canvas board 9): edge-to-edge hero on the owner's X5 photo `agent-hero-phone.jpg` (portrait), white text («Найдём нужные запчасти для вашего BMW», normal case), white search card with a full-width blue «Подобрать с ИИ», the same 4 quick buttons as desktop (2×2). The ABCP icon row overlaps the bottom as a white 2-column panel (CSS in page_main). Replaces the dark M5 / red-button phone design (`agent-hero-bg.jpg` no longer used).
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).

@@ -110,10 +110,12 @@
     other:      { name: 'Другие', q: 'Опишите, какая деталь нужна — своими словами или номером детали.', items: [] },
   };
   // Phones (<= 767 px) keep the PREVIOUS dark design (owner, 26.10): its texts.
-  const INLINE_M_TITLE   = 'Подберём запчасти вместе с ИИ-консультантом'; // shown in uppercase
-  const INLINE_M_TEXT    = 'ИИ-консультант ответит сразу: по VIN, модели или номеру детали — с ценой, сроком и схемой из оригинального каталога.';
-  const INLINE_M_PLACEHOLDER = 'ТО для X5 G05 или VIN…';
-  const INLINE_M_SEND_LABEL  = 'Подобрать';
+  // Phones: the owner's design of 26.10 (X5 photo, white text, white search card,
+  // blue button). Title in normal case here (uppercase on desktop).
+  const INLINE_M_TITLE   = 'Найдём нужные запчасти для вашего';
+  const INLINE_M_TEXT    = 'Опишите, что вам нужно, и ИИ подберёт подходящие детали по VIN, модели или номеру запчасти.';
+  const INLINE_M_PLACEHOLDER = 'Например: колодки на X5 G05';
+  const INLINE_M_SEND_LABEL  = 'Подобрать с ИИ';
   const INLINE_PLACEHOLDER       = 'Например: передние колодки на BMW X5 G05 30d';
   const INLINE_PLACEHOLDER_CHAT  = 'Напишите сообщение…';
   const INLINE_MANAGER_TEXT = 'Менеджер поможет с подбором и заказом. Позвоните по кнопке ниже — или напишите здесь свой телефон, и менеджер перезвонит.';
@@ -149,7 +151,8 @@
       --pc-messages-bg: #f5f5f5;
       /* Homepage block background (compact state only), repo root like chat-bg.jpg */
       --pc-hero-bg-image: url('${BASE_URL}/agent-hero-mountains.jpg'); /* light hero, desktop */
-      --pc-hero-bg-dark: url('${BASE_URL}/agent-hero-bg.jpg');           /* dark design, phones */
+      --pc-hero-bg-dark: url('${BASE_URL}/agent-hero-bg.jpg');           /* previous dark design (unused since 26.10) */
+      --pc-hero-bg-phone: url('${BASE_URL}/agent-hero-phone.jpg');       /* phones: owner's X5 photo, 1024x1536 */
     }
 
     /* Explicit font reset — without this the widget silently inherits
@@ -713,103 +716,63 @@
       #pc-panel.pc-inline.pc-compact .pc-powered a:hover { text-decoration: underline; }
     }
 
-    /* ── Phones and small tablets (<= 767 px): the PREVIOUS dark design ──
-       (owner, 26.10: "in mobile we should keep the old design"). Taken
-       unchanged from session 24 (commit 6a7700d), with its own names so it
-       can't clash with the light hero: #pc-hero-m, .pc-hm-title/.pc-hm-text,
-       #pc-chips-m, photo --pc-hero-bg-dark (agent-hero-bg.jpg). */
+    /* ── Phones and small tablets (<= 767 px): the owner's phone design (26.10,
+       board 9 on the design canvas). Edge to edge, the X5 photo
+       (agent-hero-phone.jpg, portrait 1024x1536) with a dark fade at the top
+       for the white text and at the bottom for the buttons; the car shows
+       between the text and the white search card. The ABCP icon row below
+       (.benefits-block) overlaps the bottom as a white panel -- that part is
+       in page_main. The chat itself (after the first message) is unchanged. */
     @media (max-width: 767px) {
-      #pc-panel.pc-inline.pc-compact .pc-powered {
-        background: transparent; text-align: left; padding: 0 28px 18px; font-size: 11px;
-        color: rgba(255,255,255,0.8); text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 8px rgba(0,0,0,0.6);
-      }
-      #pc-panel.pc-inline.pc-compact .pc-powered a { color: rgba(255,255,255,0.92); }
-      #pc-panel.pc-inline.pc-compact .pc-powered a:hover { color: #fff; text-decoration: underline; }
-      #pc-panel.pc-compact #pc-hero-m { display: flex; align-items: flex-start; gap: 16px; padding: 26px 28px 4px; }
-      #pc-panel.pc-compact #pc-input-area { border-top: none; padding: 14px 28px; }
-      #pc-panel.pc-compact #pc-chips-m { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 28px 4px; }
-      #pc-panel.pc-compact #pc-hero-note { display: block; padding: 10px 28px 6px; font-size: 13px; color: #5f646c; }
-      /* As tall as the title + 2 description lines next to it (owner, 25.10):
-         22px x 1.25 + 4px + 2 x 15px x 1.45 = 75px. A fixed size on purpose --
-         stretching it to the text let the 192px image set the size (live
-         25.10: a ~175px avatar). */
-      .pc-hero-icon {
-        width: 75px; height: 75px;
-        border-radius: 10px; color: #fff;
-        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-      }
-      .pc-hero-icon svg { width: 34px; height: 34px; }
-      /* Uppercase like the site's own headings (owner, 25.10): 22 px / 16 px on phones, weight 800 */
-      .pc-hm-title { margin: 0; font-size: 22px; font-weight: 800; line-height: 1.25; color: var(--pc-dark); text-transform: uppercase; letter-spacing: 0.3px; }
-      .pc-hm-text { margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: #4a4f57; }
-      #pc-panel .pc-chip {
-        min-height: 44px; padding: 0 18px; border-radius: 22px; border: 1px solid #c9d6e8;
-        background: #f0f5fc; color: #13499c; font-size: 14px; font-weight: 500; cursor: pointer;
-        transition: border-color 0.15s, color 0.15s;
-      }
-      #pc-panel .pc-chip:hover { border-color: var(--pc-red); color: var(--pc-red); }
-      #pc-hero-note button {
-        border: none; background: none; padding: 0; color: #428af9; font-size: inherit;
-        text-decoration: underline; cursor: pointer;
-      }
-
-      /* Compact state on the photo (owner, 25.10): dark overlay, stronger on the
-         left where the text is, so white text stays readable; the car shows
-         through on the right. The chat itself keeps its plain light background.
-         Current photo: the owner's original 1920x1200 (blue M5 in smoke, car
-         ~485 px wide in the file). It is shown at its NATURAL size, never
-         enlarged (an enlarged crop looked soft, 25.10): the image's right edge
-         sits 680 px beyond the block's right edge and its bottom 458 px below,
-         which puts the car at the right with the headlights beside the quick
-         buttons. On blocks wider than 1240 px it grows just enough to leave no
-         gap on the left.
-         Overlay ONLY behind the text (owner, 25.10: "the lights look dim"):
-         0.78 -> 0.66 at 45% -> 0 from 62%, so the car and headlights are at
-         full brightness; the description wraps at 600 px to stay on the dark
-         side. Contrast: title 5.3:1, description 4.6:1, plus a soft text shadow.
-         (No overlay at all = about 2:1 over the smoke: unreadable.)
-         For the light photo (agent-hero-bg-light.jpg, 854 px) use overlay
-         0.82 / 0.62 / 0.45 across and size cover / position center 48%. */
       #pc-panel.pc-inline.pc-compact {
-        background-color: #0b1626;
+        width: 100vw !important; margin: 0 calc(50% - 50vw); box-sizing: border-box;
+        border: none; border-radius: 0; padding: 24px 16px 46px;
+        background-color: #0f1926;
         background-image:
-          linear-gradient(90deg, rgba(8,18,32,0.78) 0%, rgba(8,18,32,0.66) 45%, rgba(8,18,32,0) 62%),
-          var(--pc-hero-bg-dark);
-        background-size: 100% 100%, max(1920px, calc(100% + 680px)) auto;
-        background-position: 0 0, right -680px bottom -458px;
+          linear-gradient(180deg, rgba(9,24,44,0.82) 0%, rgba(9,24,44,0.55) 24%, rgba(9,24,44,0) 38%, rgba(9,24,44,0) 56%, rgba(9,24,44,0.6) 62%, #0f1926 70%),
+          var(--pc-hero-bg-phone);
+        background-size: 100% 100%, 136% auto;
+        background-position: 0 0, 79% -150px;
         background-repeat: no-repeat;
-        border-color: transparent;
       }
-      #pc-panel.pc-compact .pc-hm-title,
-      #pc-panel.pc-compact .pc-hm-text,
-      #pc-panel.pc-compact #pc-hero-note { text-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 10px rgba(0,0,0,0.6); }
-      #pc-panel.pc-compact .pc-hm-text { max-width: 600px; }
-      /* Phones: half size (sharp on 2x screens), car centered at the bottom;
-         the fade runs top to bottom and stops above the car (text 12.5:1; the
-         note over the car relies on its text shadow). */
-      @media (max-width: 540px) {
-        #pc-panel.pc-inline.pc-compact {
-          background-image: linear-gradient(180deg, rgba(8,18,32,0.55) 0%, rgba(8,18,32,0.45) 40%, rgba(8,18,32,0) 62%), var(--pc-hero-bg-dark);
-          background-size: 100% 100%, 960px 600px;
-          background-position: 0 0, center bottom -200px;
-        }
+      #pc-panel.pc-compact #pc-hero-m { display: block; min-height: 446px; } /* the car shows below the text; the card starts under it */
+      .pc-hm-eyebrow {
+        display: flex; align-items: center; gap: 10px; color: #fff;
+        font-family: 'BC Exo 2', Montserrat, var(--pc-font); font-weight: 700; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase;
       }
-      #pc-panel.pc-compact .pc-hm-title { color: #fff; }
-      #pc-panel.pc-compact .pc-hm-text { color: rgba(255,255,255,0.88); }
-      #pc-panel.pc-compact .pc-hero-icon { box-shadow: 0 0 0 3px rgba(255,255,255,0.35); }
-      #pc-panel.pc-compact #pc-input-area { background: transparent; }
-      #pc-panel.pc-compact #pc-input { border-color: #fff; }
-      #pc-panel.pc-compact #pc-input:focus { border-color: #8cc4ff; }
-      /* "Подобрать" on the photo: BMW M red (owner, 25.10; the blue button
-         blended into the blue photo). White on #E7222E = 4.5:1, hover 6:1.
-         The chat's send button stays blue. */
-      #pc-panel.pc-compact #pc-send { background: #E7222E; }
-      #pc-panel.pc-compact #pc-send:hover { background: #C41B25; }
-      #pc-panel.pc-compact #pc-send:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-      #pc-panel.pc-compact .pc-chip { background: rgba(255,255,255,0.94); border-color: transparent; }
-      #pc-panel.pc-compact .pc-chip:hover { background: #fff; }
-      #pc-panel.pc-compact #pc-hero-note { color: rgba(255,255,255,0.85); }
-      #pc-panel.pc-compact #pc-hero-note button { color: #9cc9ff; }
+      #pc-hero-m .pc-hero-icon { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; display: flex; }
+      .pc-hm-title { margin: 14px 0 0; font-size: 30px; font-weight: 800; line-height: 1.12; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+      .pc-hm-title .pc-accent { color: #7cc0ff; }
+      .pc-hm-text { margin: 10px 0 0; font-size: 15px; line-height: 1.45; color: rgba(255,255,255,0.92); text-shadow: 0 1px 2px rgba(0,0,0,0.45); }
+      /* the white search card */
+      #pc-panel.pc-inline.pc-compact #pc-input-area {
+        flex-direction: column; gap: 10px; padding: 12px; border: none; border-radius: 14px;
+        background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      }
+      #pc-panel.pc-inline.pc-compact #pc-input { border: 1.5px solid #c7d6ea; border-radius: 10px; padding: 13px 14px; font-size: 16px; }
+      #pc-panel.pc-inline.pc-compact #pc-input:focus { border-color: #0a5cc4; }
+      #pc-panel.pc-inline.pc-compact #pc-send {
+        width: 100%; min-height: 50px; padding: 0 16px; justify-content: center; border-radius: 10px;
+        background: #0a5cc4; font-family: 'BC Exo 2', Montserrat, var(--pc-font); font-size: 16px;
+      }
+      #pc-panel.pc-inline.pc-compact #pc-send:hover { background: #084a9e; }
+      #pc-panel.pc-inline.pc-compact #pc-send:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+      #pc-panel.pc-inline.pc-compact #pc-send .pc-send-label { display: inline; }
+      /* quick buttons: the same four as on desktop, 2 x 2 */
+      #pc-panel.pc-compact #pc-chips-m { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+      #pc-panel .pc-chip {
+        min-height: 44px; padding: 0 8px; border-radius: 10px; border: none;
+        background: rgba(255,255,255,0.95); color: #1d2b3c; font-size: 13px; font-weight: 500; cursor: pointer;
+      }
+      #pc-panel .pc-chip:hover { background: #fff; color: #0a5cc4; }
+      #pc-panel.pc-compact #pc-hero-note { display: block; margin-top: 12px; font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.88); }
+      #pc-hero-note button { border: none; background: none; padding: 0; color: #9cc9ff; font-size: inherit; text-decoration: underline; cursor: pointer; }
+      #pc-panel.pc-inline.pc-compact .pc-powered { background: transparent; text-align: left; padding: 0; font-size: 12px; color: rgba(255,255,255,0.88); }
+      #pc-panel.pc-inline.pc-compact .pc-powered a { color: #9cc9ff; }
+      /* small tablets: the photo larger, car still between text and card */
+      @media (min-width: 541px) {
+        #pc-panel.pc-inline.pc-compact { background-size: 100% 100%, 800px auto; background-position: 0 0, center -400px; }
+      }
     }
 
     /* Full screen ("Во весь экран") */
@@ -825,17 +788,6 @@
       #pc-panel.pc-inline #pc-header { padding: 0 12px; }
       #pc-panel.pc-inline #pc-send { width: 52px; padding: 0; justify-content: center; }
       #pc-panel.pc-inline #pc-send .pc-send-label { display: none; }
-      /* dark design on phones (as before 26.10) */
-      #pc-panel.pc-compact #pc-hero-m { padding: 18px 16px 2px; gap: 12px; align-items: center; }
-      #pc-panel.pc-compact #pc-input-area { padding: 12px 16px; }
-      #pc-panel.pc-compact #pc-chips-m { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 2px; }
-      #pc-panel.pc-compact #pc-hero-note { padding: 10px 16px 6px; font-size: 12px; }
-      #pc-panel.pc-inline.pc-compact .pc-powered { padding: 0 16px 16px; }
-      #pc-panel .pc-chip { padding: 0 10px; font-size: 13px; }
-      .pc-hero-icon { width: 44px; height: 44px; }
-      .pc-hero-icon svg { width: 28px; height: 28px; }
-      .pc-hm-title { font-size: 16px; }
-      .pc-hm-text { font-size: 14px; }
     }
     /* ── Headings font: Exo 2 (owner, 26.10) ── self-hosted in fonts/ (SIL OFL),
        served with CORS by server.js. Same family name 'BC Exo 2' is declared
@@ -1180,11 +1132,9 @@
         <p class="pc-hero-text">${escHtml(INLINE_TEXT)}</p>
       </div>
       <div id="pc-hero-m">
-        <div class="pc-hero-icon">${INLINE_AVATAR_IMG}</div>
-        <div>
-          <h2 class="pc-hm-title">${escHtml(INLINE_M_TITLE)}</h2>
-          <p class="pc-hm-text">${escHtml(INLINE_M_TEXT)}</p>
-        </div>
+        <div class="pc-hm-eyebrow"><span class="pc-hero-icon">${INLINE_AVATAR_IMG}</span>${escHtml(INLINE_EYEBROW)}</div>
+        <h2 class="pc-hm-title">${escHtml(INLINE_M_TITLE)} <span class="pc-accent">${escHtml(INLINE_TITLE_ACCENT)}</span></h2>
+        <p class="pc-hm-text">${escHtml(INLINE_M_TEXT)}</p>
       </div>
       <div id="pc-messages"></div>
       <div id="pc-input-area">
