@@ -2,7 +2,7 @@
 /* Footer in the chat button's blue (#0a5cc4), 26.10. Lives in the ABCP infoblock «sitefootcontacts»
    (in the footer on every page). ABCP sets some colours inline, hence !important. */
 footer.footer{background:#0a5cc4 !important;color:#fff;border-top:0 !important;}
-footer.footer::before,footer.footer::after{background:#0a5cc4 !important;} /* the slanted corner pieces at the top of the footer (were white) */
+footer.footer::before,footer.footer::after{display:none !important;} /* ABCP's slanted top edge: straight edge instead, as in the owner's design */
 footer.footer .footerRow{background:transparent !important;border-color:rgba(255,255,255,0.18) !important;}
 footer.footer .footerRow + .footerRow{background:#084a9e !important;border-top:0 !important;}
 footer.footer .footerCopy,footer.footer .footerCopy div{color:rgba(255,255,255,0.88) !important;}
