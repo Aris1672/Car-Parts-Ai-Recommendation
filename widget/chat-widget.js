@@ -642,13 +642,13 @@
         --pc-hero-accent: #0a5cc4;
         background-color: #e9eff5;
         background-image:
-          linear-gradient(90deg, rgba(255,255,255,0.94) 0%, rgba(255,255,255,0.88) 40%, rgba(255,255,255,0.35) 56%, rgba(255,255,255,0) 66%),
+          linear-gradient(90deg, rgba(255,255,255,0.94) 0%, rgba(255,255,255,0.88) 20%, rgba(255,255,255,0.35) 56%, rgba(255,255,255,0) 66%), /* 20%: owner, 26.10 (was 40%) */
           var(--pc-hero-bg-image);
         background-size: 100% 100%, cover;
         background-position: 0 0, right 70%;
         background-repeat: no-repeat;
         border: 1px solid #e3e8ef;
-        min-height: 400px; justify-content: center; padding: 36px 0;
+        justify-content: center; padding: 36px 0; /* min-height 400px removed (owner, 26.10); the full-width hero keeps its 500px */
       }
       @media (min-width: 768px) {
         #pc-panel.pc-inline.pc-compact.pc-bleed {
