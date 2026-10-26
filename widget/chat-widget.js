@@ -1157,6 +1157,7 @@
       placeInlineHost();
       updateBleed();
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateBleed); // button widths change once fonts load
+      window.addEventListener('load', updateBleed); // header logo / images change the header height
       const mq = window.matchMedia(INLINE_MOBILE_QUERY);
       const onMq = () => { placeInlineHost(); if (panel.classList.contains('pc-compact')) setCompact(true); updateBleed(); };
       let bleedFrame = 0;
@@ -1282,6 +1283,7 @@
       panel.style.removeProperty('--pc-col-left');
       panel.style.removeProperty('--pc-text-left');
       panel.style.removeProperty('--pc-page-w');
+      if (panel.classList.contains('pc-compact')) closeGapPhone(panel);
       return;
     }
     const left = Math.max(0, Math.round(inlineHost.getBoundingClientRect().left));
@@ -1337,6 +1339,29 @@
     const hs = getComputedStyle(header);
     if (!hs.position || hs.position === 'static') header.style.position = 'relative';
     if (!hs.zIndex || hs.zIndex === 'auto') header.style.zIndex = '5';
+  }
+
+  // Phones: the photo starts right under the site's search field (owner,
+  // 26.10: a grey strip of ~25 px between them). On phones the search field is
+  // a separate block under the header, so measure the lowest of the header and
+  // the search form ABOVE the hero, and close only a small gap (<= 60 px), so a
+  // changed ABCP layout can never pull the photo over the search field.
+  function closeGapPhone(panel) {
+    const top = panel.getBoundingClientRect().top;
+    const refs = [document.querySelector('header')];
+    const search = document.querySelector('input[placeholder*="номеру детали"], input[placeholder*="номер детали"]');
+    if (search) refs.push(search.closest('form') || search.parentElement);
+    let bottom = -Infinity;
+    refs.forEach(el => {
+      if (!el) return;
+      const b = el.getBoundingClientRect().bottom;
+      if (b <= top + 1 && b > bottom) bottom = b;
+    });
+    if (bottom === -Infinity) return;
+    const gap = Math.round(top - bottom);
+    if (gap <= 0 || gap > 60) return;
+    const current = parseFloat(getComputedStyle(panel).marginTop) || 0;
+    panel.style.marginTop = (current - gap) + 'px';
   }
 
   function setCompact(on) {
