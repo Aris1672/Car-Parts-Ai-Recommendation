@@ -187,6 +187,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Phones: the hero closes a small gap (≤ 60 px) above it by scanning up from its top edge to the search field / header (`closeGapPhone`). `/widget/*.js` is now served with `Cache-Control: no-cache` (was 1 h), so widget fixes reach visitors on the next page load.
 
+- Shock absorbers (live 26.10, X5 E70, «Подвеска → Амортизаторы»): the literal catalog search «амортизатор» also returned the fuel-line damper, door check damper and tailgate gas struts, and missed the front struts. For a plain shock-absorber request `lib/laximo.js` now keeps only suspension parts (BMW numbers starting 31 / 33 / 37; other makes: no door/tailgate/bonnet/fuel words), also searches «амортизаторная стойка» (1 extra request), and marks «Дополнительный амортизатор» as the bump stop. «Амортизатор двери/багажника…» requests are not filtered.
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
