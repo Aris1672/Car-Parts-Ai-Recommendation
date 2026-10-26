@@ -513,6 +513,7 @@
    /* Icon row under the hero (.benefits-block, ABCP infoblock above page_main), 26.10: same width as the
       sections below (1420 px column) and one label style («ОРИГИНАЛ» was in capitals, some labels bold). */
    .wPageMain .benefits-block{box-sizing:border-box;max-width:1420px !important;margin-left:auto !important;margin-right:auto !important;}
+   @media (min-width:992px){ .wPageMain .benefits-block{display:flex !important;justify-content:space-between !important;} .wPageMain .benefits-block .benefits-item{flex:0 0 auto !important;width:auto !important;max-width:none !important;margin:0 !important;} } /* first icon at the left edge, «Оригинал» at the right edge */
    .wPageMain .benefits-item__title,.wPageMain .benefits-item__content>strong{display:block;font-size:15px !important;font-weight:600 !important;line-height:1.3;color:#1d2b3c;text-transform:lowercase;}
    .wPageMain .benefits-item__title::first-letter,.wPageMain .benefits-item__content>strong::first-letter{text-transform:uppercase;}
    .wPageMain .benefits-item__text{display:block;margin-top:2px;font-size:13px !important;line-height:1.35;color:#6b7480;}

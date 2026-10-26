@@ -658,8 +658,8 @@
         }
       }
       #pc-panel.pc-compact #pc-hero {
-        display: block; padding: 0 28px 0 calc(var(--pc-col-left, 0px) + 28px);
-        max-width: calc(var(--pc-col-left, 0px) + 700px);
+        display: block; padding: 0 28px 0 var(--pc-text-left, calc(var(--pc-col-left, 0px) + 28px));
+        max-width: calc(var(--pc-text-left, calc(var(--pc-col-left, 0px) + 28px)) + 672px);
       }
       #pc-panel .pc-hero-eyebrow {
         display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
@@ -676,7 +676,7 @@
       #pc-panel.pc-compact #pc-input-area {
         /* wider than the title, as in the owner's design (26.10; was 600 px):
            the full placeholder fits; at most 60% of the window, clear of the car */
-        margin: 22px 28px 0 calc(var(--pc-col-left, 0px) + 28px); max-width: min(820px, 60vw);
+        margin: 22px 28px 0 var(--pc-text-left, calc(var(--pc-col-left, 0px) + 28px)); max-width: min(820px, 60vw);
         padding: 6px; gap: 6px; align-items: center;
         background: #fff; border: 1.5px solid #c7d6ea; border-radius: 12px;
         box-shadow: 0 6px 24px rgba(15,36,64,0.10);
@@ -690,7 +690,7 @@
       #pc-panel.pc-compact #pc-send:hover { background: #084a9e; }
       #pc-panel.pc-compact #pc-send:focus-visible { outline: 2px solid var(--pc-hero-accent); outline-offset: 2px; }
       #pc-panel.pc-compact #pc-chips {
-        display: flex; flex-wrap: wrap; gap: 10px; padding: 18px 28px 0 calc(var(--pc-col-left, 0px) + 28px);
+        display: flex; flex-wrap: wrap; gap: 10px; padding: 18px 28px 0 var(--pc-text-left, calc(var(--pc-col-left, 0px) + 28px));
       }
       #pc-panel .pc-chip {
         min-height: 44px; padding: 0 20px; border-radius: 10px; border: 1px solid #d3dce8;
@@ -699,7 +699,7 @@
       }
       #pc-panel .pc-chip:hover { border-color: var(--pc-hero-accent); color: var(--pc-hero-accent); }
       #pc-panel.pc-compact #pc-hero-note {
-        display: block; padding: 16px 28px 0 calc(var(--pc-col-left, 0px) + 28px); font-size: 13px; color: #4a5565;
+        display: block; padding: 16px 28px 0 var(--pc-text-left, calc(var(--pc-col-left, 0px) + 28px)); font-size: 13px; color: #4a5565;
       }
       #pc-hero-note button {
         border: none; background: none; padding: 0; color: var(--pc-hero-accent, #0a5cc4); font-size: inherit;
@@ -707,7 +707,7 @@
       }
       #pc-panel.pc-inline.pc-compact .pc-powered {
         background: transparent; text-align: left; font-size: 11px; color: #5b6573;
-        padding: 4px 28px 0 calc(var(--pc-col-left, 0px) + 28px);
+        padding: 4px 28px 0 var(--pc-text-left, calc(var(--pc-col-left, 0px) + 28px));
       }
       #pc-panel.pc-inline.pc-compact .pc-powered a { color: var(--pc-hero-accent); }
       #pc-panel.pc-inline.pc-compact .pc-powered a:hover { text-decoration: underline; }
@@ -1330,17 +1330,32 @@
     if (window.matchMedia(INLINE_MOBILE_QUERY).matches) {
       panel.classList.remove('pc-bleed');
       panel.style.removeProperty('--pc-col-left');
+      panel.style.removeProperty('--pc-text-left');
       panel.style.removeProperty('--pc-page-w');
       return;
     }
     const left = Math.max(0, Math.round(inlineHost.getBoundingClientRect().left));
     panel.style.setProperty('--pc-col-left', left + 'px');
+    panel.style.setProperty('--pc-text-left', Math.max(16, Math.round(columnLeft())) + 'px'); // text starts at the page column
     panel.style.setProperty('--pc-page-w', document.documentElement.clientWidth + 'px');
     panel.classList.add('pc-bleed');
     if (panel.classList.contains('pc-compact')) {
       pullUnderHeader(panel);
       matchInputToChips(inputArea);
     }
+  }
+
+  // Left edge of the page's content column. The hero text lines up with the
+  // sections below it (owner, 26.10): the placeholder itself sits in the wider
+  // .wPageMain (moved above the icon row), so measure the column of page_main
+  // (.mainSectionIn without its padding) when it exists.
+  function columnLeft() {
+    const col = document.querySelector('.wPageMain .mainSectionIn');
+    if (col && !col.contains(inlineHost)) {
+      const r = col.getBoundingClientRect();
+      if (r.width > 0) return r.left + (parseFloat(getComputedStyle(col).paddingLeft) || 0);
+    }
+    return inlineHost.getBoundingClientRect().left;
   }
 
   // Desktop hero: the input box ends exactly where the quick buttons end
