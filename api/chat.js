@@ -2287,21 +2287,33 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       // likely ТО items in order (cached 7 days each) until one is the service unit.
       const serviceCands = serviceRequest ? laximoResult.parts.filter(p => p.schema && serviceCandRank(p) < 9)
         .sort((a, b) => serviceCandRank(a) - serviceCandRank(b)).slice(0, 4) : [];
-      if (serviceCands.length) {
-        diagramPromise = capped((async () => {
-          let fallback = null;
-          for (const p of serviceCands) {
-            const info = await capped(laximo.getPartSchemaInfo(p), 5000);   // 1 request: which unit?
-            if (info && SERVICE_UNIT_RE.test(info.unitName || '')) {
-              console.log(`[laximo] service unit via ${p.oem} (${p.name}): ${info.unitName}`);
-              return capped(laximo.getPartDiagram(p), 6000);               // + unit page for the marker
-            }
-            console.log(`[laximo] ${p.oem} (${p.name}) -> unit "${info && info.unitName}", not the service unit`);
-            if (!fallback && info && serviceCandRank(p) === 0) fallback = p; // the oil filter element's own diagram
+      // The old route to the service unit: the "Схема" button of likely ТО
+      // parts (works on the G05; on the E70 it opens the oil filter's own unit).
+      const viaSchemaButtons = async () => {
+        let fallback = null;
+        for (const p of serviceCands) {
+          const info = await capped(laximo.getPartSchemaInfo(p), 5000);   // 1 request: which unit?
+          if (info && SERVICE_UNIT_RE.test(info.unitName || '')) {
+            console.log(`[laximo] service unit via ${p.oem} (${p.name}): ${info.unitName}`);
+            return capped(laximo.getPartDiagram(p), 6000);               // + unit page for the marker
           }
-          const fb = fallback || cand;
-          return fb ? capped(laximo.getPartDiagram(fb), 6000) : null;
-        })(), 16000);
+          console.log(`[laximo] ${p.oem} (${p.name}) -> unit "${info && info.unitName}", not the service unit`);
+          if (!fallback && info && serviceCandRank(p) === 0) fallback = p; // the oil filter element's own diagram
+        }
+        const fb = fallback || cand;
+        return fb ? capped(laximo.getPartDiagram(fb), 6000) : null;
+      };
+      if (serviceRequest && laximoResult.vehicleQuery) {
+        // ТО: open the service unit DIRECTLY from the car's catalogue page
+        // (26.10, see laximo.getServiceUnit); the old route only as a fallback.
+        diagramPromise = capped((async () => {
+          const direct = await capped(laximo.getServiceUnit(laximoResult.vehicleQuery), 10000);
+          if (direct && Array.isArray(direct.unitParts) && direct.unitParts.length > 1 && SERVICE_UNIT_RE.test(direct.unitName || '')) return direct;
+          if (serviceCands.length) return viaSchemaButtons();
+          return cand ? capped(laximo.getPartDiagram(cand), 6000) : null;
+        })(), 18000);
+      } else if (serviceCands.length) {
+        diagramPromise = capped(viaSchemaButtons(), 16000);
       } else if (cand) {
         diagramPromise = capped(laximo.getPartDiagram(cand), 9000);
       }
