@@ -20,21 +20,74 @@
 <div class="bcFoot_bottom"><span>© 2011–<span class="bcFoot_year">2026</span> BmwClub77</span> <a href="/data_protection">Политика конфиденциальности</a></div>
 </div>
 <script>
-/* Header phone tab (26.10): add a MAX button next to Telegram -- in every copy of
-   the tab (desktop top bar .topBar, phone menu .mainAsideMobile .head-info). */
+/* Header (owner, 26.10). Desktop top bar: the phone number centred over the
+   BmwClub77 logo; Telegram at the right of the number, MAX at the right of the
+   logo -- one icon column. Phone side menu (.head-info): MAX next to Telegram.
+   Positions are measured (ABCP's layout), and only small shifts are applied, so
+   an unexpected layout simply leaves the tab as it is. */
 (function () {
-  var boxes = document.querySelectorAll('.phone-links');
-  for (var i = 0; i < boxes.length; i++) {
-    var box = boxes[i];
-    if (box.querySelector('.bcHead_max')) continue;
-    var tg = box.querySelector('a[href*="t.me"]');
-    if (!tg) continue;
-    var max = document.createElement('a');
-    max.className = 'bcHead_max'; max.href = 'https://max.ru/+79675557555';
-    max.target = '_blank'; max.rel = 'nofollow noopener noreferrer';
-    max.title = 'Написать в MAX'; max.textContent = 'MAX';
-    tg.parentNode.insertBefore(max, tg.nextSibling);
+  function maxLink(cls) {
+    var a = document.createElement('a');
+    a.className = 'bcHead_max ' + (cls || ''); a.href = 'https://max.ru/+79675557555';
+    a.target = '_blank'; a.rel = 'nofollow noopener noreferrer';
+    a.title = 'Написать в MAX'; a.setAttribute('aria-label', 'MAX'); a.textContent = 'MAX';
+    return a;
   }
+  // phone side menu: MAX right after Telegram
+  var side = document.querySelectorAll('.head-info .phone-links');
+  for (var i = 0; i < side.length; i++) {
+    var tg0 = side[i].querySelector('a[href*="t.me"]');
+    if (tg0 && !side[i].querySelector('.bcHead_max')) tg0.parentNode.insertBefore(maxLink(), tg0.nextSibling);
+  }
+  var tab = document.querySelector('.topBar .phone-links');
+  if (!tab) return;
+  var tel = tab.querySelector('a[href^="tel:"]');
+  var telBox = tel && tel.parentElement;
+  var tgBox = tab.querySelector('a[href*="t.me"]');
+  tgBox = tgBox && tgBox.closest('.phone-links > div');
+  if (!tel || !tgBox) return;
+  tab.classList.add('bcHead_tab');
+  var header = tab.closest('header') || document.body;
+  var maxEl = maxLink('bcHead_maxLogo');
+  function findLogo() {
+    var t = tab.getBoundingClientRect(), best = null;
+    var imgs = header.querySelectorAll('img');
+    for (var k = 0; k < imgs.length; k++) {
+      var r = imgs[k].getBoundingClientRect();
+      if (r.width < 80 || r.top < t.bottom - 5 || r.top > t.bottom + 150) continue;
+      var d = Math.abs((r.left + r.right) / 2 - (t.left + t.right) / 2);
+      if (d < 200 && (!best || d < best.d)) best = { img: imgs[k], d: d };
+    }
+    return best && best.img;
+  }
+  function place() {
+    if (!tab.offsetWidth) { maxEl.style.display = 'none'; return; } // top bar hidden (small screens)
+    var logo = findLogo();
+    telBox.style.transform = '';
+    var tr = tab.getBoundingClientRect(), nr = telBox.getBoundingClientRect();
+    if (logo) { // centre the number over the logo
+      var lr = logo.getBoundingClientRect();
+      var shift = Math.round((lr.left + lr.right) / 2 - (nr.left + nr.right) / 2);
+      if (Math.abs(shift) < 120) { telBox.style.transform = 'translateX(' + shift + 'px)'; nr = telBox.getBoundingClientRect(); }
+    }
+    var col = Math.round(Math.max(nr.right, logo ? logo.getBoundingClientRect().right : 0) + 14); // icon column, page x
+    tgBox.style.left = (col - tr.left) + 'px';
+    if (!logo) { maxEl.style.display = 'none'; return; }
+    var host = logo.closest('a') ? logo.closest('a').parentElement : logo.parentElement;
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    if (maxEl.parentElement !== host) host.appendChild(maxEl);
+    var hr = host.getBoundingClientRect(), lr2 = logo.getBoundingClientRect();
+    maxEl.style.display = 'flex';
+    maxEl.style.left = (col - hr.left) + 'px';
+    maxEl.style.top = Math.round(lr2.top - hr.top + lr2.height / 2 - 15) + 'px';
+  }
+  var frame = 0;
+  function later() { cancelAnimationFrame(frame); frame = requestAnimationFrame(place); }
+  place();
+  window.addEventListener('load', later);
+  window.addEventListener('resize', later);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(later);
+  setTimeout(later, 1200);
 })();
 /* Current year in «© 2011–…» (the written year is the fallback). */
 (function () { var y = document.querySelectorAll('.bcFoot_year'); for (var i = 0; i < y.length; i++) y[i].textContent = new Date().getFullYear(); })();
@@ -83,6 +136,10 @@ footer.footer .footerCopy{width:100% !important;max-width:none !important;float:
 .phone-links>div{display:inline-flex !important;vertical-align:middle;align-items:center;gap:8px;text-align:left !important;}
 .phone-links>div>span:first-child{display:flex;align-items:center;gap:8px;font-size:0;}
 .phone-links a[href*="t.me"] img{display:block;width:30px !important;height:30px !important;}
+.bcHead_tab{position:relative;}
+.bcHead_tab>span{margin-right:0 !important;}
+.bcHead_tab>div{position:absolute !important;top:50%;transform:translateY(-50%);margin:0 !important;}
+.bcHead_maxLogo{position:absolute;z-index:3;}
 .bcHead_max{width:30px;height:30px;border-radius:50%;background:#0f2440;color:#fff !important;display:flex;align-items:center;justify-content:center;font:700 9px/1 Roboto,Arial,sans-serif;letter-spacing:.3px;text-decoration:none !important;}
 .phone-links a[href*="t.me"]:hover img,.bcHead_max:hover{opacity:.85;}
 @media (max-width:991px){ .bcFoot_cols{grid-template-columns:1fr 1fr;} }
