@@ -44,9 +44,14 @@ app.use('/api', (req, res, next) => {
 // /widget/(.*) — served as JS with CORS + caching
 app.use('/widget', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (req.path.endsWith('.js')) {
     res.setHeader('Content-Type', 'application/javascript');
+    // The widget script: browsers check for a new version on every page load
+    // (a cheap 304 when unchanged), so fixes reach visitors at once instead of
+    // after up to an hour (26.10: a phone kept the old file).
+    res.setHeader('Cache-Control', 'no-cache');
+  } else {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
   }
   next();
 });

@@ -1348,18 +1348,21 @@
   // changed ABCP layout can never pull the photo over the search field.
   function closeGapPhone(panel) {
     const top = panel.getBoundingClientRect().top;
-    const refs = [document.querySelector('header')];
+    if (top <= 0 || top >= window.innerHeight) return; // only measurable while on screen (on load it is)
+    // Walk up from the photo's top edge until a point hits the search field or
+    // the header: everything in between (grey page background, empty blocks,
+    // margins) is the gap.
     const search = document.querySelector('input[placeholder*="номеру детали"], input[placeholder*="номер детали"]');
-    if (search) refs.push(search.closest('form') || search.parentElement);
-    let bottom = -Infinity;
-    refs.forEach(el => {
-      if (!el) return;
-      const b = el.getBoundingClientRect().bottom;
-      if (b <= top + 1 && b > bottom) bottom = b;
-    });
-    if (bottom === -Infinity) return;
-    const gap = Math.round(top - bottom);
-    if (gap <= 0 || gap > 60) return;
+    const searchBox = search && (search.closest('form') || search.parentElement);
+    const isAbove = el => !!(el.closest('header') || (searchBox && searchBox.contains(el)));
+    const x = Math.min(24, window.innerWidth / 2);
+    let gap = -1;
+    for (let d = 1; d <= 61; d++) {
+      const el = document.elementFromPoint(x, top - d);
+      if (!el) break;
+      if (isAbove(el)) { gap = d - 1; break; } // reached the search field / header
+    }
+    if (gap <= 0 || gap > 60) return; // not found nearby: leave the layout alone
     const current = parseFloat(getComputedStyle(panel).marginTop) || 0;
     panel.style.marginTop = (current - gap) + 'px';
   }
