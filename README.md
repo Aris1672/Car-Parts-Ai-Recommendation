@@ -191,6 +191,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Diagram for every offered part (owner, 26.10): for non-ТО replies the diagrams of up to 6 found parts without a product photo are prepared in parallel with the AI reply (`partDiagramJobs`; unit pages cached as `unitpage1:` so parts of one unit cost 1 request each); after the reply, the parts it offers (number in the text or a button, `offeredCodes`) get diagrams — one card per unit with every offered position marked (`marks`, `groupPartDiagrams`) and one «Открыть деталь» button per marked part. Waits at most 10 s after the reply. ТО replies unchanged. Front struts: «амортизаторная стойка», then «стойка» (suspension rows only, no stabilizer links).
 
+- Footer (owner's design, 26.10): 4 columns (shop + Telegram/MAX + Yandex reviews · Покупателям · Подбор запчастей · Контакты: phone, email, Химки address + route, hours) and «© 2011–2026 BmwClub77 · Политика конфиденциальности». Whole content in the ABCP infoblock **footcopyright** (`abcp-infoblocks/footcopyright.html`); `.footContacts` (infoblock sitefootcontacts) is hidden by CSS but stays — it loads the widget. «ИИ-консультант» opens the chat (`AutoChat.open()`). WhatsApp left out (blocked in Russia). Company details (ИНН/ОГРН) still to add.
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
