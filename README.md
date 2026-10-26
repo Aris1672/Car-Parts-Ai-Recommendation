@@ -179,6 +179,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - «Новости»: ABCP's own news slider (`.wNews`, slick; part of the template, not editable as an infoblock) restyled by CSS in page_main to match: same column width (max 1450 px), Exo 2 uppercase title, «Все новости →», white cards with 170 px photo (placeholder icon when a news item has no photo, via `:has`), date / title / 2-line text / «Читать →», equal heights (`.slick-track` flex).
 
+- Shop text + address (`.bcAbout`, end of page_main): aligned to the column, regular site font, address with a pin icon; grammar fixed («запчастей», «аналогов»). News slides: ABCP's own slide margin removed (gaps were 35 px).
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
