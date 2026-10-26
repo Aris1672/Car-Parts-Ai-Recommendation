@@ -498,6 +498,14 @@
    .wPageMain .bcAbout_icon{flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:#eef4fb;color:#0a5cc4;display:flex;align-items:center;justify-content:center;}
    .wPageMain .bcAbout_icon svg{width:18px;height:18px;display:block;}
    .wNews .newsBlockWrapper{margin:0 !important;} /* ABCP's own slide margin made the gaps 35 px and the row narrower than the title */
+   /* Measured on the live page (26.10): ABCP gives .wNewsBlockList margin 0 -10px and the slider fixes each
+      slide at 471 px, so the row was shifted left and ~20 px short. On computers: no extra margin, and
+      exactly 3 equal slides filling the column (14 px gaps), like the categories above. */
+   .wNews .wNewsBlockList{margin:0 !important;padding:0 !important;}
+   @media (min-width:992px){
+    .wNews .slick-track{width:auto !important;}
+    .wNews .newsBlockWrapper{flex:0 0 33.3333%;width:auto !important;max-width:33.3333%;}
+   }
    @media (max-width:767px){
     .wPageMain .bcAbout{display:block;margin-bottom:30px;}
     .wPageMain .bcAbout_addr{margin-top:10px;}
