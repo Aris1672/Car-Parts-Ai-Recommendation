@@ -2274,7 +2274,10 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       const withPhoto = new Set(matchedCatalog.filter(p => p.picture).map(p => laximo.normalizeOem(p.article)));
       const first = compat && compat.verdict === 'fits'
         ? laximoResult.parts.filter(p => laximo.normalizeOem(p.oem) === laximo.normalizeOem(compat.code)) : [];
-      const cand = [...first, ...laximoResult.parts].find(p => p.schema && !withPhoto.has(laximo.normalizeOem(p.oem)));
+      // ТО: no diagram for a non-service part (live 26.10, X5 E70: the fallback
+      // diagram showed "Крышка микрофильтра", the cabin filter COVER).
+      const cand = [...first, ...laximoResult.parts].find(p => p.schema && !withPhoto.has(laximo.normalizeOem(p.oem))
+        && !(serviceOnly && isNonServicePart(p.name)));
       const capped = (promise, ms) => { let t; return Promise.race([promise, new Promise(r => { t = setTimeout(() => r(null), ms); })])
         .catch(err => { console.error('[laximo] diagram failed:', err.message); return null; }).finally(() => clearTimeout(t)); };
       // ТО request: find the SERVICE unit ("ТО по регл.Oelservice / Inspektion")
