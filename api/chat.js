@@ -973,6 +973,42 @@ function compatVerdict(code, laximoResult) {
   return { verdict: 'part_not_found' };
 }
 
+// Diagrams for every offered part without a photo (owner, 26.10): at most this
+// many parts are prepared per reply (each new one ~2 Laximo requests; the
+// hourly budget is LAXIMO_MAX_REQUESTS_PER_HOUR), and after the AI reply we
+// wait at most this long for the ones still loading.
+const MAX_PART_DIAGRAMS = 6;
+
+/** Codes (normalized) the reply offers: written in the text or with a button; in reply order. */
+function offeredCodes(text, codes, linkCodes) {
+  const compact = String(text || '').toUpperCase().replace(/[\s\-]/g, '');
+  return codes.filter(k => compact.includes(k) || linkCodes.includes(k))
+    .sort((a, b) => (compact.indexOf(a) + 1 || 1e9) - (compact.indexOf(b) + 1 || 1e9));
+}
+
+/**
+ * Diagram cards for the offered parts: one card per unit picture; further
+ * parts of the same unit become extra marks on it (`marks`). `cards` = cards
+ * already there (the main diagram), `ready` = diagrams (or null) to add.
+ */
+function groupPartDiagrams(cards, ready) {
+  const norm = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const out = [...cards];
+  const byImage = new Map(out.map(c => [c.image, c]));
+  const markOf = x => ({ position: x.position, oem: x.oem, name: x.name, qty: x.qty, notes: x.notes, box: x.box });
+  for (const d0 of ready || []) {
+    if (!d0 || !d0.image) continue;
+    const d = JSON.parse(JSON.stringify(d0)); delete d.unitParts; delete d.kit;
+    const card = byImage.get(d.image);
+    if (!card) { byImage.set(d.image, d); out.push(d); continue; }
+    if (!card.marks) card.marks = [markOf(card)];
+    if (!card.marks.some(m => norm(m.oem) === norm(d.oem))) card.marks.push(markOf(d));
+  }
+  for (const c of out) if (c.marks && c.marks.length < 2) delete c.marks;
+  return out;
+}
+const PART_DIAGRAMS_WAIT_MS = 10000;
+
 // ─── ORDER STATUS (ABCP admin API, lib/abcpOrders.js) ──────────────────────
 // Deterministic replies -- no Sonnet call: order data must never be guessed.
 const ORDER_CONTACTS = 'в Telegram или MAX: +7 (967) 555-7-555';
@@ -2274,6 +2310,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Unit diagram for a catalog part that has no product photo (fetched in
     // parallel with the AI reply; shown as a card under it). One per reply.
     let diagramPromise = null;
+    let partDiagramJobs = null; // normalized OEM -> promise of its diagram (non-ТО replies)
     if (laximoUsed && process.env.LAXIMO_DIAGRAMS !== 'false') {
       const withPhoto = new Set(matchedCatalog.filter(p => p.picture).map(p => laximo.normalizeOem(p.article)));
       const first = compat && compat.verdict === 'fits'
@@ -2284,6 +2321,21 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         && !(serviceOnly && isNonServicePart(p.name)));
       const capped = (promise, ms) => { let t; return Promise.race([promise, new Promise(r => { t = setTimeout(() => r(null), ms); })])
         .catch(err => { console.error('[laximo] diagram failed:', err.message); return null; }).finally(() => clearTimeout(t)); };
+      // A diagram for EVERY offered part without a product photo (owner, 26.10;
+      // the diagram stands in for the missing card picture). Started now, in
+      // parallel with the AI reply (each new part ~2 Laximo requests, 3 s apart;
+      // parts of one unit share its page; everything cached 7 days); after the
+      // reply the parts it actually offers are picked, one card per unit.
+      if (!serviceRequest) {
+        const seenOem = new Set();
+        const cands = [...first, ...laximoResult.parts].filter(p => {
+          const k = laximo.normalizeOem(p.oem);
+          if (!p.schema || withPhoto.has(k) || seenOem.has(k) || (serviceOnly && isNonServicePart(p.name))) return false;
+          return seenOem.add(k);
+        }).slice(0, MAX_PART_DIAGRAMS);
+        partDiagramJobs = new Map(cands.map(p => [laximo.normalizeOem(p.oem),
+          laximo.getPartDiagram(p).catch(err => { console.error('[laximo] part diagram failed:', p.oem, err.message); return null; })]));
+      }
       // ТО request: find the SERVICE unit ("ТО по регл.Oelservice / Inspektion")
       // -> full kit. Only some numbers point to it: the oil filter ELEMENT
       // (11428583898) does, the "Масляный фильтр" module (11428488578, pos. 1)
@@ -2319,14 +2371,16 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       } else if (serviceCands.length) {
         diagramPromise = capped(viaSchemaButtons(), 16000);
       } else if (cand) {
-        diagramPromise = capped(laximo.getPartDiagram(cand), 9000);
+        const job = partDiagramJobs && partDiagramJobs.get(laximo.normalizeOem(cand.oem));
+        diagramPromise = capped(job || laximo.getPartDiagram(cand), 9000);
       }
     }
 
     // Wait for the diagram (cached: instant; new: ~2 Laximo requests, capped
     // at 9 s) so the agent knows what the card shows -- e.g. that the part
     // is discontinued (seen 25.10: 11428583898 "Не производится с 16.11.2021").
-    const diagram = diagramPromise ? await diagramPromise : null;
+    // A copy: the result may be the cached object itself, and fields are added/removed below.
+    const diagram = await (async () => { const d = diagramPromise ? await diagramPromise : null; return d ? JSON.parse(JSON.stringify(d)) : null; })();
 
     // Full service kit from the unit (ТО requests only): each position with the
     // feed product (if any) or the cheapest live offer, shown as a list in the
@@ -2378,7 +2432,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // the main diagram gets its own card with its position marked -- max 2
     // (each costs ~2 Laximo requests; cached 7 days), capped at 9 s together.
     let extraDiagrams = [];
-    if (laximoUsed && laximoResult && process.env.LAXIMO_DIAGRAMS !== 'false' && allLinkCodes.length) {
+    if (laximoUsed && laximoResult && process.env.LAXIMO_DIAGRAMS !== 'false' && allLinkCodes.length && !partDiagramJobs) {
       const onMain = new Set([...(diagram && Array.isArray(diagram.unitParts) ? diagram.unitParts.map(p => laximo.normalizeOem(p.oem)) : []),
         ...(diagram ? [laximo.normalizeOem(diagram.oem)] : [])]);
       const extraParts = allLinkCodes.filter(c => !onMain.has(laximo.normalizeOem(c)))
@@ -2395,6 +2449,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     }
     if (diagram) delete diagram.unitParts; // the card gets `kit` instead
 
+    const morePartDiagramsNote = partDiagramJobs && partDiagramJobs.size > 1
+      ? `\nДля остальных предлагаемых номеров без фото система тоже покажет схемы узлов (по одной на узел, позиции отмечены красным) — перечислять их отдельно не нужно; каждый номер, который ты предлагаешь, пиши полностью (11 цифр), чтобы к нему добавилась схема.`
+      : '';
     const diagramNote = diagram
       ? `\n\n═══════════════════════════════════════════\nСХЕМА ПОД ОТВЕТОМ:\n═══════════════════════════════════════════\nПод твоим ответом будет показана схема узла «${diagram.unitName || ''}» с отмеченной позицией ${diagram.position || ''}: ${diagram.oem} — ${diagram.name || ''}${diagram.qty ? ` (${diagram.qty})` : ''}.${diagram.notes && Object.keys(diagram.notes).length ? ` Примечания каталога: ${Object.entries(diagram.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}.` : ''} Можешь коротко сослаться на схему ("позиция ${diagram.position || ''} на схеме ниже"). Если в примечаниях сказано, что деталь не производится — ОБЯЗАТЕЛЬНО скажи (одним коротким предложением), что этот номер снят с производства, и что менеджер подскажет актуальную замену. Описывай деталь по её названию из каталога (например, сменный элемент фильтра — это не «вариант к корпусу»).`
       : '';
@@ -2426,7 +2483,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
                            // <<<PRODUCTS>>> block, so it silently fell back
                            // to showing the raw (broken) text instead of
                            // rendering cards.
-        system:      systemWithData + diagramNote + extraDiagramNote + serviceKitNote,
+        system:      systemWithData + diagramNote + extraDiagramNote + morePartDiagramsNote + serviceKitNote,
         messages:    messages,
       }),
       signal: AbortSignal.timeout(75000),
@@ -2472,28 +2529,48 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // The diagram card describes only the part marked in red (owner, 25.10):
     // the kit list is used for the cards and the prompt, not shown in the card.
     if (diagram) { delete diagram.kit; delete diagram.kitFacts; }
+    // Diagrams for every part the reply offers (non-ТО, see partDiagramJobs):
+    // numbers written in the reply or with an "Открыть деталь" button. Waits at
+    // most PART_DIAGRAMS_WAIT_MS more (the jobs ran during the AI call; the
+    // ones still running keep filling the cache for next time). Same unit ->
+    // one card with several marked positions (`marks`).
+    let diagramCards = diagram ? [diagram] : [];
+    if (partDiagramJobs && partDiagramJobs.size) {
+      const offered = offeredCodes(text, [...partDiagramJobs.keys()], allLinkCodes.map(c => laximo.normalizeOem(c)));
+      let t;
+      const got = await Promise.race([Promise.all(offered.map(k => partDiagramJobs.get(k))),
+        new Promise(r => { t = setTimeout(() => r(null), PART_DIAGRAMS_WAIT_MS); })]).finally(() => clearTimeout(t));
+      const ready = got || await Promise.all(offered.map(k => Promise.race([partDiagramJobs.get(k), Promise.resolve(null)])));
+      diagramCards = groupPartDiagrams(diagramCards, ready);
+      // the first part's diagram (prepared for the prompt) only if the reply offers it
+      if (diagram && offered.length && !offered.includes(laximo.normalizeOem(diagram.oem))
+          && !(diagram.marks || []).some(m => offered.includes(laximo.normalizeOem(m.oem)))) {
+        diagramCards = diagramCards.filter(c => c !== diagram);
+      }
+      diagramCards = diagramCards.slice(0, MAX_PART_DIAGRAMS);
+      extraDiagrams = diagramCards.filter(c => c !== diagram);
+      console.log(`DIAG part-diagrams offered=${offered.length} ready=${ready.filter(Boolean).length}${got ? '' : ' (wait cut)'} cards=${diagramCards.length} marks=${diagramCards.reduce((n, c) => n + (c.marks ? c.marks.length : 1), 0)}`);
+    }
     // Button under each diagram (owner, 26.10): the marked part's product page
     // when it's in the price list; the widget falls back to the site search.
     {
       const urlByCode = new Map();
       for (const p of matchedCatalog || []) if (p && p.url) urlByCode.set(laximo.normalizeOem(p.article), p.url);
       for (const x of kitFeed || []) if (x.feed && x.feed.url) urlByCode.set(laximo.normalizeOem(x.feed.article), x.feed.url);
-      const missing = [diagram, ...extraDiagrams].filter(d => d && d.oem && !urlByCode.has(laximo.normalizeOem(d.oem))).map(d => d.oem);
+      const allMarks = [diagram, ...extraDiagrams].filter(Boolean).flatMap(d => d.marks || [d]);
+      const missing = allMarks.filter(d => d && d.oem && !urlByCode.has(laximo.normalizeOem(d.oem))).map(d => d.oem);
       if (missing.length) {
         const more = await lookupCatalog(missing, priceBrand).catch(() => new Map());
         for (const [code, p] of more) if (p && p.url) urlByCode.set(code, p.url);
       }
-      for (const d of [diagram, ...extraDiagrams]) {
+      for (const d of [diagram, ...extraDiagrams, ...allMarks]) {
         const u = d && d.oem ? urlByCode.get(laximo.normalizeOem(d.oem)) : null;
         if (u) d.productUrl = u;
       }
     }
-    if (diagram) {
-      console.log('DIAG diagram', JSON.stringify({ oem: diagram.oem, unit: diagram.unitName, position: diagram.position, box: !!diagram.box }));
-      text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(diagram)}\n<<<END_DIAGRAM>>>`;
-    }
-    for (const d of extraDiagrams) {
-      console.log('DIAG diagram (extra)', JSON.stringify({ oem: d.oem, unit: d.unitName, position: d.position, box: !!d.box }));
+    const finalCards = partDiagramJobs ? diagramCards : [diagram, ...extraDiagrams].filter(Boolean);
+    for (const d of finalCards) {
+      console.log('DIAG diagram', JSON.stringify({ oem: d.oem, unit: d.unitName, position: d.position, box: !!d.box, marks: d.marks ? d.marks.length : 1 }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(d)}\n<<<END_DIAGRAM>>>`;
     }
     if (allLinkCodes.length) {
@@ -2521,6 +2598,8 @@ module.exports.partLinksForMessage = partLinksForMessage;
 module.exports.orderStatusReply = orderStatusReply;
 module.exports.compatVerdict = compatVerdict;
 module.exports.keywordsFromName = keywordsFromName;
+module.exports.offeredCodes = offeredCodes;
+module.exports.groupPartDiagrams = groupPartDiagrams;
 module.exports.abcpPartName = abcpPartName;
 module.exports.looksGarbled = looksGarbled;
 module.exports.plausiblePhone = plausiblePhone;

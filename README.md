@@ -189,6 +189,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Shock absorbers (live 26.10, X5 E70, «Подвеска → Амортизаторы»): the literal catalog search «амортизатор» also returned the fuel-line damper, door check damper and tailgate gas struts, and missed the front struts. For a plain shock-absorber request `lib/laximo.js` now keeps only suspension parts (BMW numbers starting 31 / 33 / 37; other makes: no door/tailgate/bonnet/fuel words), also searches «амортизаторная стойка» (1 extra request), and marks «Дополнительный амортизатор» as the bump stop. «Амортизатор двери/багажника…» requests are not filtered.
 
+- Diagram for every offered part (owner, 26.10): for non-ТО replies the diagrams of up to 6 found parts without a product photo are prepared in parallel with the AI reply (`partDiagramJobs`; unit pages cached as `unitpage1:` so parts of one unit cost 1 request each); after the reply, the parts it offers (number in the text or a button, `offeredCodes`) get diagrams — one card per unit with every offered position marked (`marks`, `groupPartDiagrams`) and one «Открыть деталь» button per marked part. Waits at most 10 s after the reply. ТО replies unchanged. Front struts: «амортизаторная стойка», then «стойка» (suspension rows only, no stabilizer links).
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).

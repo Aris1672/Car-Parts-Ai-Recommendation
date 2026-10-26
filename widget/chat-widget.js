@@ -1785,28 +1785,34 @@
     const src = `${BASE_URL}/api/laximo-image?u=${encodeURIComponent(d.image)}`;
     const wrap = document.createElement('div');
     wrap.className = 'pc-diagram';
-    const pos = d.position ? `Поз. ${escHtml(d.position)} — ` : '';
+    // Several offered parts of one unit (26.10): one card, every position marked.
+    const marks = Array.isArray(d.marks) && d.marks.length ? d.marks : [d];
+    const captionOf = m => `${m.position ? `Поз. ${escHtml(m.position)} — ` : ''}<b>${escHtml(m.oem || '')}</b>${m.name ? ' — ' + escHtml(m.name) : ''}${m.qty ? ' (' + escHtml(m.qty) + ')' : ''}`;
     wrap.innerHTML = `
       <div class="pc-diagram-title">🛠 Схема${d.unitName ? ': ' + escHtml(d.unitName) : ''}</div>
       <a class="pc-diagram-frame" href="${escHtml(src)}" target="_blank" rel="noopener" title="Открыть схему крупно">
         <img alt="Схема узла" loading="lazy">
-        <span class="pc-diagram-mark"></span>
+        ${marks.map(() => '<span class="pc-diagram-mark"></span>').join('')}
       </a>
-      <div class="pc-diagram-caption">${pos}<b>${escHtml(d.oem || '')}</b>${d.name ? ' — ' + escHtml(d.name) : ''}${d.qty ? ' (' + escHtml(d.qty) + ')' : ''}</div>
+      ${marks.map(m => `<div class="pc-diagram-caption">${captionOf(m)}</div>`).join('')}
       ${d.notes && typeof d.notes === 'object' && Object.keys(d.notes).length ? `<div class="pc-diagram-note" style="color:#444;">${Object.entries(d.notes).slice(0, 3).map(([k, v]) => /не производ|снят/i.test(k + ' ' + v) ? `<span style="color:#c00;font-weight:600;">⚠ ${escHtml(k)}: ${escHtml(v)}</span>` : `${escHtml(k)}: ${escHtml(v)}`).join(' · ')}</div>` : ''}
       ${kitHtml(d.kit)}
-      <div class="pc-diagram-note">Оригинальный каталог производителя${d.box ? ' · позиция отмечена красным' : ''}</div>`;
+      <div class="pc-diagram-note">Оригинальный каталог производителя${marks.some(m => m.box) ? (marks.length > 1 ? ' · позиции отмечены красным' : ' · позиция отмечена красным') : ''}</div>`;
     const img = wrap.querySelector('img');
-    const mark = wrap.querySelector('.pc-diagram-mark');
+    const markEls = wrap.querySelectorAll('.pc-diagram-mark');
     const place = () => {
-      if (!d.box || !img.naturalWidth) return;
+      if (!img.naturalWidth) return;
       const k = img.clientWidth / img.naturalWidth;
       const pad = 3;
-      mark.style.left = `${d.box.x * k - pad}px`;
-      mark.style.top = `${d.box.y * k - pad}px`;
-      mark.style.width = `${(d.box.w || 12) * k + pad * 2}px`;
-      mark.style.height = `${(d.box.h || 16) * k + pad * 2}px`;
-      mark.style.display = 'block';
+      marks.forEach((m, i) => {
+        const mark = markEls[i];
+        if (!m.box || !mark) return;
+        mark.style.left = `${m.box.x * k - pad}px`;
+        mark.style.top = `${m.box.y * k - pad}px`;
+        mark.style.width = `${(m.box.w || 12) * k + pad * 2}px`;
+        mark.style.height = `${(m.box.h || 16) * k + pad * 2}px`;
+        mark.style.display = 'block';
+      });
     };
     img.addEventListener('load', place);
     window.addEventListener('resize', place);
@@ -2158,15 +2164,18 @@
       for (const d of (diagrams || (diagram ? [diagram] : []))) {
         addDiagram(d);
         displayLog.push({ type: 'diagram', payload: d });
-        const own = restLinks.filter(c => normCode(c) === normCode(d.oem));
-        if (own.length) {
-          restLinks = restLinks.filter(c => normCode(c) !== normCode(d.oem));
-          addPartLinks(own);
-          displayLog.push({ type: 'partlinks', payload: own });
-        } else if (d.oem) {
-          const link = { oem: d.oem, productUrl: d.productUrl || null };
-          addDiagramLink(link);
-          displayLog.push({ type: 'diaglink', payload: link });
+        // one button per marked part (several when the card marks several)
+        for (const m of (Array.isArray(d.marks) && d.marks.length ? d.marks : [d])) {
+          const own = restLinks.filter(c => normCode(c) === normCode(m.oem));
+          if (own.length) {
+            restLinks = restLinks.filter(c => normCode(c) !== normCode(m.oem));
+            addPartLinks(own);
+            displayLog.push({ type: 'partlinks', payload: own });
+          } else if (m.oem) {
+            const link = { oem: m.oem, productUrl: m.productUrl || null };
+            addDiagramLink(link);
+            displayLog.push({ type: 'diaglink', payload: link });
+          }
         }
       }
       if (restLinks.length > 0) {
