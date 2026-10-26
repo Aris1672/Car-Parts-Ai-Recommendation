@@ -181,6 +181,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Shop text + address (`.bcAbout`, end of page_main): aligned to the column, regular site font, address with a pin icon; grammar fixed («запчастей», «аналогов»). News slides: ABCP's own slide margin removed (gaps were 35 px).
 
+- Footer: blue / navy restyle tried (26.10) and reverted by the owner — the original white ABCP footer stays. The styles are in git history (`abcp-infoblocks/footer-style.html`, commit c6ae4b2) if wanted later.
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
