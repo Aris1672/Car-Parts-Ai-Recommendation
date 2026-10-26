@@ -177,6 +177,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - «Почему BMW Club77?» block (owner's design, 26.10) replaces the old icon row `.mainAdvantages` in page_main: photo `widget/sections/why-bmw.jpg` (crop of the hero X5 photo, fades into the card), title + text, 4 points in a 2×2 grid (10+ лет на рынке / 100% оригинальные запчасти BMW / Гарантия от производителя* — added back by the owner / Профессиональная консультация). «Помощь в подборе*» dropped.
 
+- «Новости»: ABCP's own news slider (`.wNews`, slick; part of the template, not editable as an infoblock) restyled by CSS in page_main to match: same column width (max 1450 px), Exo 2 uppercase title, «Все новости →», white cards with 170 px photo (placeholder icon when a news item has no photo, via `:has`), date / title / 2-line text / «Читать →», equal heights (`.slick-track` flex).
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
