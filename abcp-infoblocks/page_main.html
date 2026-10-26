@@ -507,8 +507,12 @@
       exactly 3 equal slides filling the column (14 px gaps), like the categories above. */
    .wNews .wNewsBlockList{margin:0 !important;padding:0 !important;}
    @media (min-width:992px){
-    .wNews .slick-track{width:auto !important;}
+    /* Computers: the 3 newest news as a fixed row (no sliding). With 4+ news the slider adds copies
+       (.slick-cloned) and shifts the row, so: real slides 0–2 only, no shift, arrows/dots hidden. */
+    .wNews .slick-track{width:auto !important;transform:none !important;}
     .wNews .newsBlockWrapper{flex:0 0 33.3333%;width:auto !important;max-width:33.3333%;}
+    .wNews .slick-slide.slick-cloned,.wNews .slick-slide:not([data-slick-index="0"]):not([data-slick-index="1"]):not([data-slick-index="2"]){display:none !important;}
+    .wNews .slick-arrow,.wNews .slick-dots{display:none !important;}
    }
    @media (max-width:767px){
     .wPageMain .bcAbout{display:block;margin-bottom:30px;}
