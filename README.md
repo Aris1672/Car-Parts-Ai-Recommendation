@@ -170,7 +170,12 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 **Tested:** jsdom with a copy of the homepage structure and a mocked API, 12 checks (build into the placeholder, quick button → chat + cards + placement event, restore, continuation in the bubble, full screen + Esc, restart, manager link, phone move and back, `AutoChat.open()`, bubble unchanged without the placeholder, unfinished `<<<…>>>` block never shown, server validation). Look and layout checked live by the owner. The test script is not in the repo (it needs `jsdom`).
 
-### 📝 Open items (25.10)
+#### Session 28 (26.10) — «Популярные категории»
+- New homepage section (ABCP page_main, `abcp-infoblocks/page_main.html`): 8 cards `<a data-ai-category="brakes|suspension|engine|filters|electrics|body|fluids|other">`, 4×2 on desktop, 2 columns on tablets/phones. «Все категории» → /laximo (same as «Все марки»).
+- Widget (`CATEGORIES` in chat-widget.js): a click scrolls to the inline chat and shows an instant follow-up question with sub-choice buttons (no AI call) + VIN/model request (skipped if a VIN is already in the chat). The canned exchange is added to the AI history, so a VIN or free text typed next keeps the category context. «Другое — опишу сам» only focuses the input. Without the inline chat (or Ctrl/⌘-click) the card is a normal link.
+- Card images: `widget/categories/<key>.png` (temporary crops; replace the files with the full-quality Gemini images — same names, no ABCP change needed).
+
+## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
 - **"Привет! 👋" mid-conversation** in the generation question (Haiku short-cut in `api/chat.js`, `CLARIFY_PROMPT`).

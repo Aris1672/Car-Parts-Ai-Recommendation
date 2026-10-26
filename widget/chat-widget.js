@@ -85,6 +85,30 @@
   // номер, sending full sentences) was replaced the same day.
   const INLINE_CHIPS     = ['ТО для моей машины', 'Подбор по VIN', 'Подойдёт ли номер?', 'Где мой заказ?'];
   const INLINE_SEND_LABEL = 'Подобрать с ИИ';
+  // "Популярные категории" cards on the homepage (ABCP page_main, 26.10):
+  // <a href="<normal catalog link>" data-ai-category="brakes">…</a>.
+  // A click opens the chat above with an instant follow-up question
+  // (no AI call) and sub-choice buttons; a chosen button goes to the AI as a
+  // normal question. Without the inline chat the card stays a plain link.
+  const CATEGORY_OTHER_BTN = 'Другое — опишу сам'; // focuses the input instead of sending
+  const CATEGORY_VIN_ASK = 'Чтобы подобрать точно для вашей машины, пришлите VIN (17 символов из СТС) или модель — например, X5 G05 30d.';
+  const CATEGORIES = {
+    brakes:     { name: 'Тормозная система', q: 'Что нужно для тормозной системы?',
+                  items: ['Тормозные колодки', 'Тормозные диски', 'Тормозной суппорт', 'Датчик износа колодок', 'Тормозная жидкость', CATEGORY_OTHER_BTN] },
+    suspension: { name: 'Подвеска', q: 'Что нужно для подвески?',
+                  items: ['Амортизаторы', 'Рычаги', 'Стойки стабилизатора', 'Сайлентблоки', 'Шаровые опоры', 'Пружины', CATEGORY_OTHER_BTN] },
+    engine:     { name: 'Двигатель', q: 'Что нужно для двигателя?',
+                  items: ['Ремень и ролики', 'Прокладки и сальники', 'Помпа', 'Термостат', 'Опоры двигателя', 'Датчики двигателя', CATEGORY_OTHER_BTN] },
+    filters:    { name: 'Фильтры', q: 'Какой фильтр нужен?',
+                  items: ['Масляный фильтр', 'Воздушный фильтр', 'Салонный фильтр', 'Топливный фильтр', 'Всё для ТО'] },
+    electrics:  { name: 'Электрика', q: 'Что нужно из электрики?',
+                  items: ['Свечи зажигания', 'Катушки зажигания', 'Лампы', 'Датчики', 'Генератор и стартер', CATEGORY_OTHER_BTN] },
+    body:       { name: 'Кузов', q: 'Что нужно для кузова?',
+                  items: ['Бампер', 'Фары и фонари', 'Зеркала', 'Капот и крылья', 'Решётки радиатора', 'Молдинги и накладки', CATEGORY_OTHER_BTN] },
+    fluids:     { name: 'Масла и жидкости', q: 'Что нужно из масел и жидкостей?',
+                  items: ['Моторное масло', 'Масло АКПП', 'Антифриз', 'Тормозная жидкость', 'Жидкость омывателя'] },
+    other:      { name: 'Другие', q: 'Опишите, какая деталь нужна — своими словами или номером детали.', items: [] },
+  };
   // Phones (<= 767 px) keep the PREVIOUS dark design (owner, 26.10): its texts.
   const INLINE_M_TITLE   = 'Подберём запчасти вместе с ИИ-консультантом'; // shown in uppercase
   const INLINE_M_TEXT    = 'ИИ-консультант ответит сразу: по VIN, модели или номеру детали — с ценой, сроком и схемой из оригинального каталога.';
@@ -1201,6 +1225,7 @@
         });
       });
       document.getElementById('pc-hero-manager').addEventListener('click', inlineManager);
+      document.addEventListener('click', onCategoryClick);
       document.getElementById('pc-restart').addEventListener('click', clearChat);
       document.getElementById('pc-full').addEventListener('click', () => setFull(!inlineFull));
       isOpen = true; // always visible here; close() only leaves full screen
@@ -1374,6 +1399,43 @@
     setCompact(false);
     const r = panel.getBoundingClientRect();
     if (r.top < 0 || r.bottom > window.innerHeight) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Click on a "Популярные категории" card (see CATEGORIES).
+  function onCategoryClick(e) {
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return; // new-tab clicks stay links
+    const card = e.target.closest && e.target.closest('[data-ai-category]');
+    if (!card) return;
+    const cat = CATEGORIES[card.getAttribute('data-ai-category')];
+    if (!cat) return; // unknown key: leave it a normal link
+    e.preventDefault();
+    if (isLoading) { open(); return; } // an answer is on its way; don't interleave
+    startCategory(cat);
+  }
+
+  function startCategory(cat) {
+    expandInline();
+    const panel = document.getElementById('pc-panel');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    addUserBubble(cat.name);
+    displayLog.push({ type: 'user', payload: cat.name });
+    // Known VIN in this conversation -> don't ask for it again.
+    const hasVin = messages.some(m => m.role === 'user' && /\b[A-HJ-NPR-Z0-9]{17}\b/i.test(String(m.content)));
+    const text = cat.items.length
+      ? `${cat.q} Выберите ниже или напишите своими словами.${hasVin ? '' : '\n\n' + CATEGORY_VIN_ASK}`
+      : `${cat.q}${hasVin ? '' : '\n\n' + CATEGORY_VIN_ASK}`;
+    // The canned exchange goes into the AI history too, so a VIN or a free
+    // text typed next is understood in the context of this category.
+    messages.push({ role: 'user', content: cat.name });
+    messages.push({ role: 'assistant', content: text });
+    addBotBubble(text);
+    displayLog.push({ type: 'bot', payload: text });
+    if (cat.items.length) {
+      addButtonsBubble(cat.items);
+      displayLog.push({ type: 'buttons', payload: cat.items });
+    }
+    saveState();
+    setTimeout(() => document.getElementById('pc-input').focus({ preventScroll: true }), 400);
   }
 
   function inlineManager() {
@@ -1621,6 +1683,8 @@
       btn.addEventListener('click', () => {
         if (label === '🔄 Повторить запрос') {
           doSend(lastUserText);
+        } else if (label === CATEGORY_OTHER_BTN) {
+          document.getElementById('pc-input').focus();
         } else {
           doSend(label);
         }
