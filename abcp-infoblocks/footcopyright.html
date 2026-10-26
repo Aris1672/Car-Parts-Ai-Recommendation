@@ -94,9 +94,9 @@
   pin.className = 'bcHead_pin'; pin.href = url; pin.target = '_blank'; pin.rel = 'noopener';
   pin.title = 'Как проехать'; pin.setAttribute('aria-label', 'Как проехать');
   el.insertBefore(pin, el.firstChild);
-  // «Мой гараж» to the left of the pin (owner, 26.10; was «Контакты»)
+  // «Доставка» to the left of the pin (owner, 26.10; «Гараж» is already on the left)
   var c = document.createElement('a');
-  c.className = 'bcHead_contacts'; c.href = '/personal_cabinet?garage'; c.textContent = 'Мой гараж';
+  c.className = 'bcHead_contacts'; c.href = '/delivery'; c.textContent = 'Доставка';
   el.insertBefore(c, pin);
   el.classList.add('bcHead_addr');
   el.title = 'Как проехать';
