@@ -20,74 +20,64 @@
 <div class="bcFoot_bottom"><span>© 2011–<span class="bcFoot_year">2026</span> BmwClub77</span> <a href="/data_protection">Политика конфиденциальности</a></div>
 </div>
 <script>
-/* Header (owner, 26.10). Desktop top bar: the phone number alone, centred over
-   the BmwClub77 logo; Telegram and MAX side by side at the right of the logo.
-   Phone side menu (.head-info): MAX next to Telegram. Positions are measured
-   (ABCP's layout); if the logo isn't found, the tab keeps its own Telegram icon. */
+/* Header (owner, 26.10). Desktop top bar: phone number + Telegram + MAX on
+   the left, right after «Заказы · VIN-запросы · Гараж» (white on the dark bar);
+   the white tab in the middle stays as a shape (its old content hidden) and the
+   BmwClub77 logo below it is 20% bigger. Phone side menu (.head-info): MAX
+   next to Telegram. If the links aren't found, the tab keeps its content. */
 (function () {
   var TG_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.7 4.3 3.4 11c-1.2.5-1.2 1.2-.2 1.5l4.4 1.4 1.7 5.2c.2.6.1.8.7.8.5 0 .7-.2 1-.5l2.1-2.1 4.4 3.3c.8.4 1.4.2 1.6-.8l2.9-13.7c.3-1.2-.5-1.8-1.3-1.4zM8.6 13.6l9.6-6c.5-.3.9-.1.5.2l-8.2 7.4-.3 3.4-1.6-5z"></path></svg>';
-  function link(cls, href, title, html) {
+  var MAX_IMG = '<img src="https://bmwclub77.assistant24info.ru/widget/icons/max.png" alt="MAX" width="26" height="26">';
+  function link(cls, href, title, html, blank) {
     var a = document.createElement('a');
-    a.className = cls; a.href = href; a.target = '_blank'; a.rel = 'nofollow noopener noreferrer';
-    a.title = title; a.setAttribute('aria-label', title); a.innerHTML = html;
+    a.className = cls; a.href = href; a.title = title; a.setAttribute('aria-label', title); a.innerHTML = html;
+    if (blank) { a.target = '_blank'; a.rel = 'nofollow noopener noreferrer'; }
     return a;
   }
-  var maxLink = function (cls) { return link('bcHead_max ' + (cls || ''), 'https://max.ru/+79675557555', 'Написать в MAX', '<img src="https://bmwclub77.assistant24info.ru/widget/icons/max.png" alt="MAX" width="30" height="30">'); };
-  // phone side menu: MAX right after Telegram
-  var side = document.querySelectorAll('.head-info .phone-links');
+  // every phone tab (side menu; top bar where the number stays): MAX right after Telegram
+  var side = document.querySelectorAll('.phone-links');
   for (var i = 0; i < side.length; i++) {
     var tg0 = side[i].querySelector('a[href*="t.me"]');
-    if (tg0 && !side[i].querySelector('.bcHead_max')) tg0.parentNode.insertBefore(maxLink(), tg0.nextSibling);
+    if (tg0 && !side[i].querySelector('.bcHead_max')) tg0.parentNode.insertBefore(link('bcHead_max', 'https://max.ru/+79675557555', 'Написать в MAX', MAX_IMG, true), tg0.nextSibling);
   }
-  var tab = document.querySelector('.topBar .phone-links');
-  if (!tab) return;
+  var bar = document.querySelector('.topBar');
+  var tab = bar && bar.querySelector('.phone-links');
+  if (!tab || document.querySelector('.bcHead_contact')) return;
   var tel = tab.querySelector('a[href^="tel:"]');
-  var telBox = tel && tel.parentElement;
   var tgA = tab.querySelector('a[href*="t.me"]');
-  var tgBox = tgA && tgA.closest('.phone-links > div');
-  if (!tel) return;
-  var header = tab.closest('header') || document.body;
-  var group = document.createElement('div');
-  group.className = 'bcHead_icons';
-  group.appendChild(link('bcHead_tg', tgA ? tgA.href : 'https://t.me/+79675557555', 'Написать в Telegram', TG_SVG));
-  group.appendChild(maxLink());
-  function findLogo() {
-    var t = tab.getBoundingClientRect(), best = null;
-    var imgs = header.querySelectorAll('img');
-    for (var k = 0; k < imgs.length; k++) {
-      var r = imgs[k].getBoundingClientRect();
-      if (r.width < 80 || r.top < t.bottom - 5 || r.top > t.bottom + 150) continue;
-      var d = Math.abs((r.left + r.right) / 2 - (t.left + t.right) / 2);
-      if (d < 200 && (!best || d < best.d)) best = { img: imgs[k], d: d };
-    }
-    return best && best.img;
-  }
-  function place() {
-    var logo = tab.offsetWidth ? findLogo() : null; // top bar hidden on small screens
-    if (!logo) { // no layout to align to: leave the tab as ABCP made it
-      tab.classList.remove('bcHead_tab'); telBox.style.transform = ''; group.style.display = 'none';
-      return;
-    }
-    tab.classList.add('bcHead_tab'); // hides the tab's own Telegram icon (CSS)
-    telBox.style.transform = '';
-    var nr = telBox.getBoundingClientRect(), lr = logo.getBoundingClientRect();
-    var shift = Math.round((lr.left + lr.right) / 2 - (nr.left + nr.right) / 2);
-    if (Math.abs(shift) < 120) telBox.style.transform = 'translateX(' + shift + 'px)';
-    var host = logo.closest('a') ? logo.closest('a').parentElement : logo.parentElement;
-    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
-    if (group.parentElement !== host) host.appendChild(group);
-    var hr = host.getBoundingClientRect();
-    group.style.display = 'flex';
-    group.style.left = Math.round(lr.right + 16 - hr.left) + 'px';
-    group.style.top = Math.round(lr.top - hr.top + lr.height / 2 - 15) + 'px';
+  var garage = [].filter.call(bar.querySelectorAll('a'), function (a) { return /^\s*Гараж\s*$/i.test(a.textContent) || /garage/i.test(a.getAttribute('href') || ''); })[0];
+  if (!tel || !garage) return;
+  var box = document.createElement('span');
+  box.className = 'bcHead_contact';
+  box.appendChild(link('bcHead_phone', tel.getAttribute('href'), 'Позвонить', String(tel.textContent || '').replace(/\s+/g, '').replace(/^(\+7)\((\d{3})\)/, '$1 ($2) ')));
+  box.appendChild(link('bcHead_tg', tgA ? tgA.href : 'https://t.me/+79675557555', 'Написать в Telegram', TG_SVG, true));
+  box.appendChild(link('bcHead_max', 'https://max.ru/+79675557555', 'Написать в MAX', MAX_IMG, true));
+  garage.parentNode.insertBefore(box, garage.nextSibling);
+  // Only where it fits: on narrower screens the number would run into the
+  // white tab -- there the tab keeps its own number instead (checked again on resize).
+  function fit() {
+    box.style.display = '';
+    var room = tab.getBoundingClientRect().left - box.getBoundingClientRect().right;
+    var ok = tab.offsetWidth > 0 && room >= 16;
+    box.style.display = ok ? '' : 'none';
+    tab.classList.toggle('bcHead_tabEmpty', ok);
   }
   var frame = 0;
-  function later() { cancelAnimationFrame(frame); frame = requestAnimationFrame(place); }
-  place();
-  window.addEventListener('load', later);
+  function later() { cancelAnimationFrame(frame); frame = requestAnimationFrame(fit); }
+  fit();
   window.addEventListener('resize', later);
+  window.addEventListener('load', later);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(later);
-  setTimeout(later, 1200);
+  // logo below the tab: 20% bigger
+  var header = bar.closest('header') || document.body;
+  var t = tab.getBoundingClientRect(), best = null, imgs = header.querySelectorAll('img');
+  for (var k = 0; k < imgs.length; k++) {
+    var r = imgs[k].getBoundingClientRect();
+    if (r.width < 80 || r.top < t.bottom - 5 || r.top > t.bottom + 150) continue;
+    var d = Math.abs((r.left + r.right) / 2 - (t.left + t.right) / 2);
+    if (d < 200 && (!best || d < best.d)) best = { img: imgs[k], d: d };
+  }
+  if (best) best.img.classList.add('bcHead_logo');
 })();
 /* Current year in «© 2011–…» (the written year is the fallback). */
 (function () { var y = document.querySelectorAll('.bcFoot_year'); for (var i = 0; i < y.length; i++) y[i].textContent = new Date().getFullYear(); })();
@@ -137,15 +127,21 @@ footer.footer .footerCopy{width:100% !important;max-width:none !important;float:
 .phone-links>div{display:inline-flex !important;vertical-align:middle;align-items:center;gap:8px;text-align:left !important;}
 .phone-links>div>span:first-child{display:flex;align-items:center;gap:8px;font-size:0;}
 .phone-links a[href*="t.me"] img{display:block;width:30px !important;height:30px !important;}
-.bcHead_tab>span{margin-right:0 !important;}
-.bcHead_tab>div{display:none !important;} /* Telegram moved next to the logo */
-.bcHead_icons{position:absolute;z-index:3;display:flex;gap:8px;}
-.bcHead_tg{width:30px;height:30px;border-radius:50%;background:#29a9eb;color:#fff !important;display:flex;align-items:center;justify-content:center;text-decoration:none !important;}
-.bcHead_tg svg{width:17px;height:17px;}
-.bcHead_tg:hover{opacity:.85;}
-.bcHead_max{width:30px;height:30px;display:flex;align-items:center;justify-content:center;text-decoration:none !important;}
-.bcHead_max img{display:block;width:30px;height:30px;border-radius:7px;}
-.phone-links a[href*="t.me"]:hover img,.bcHead_max:hover{opacity:.85;}
+
+.phone-links a[href*="t.me"]:hover img{opacity:.85;}
+.bcHead_tabEmpty>*{visibility:hidden !important;} /* the tab stays as a shape; its number is in the bar on the left now */
+.bcHead_contact{display:inline-flex;align-items:center;gap:10px;margin-left:28px;vertical-align:middle;white-space:nowrap;}
+a.bcHead_phone{display:inline-flex;align-items:center;gap:7px;font-family:'BC Exo 2',Montserrat,sans-serif;font-weight:700;font-size:16px;letter-spacing:.3px;color:#fff !important;text-decoration:none !important;}
+a.bcHead_phone::before{content:"";width:16px;height:16px;flex:0 0 16px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237cc0ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z'/%3E%3C/svg%3E") center/16px no-repeat;}
+a.bcHead_phone:hover{color:#7cc0ff !important;}
+a.bcHead_tg{width:26px;height:26px;border-radius:50%;background:#29a9eb;color:#fff !important;display:inline-flex;align-items:center;justify-content:center;text-decoration:none !important;}
+a.bcHead_tg svg{width:15px;height:15px;}
+a.bcHead_max{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none !important;}
+a.bcHead_max img{display:block;width:26px;height:26px;border-radius:6px;}
+a.bcHead_tg:hover,a.bcHead_max:hover{opacity:.85;}
+.phone-links a.bcHead_max,.phone-links a.bcHead_max img{width:30px;height:30px;}
+.phone-links a.bcHead_max{margin-left:8px;}
+img.bcHead_logo{transform:scale(1.2);transform-origin:center center;}
 @media (max-width:991px){ .bcFoot_cols{grid-template-columns:1fr 1fr;} }
 @media (max-width:540px){ .bcFoot_cols{grid-template-columns:1fr;gap:24px;} .bcFoot_bottom{display:block;} .bcFoot_bottom a{display:inline-block;margin-top:6px;} }
 --></style>
