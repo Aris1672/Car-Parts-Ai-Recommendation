@@ -175,7 +175,7 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 - Widget (`CATEGORIES` in chat-widget.js): a click scrolls to the inline chat and shows an instant follow-up question with sub-choice buttons (no AI call) + VIN/model request (skipped if a VIN is already in the chat). The canned exchange is added to the AI history, so a VIN or free text typed next keeps the category context. «Другое — опишу сам» only focuses the input. Without the inline chat (or Ctrl/⌘-click) the card is a normal link.
 - Card images: `widget/categories/<key>.png`, owner's Gemini images (26.10): background whitened, trimmed, 320×240 (2× the card size). In page_main they are loaded with `?v=N` (raise N when files change — /widget is cached 1 h) and `mix-blend-mode:multiply`, so the white background takes the card colour on hover.
 
-- «Почему BMW Club77?» block (owner's design, 26.10) replaces the old icon row `.mainAdvantages` in page_main: photo `widget/sections/why-bmw.jpg` (crop of the hero X5 photo, fades into the card), title + text, 3 points (10+ лет на рынке / 100% оригинальные запчасти BMW / Профессиональная консультация). The old points «Гарантия от производителя*» and «Помощь в подборе*» are not in the new design.
+- «Почему BMW Club77?» block (owner's design, 26.10) replaces the old icon row `.mainAdvantages` in page_main: photo `widget/sections/why-bmw.jpg` (crop of the hero X5 photo, fades into the card), title + text, 4 points in a 2×2 grid (10+ лет на рынке / 100% оригинальные запчасти BMW / Гарантия от производителя* — added back by the owner / Профессиональная консультация). «Помощь в подборе*» dropped.
 
 ## 📝 Open items (25.10)
 
