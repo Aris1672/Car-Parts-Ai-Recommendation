@@ -124,8 +124,8 @@
   const INLINE_MOBILE_QUERY = '(max-width: 767px)'; // below this: a card in the column, not full width
   // Agent avatar on the homepage block (owner, 25.10): "AI" with a single
   // red slash on black, centered (192 px, repo root). Replaced a version with
-  // M-style tricolour stripes (BMW trade dress). The bubble on other pages
-  // keeps AI_Agent.png.
+  // M-style tricolour stripes (BMW trade dress). Since 26.10 (owner) also the
+  // bubble on the other pages: launcher, header and message icons.
   const INLINE_AVATAR_URL = BASE_URL + '/agent-avatar.jpg';
   const INLINE_AVATAR_IMG = `<img src="${INLINE_AVATAR_URL}" alt="" class="pc-avatar-img" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
 
@@ -201,7 +201,7 @@
       right: calc(var(--pc-panel-w) + 16px);
     }
     #pc-launcher svg { width: 30px; height: 30px; }
-    #pc-launcher img { width: 56px; height: 56px; object-fit: contain; display: block; }
+    #pc-launcher img { width: 60px; height: 60px; object-fit: cover; display: block; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.28); }
 
     /* Unread badge */
     #pc-badge {
@@ -592,11 +592,11 @@
       border-bottom: 1px solid #ececec; border-radius: 10px 10px 0 0;
     }
     /* Square avatar with rounded corners (owner, 25.10: suits the wide logo) */
-    #pc-panel.pc-inline .pc-avatar, #pc-panel.pc-inline .pc-msg-icon, .pc-hero-icon {
+    #pc-panel .pc-avatar, #pc-panel .pc-msg-icon, .pc-hero-icon {
       background: #1a1a1a; box-shadow: none; overflow: hidden;
     }
-    #pc-panel.pc-inline .pc-avatar { border-radius: 8px; }
-    #pc-panel.pc-inline .pc-msg-icon { border-radius: 6px; }
+    #pc-panel .pc-avatar { border-radius: 8px; }
+    #pc-panel .pc-msg-icon { border-radius: 6px; }
     #pc-panel .pc-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
     #pc-panel.pc-inline #pc-clear, #pc-panel.pc-inline #pc-close { display: none; }
     .pc-inline-btn { display: none; }
@@ -1096,11 +1096,10 @@
 
     const launcher = document.createElement('button');
     launcher.id = 'pc-launcher';
-    // Uses the client-provided AI_Agent.png (site root), same icon used in
-    // the header avatar and per-message icons; falls back to the inline
-    // headset SVG if the file is missing or fails to load.
+    // The "/AI" logo (agent-avatar.jpg), same as the header avatar and the
+    // per-message icons; falls back to the inline headset SVG if it fails to load.
     window.__pcIconAgentFallback = ICON_AGENT; // used by the inline onerror string below (runs in global scope, can't see closure vars)
-    launcher.innerHTML = `<img src="${BASE_URL}/AI_Agent.png" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`;
+    launcher.innerHTML = `<img src="${INLINE_AVATAR_URL}" alt="" onerror="this.parentElement.innerHTML = window.__pcIconAgentFallback;">`; // the "/AI" logo (owner, 26.10; was AI_Agent.png)
     launcher.setAttribute('aria-label', 'Открыть ИИ-консультанта');
     launcher.addEventListener('click', toggle);
     document.body.appendChild(launcher);
@@ -1111,7 +1110,7 @@
     panel.setAttribute('aria-label', 'ИИ-Консультант по запчастям');
     panel.innerHTML = `
       <div id="pc-header">
-        <div class="pc-avatar"><img src="${BASE_URL}/AI_Agent.png" style="width:28px;height:28px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'"></div>
+        <div class="pc-avatar">${INLINE_AVATAR_IMG}</div>
         <div class="pc-header-info">
           <div class="pc-header-name">ИИ-Консультант</div>
           <div class="pc-header-status">
@@ -1575,10 +1574,10 @@
     appendMsg(el);
   }
 
-  // Bot icon next to messages: the homepage avatar inline, AI_Agent.png in the bubble.
+  // Bot icon next to messages: the "/AI" logo (agent-avatar.jpg) on every page.
+  // Same avatar everywhere since 26.10 (owner): the square "/AI" logo.
   function botIconHtml() {
-    return inlineHost ? INLINE_AVATAR_IMG
-      : `<img src="${BASE_URL}/AI_Agent.png" style="width:20px;height:20px;object-fit:contain;border-radius:50%;" onerror="this.parentElement.textContent='🚗'">`;
+    return INLINE_AVATAR_IMG;
   }
 
   function renderMarkdown(text) {
