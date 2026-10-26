@@ -193,6 +193,9 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Footer (owner's design, 26.10): 4 columns (shop + Telegram/MAX + Yandex reviews · Покупателям · Подбор запчастей · Контакты: phone, email, Химки address + route, hours) and «© 2011–2026 BmwClub77 · Политика конфиденциальности». Whole content in the ABCP infoblock **footcopyright** (`abcp-infoblocks/footcopyright.html`); `.footContacts` (infoblock sitefootcontacts) is hidden by CSS but stays — it loads the widget. «ИИ-консультант» opens the chat (`AutoChat.open()`). WhatsApp left out (blocked in Russia). Company details (ИНН/ОГРН) still to add.
 
+- Header (26.10, via footcopyright): dark top bar = «Заказы · VIN-запросы · Гараж» + phone, Telegram, MAX (white, Exo 2) on the left where it fits (narrower screens: the number stays in the white tab); the white tab kept empty; logo 20% bigger; right side «Доставка · 📍 ПВЗ BMW Сервис…» (pin + address open the route in Yandex Maps). MAX icon: `widget/icons/max.png`. Footer year automatic. Widget credit «Разработано: ASSISTANT24». Bubble avatar = the «/AI» logo. Desktop hero fade 20%.
+- Still open: company details (ИНН/ОГРН) for the footer; `mailto:malito:` on the Контакты page (owner to fix in ABCP); live check of the rear shock-absorber diagram (3 marks on one card).
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
