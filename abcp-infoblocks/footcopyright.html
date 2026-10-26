@@ -17,9 +17,11 @@
 <p class="bcFoot_hours">Пн–Пт: 10:30–20:00<br />Сб–Вс: 11:00–18:00 (выдача готовых заказов)</p>
 </div>
 </div>
-<div class="bcFoot_bottom"><span>© 2011–2026 BmwClub77</span> <a href="/data_protection">Политика конфиденциальности</a></div>
+<div class="bcFoot_bottom"><span>© 2011–<span class="bcFoot_year">2026</span> BmwClub77</span> <a href="/data_protection">Политика конфиденциальности</a></div>
 </div>
 <script>
+/* Current year in «© 2011–…» (the written year is the fallback). */
+(function () { var y = document.querySelectorAll('.bcFoot_year'); for (var i = 0; i < y.length; i++) y[i].textContent = new Date().getFullYear(); })();
 /* «ИИ-консультант» in the footer: open the chat on the page instead of following the link. */
 document.addEventListener('click', function (e) {
   var a = e.target.closest && e.target.closest('.bcFoot [data-ai-open]');
