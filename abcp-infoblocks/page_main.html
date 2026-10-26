@@ -58,6 +58,18 @@
 </ul>
 </div>
 </div>
+<script>
+/* «Новости»: ABCP's slider measures the card widths when it starts; ask it to measure again
+   with the styles above, so the row is exactly as wide as the other sections (26.10). */
+(function () {
+  function fit() {
+    var $ = window.jQuery;
+    if ($ && $.fn && $.fn.slick) $('.wNews .slick-initialized').slick('setPosition');
+  }
+  window.addEventListener('load', fit);
+  setTimeout(fit, 1500);
+})();
+</script>
 <style><!--
 /*! CSS Used from: https://cdn.abcp.ru/ast/css/cssFramework.min.css?37 */
    .fr-carousel-inner>.fr-item>a>img{border:0;display:block;height:auto;max-width:100%;vertical-align:middle;}
@@ -458,10 +470,10 @@
    .wNews .wNewsAll{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;color:#0a5cc4;text-decoration:none;white-space:nowrap;}
    .wNews .wNewsAll::after{content:"";width:16px;height:16px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230a5cc4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center/16px no-repeat;}
    .wNews .wNewsAll:hover{color:#08488f;}
-   .wNews .slick-list{margin:0 -7px;padding:0;}
+   .wNews .slick-list{margin:0 -7px !important;padding:0 !important;}
    .wNews .slick-track{display:flex;}
    .wNews .slick-slide{height:auto;float:none;}
-   .wNews .newsBlockWrapper{box-sizing:border-box;padding:0 7px;}
+   .wNews .newsBlockWrapper{box-sizing:border-box;padding:0 7px !important;}
    .wNews .newsBlock{display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:0;background:#fff;border:1px solid #e3e8ef;border-radius:10px;box-shadow:none;overflow:hidden;text-decoration:none;transition:border-color .2s ease-out,box-shadow .2s ease-out;}
    .wNews .newsBlock:hover,.wNews .newsBlock:focus-visible{border-color:#0a5cc4;box-shadow:0 4px 14px rgba(15,36,64,0.08);outline:none;}
    .wNews .newsImage{height:170px;margin:0;padding:0;overflow:hidden;background:#eef4fb;}
