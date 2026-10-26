@@ -548,8 +548,12 @@ function serviceCandRank(p) {
 // are dropped from the data the AI gets and from the final cards -- unless
 // the customer asks for such a part himself ("нужен корпус фильтра").
 const NON_SERVICE_PART_RE = /корпус|крышк|модул|уплотн|прокладк|датчик|кронштейн|держател|теплообмен|патрубок|шланг|трубк|болт|винт|гайк|насос|клапан/i;
+// BMW names the oil filter HOUSING module just "Масляный фильтр" (G05:
+// 11428488578, E70: 11427800066, 24 300 ₽ live 26.10); the service part is
+// "К-т сменного элемента масляного фильтра". So the bare name counts as non-service.
+const HOUSING_BARE_NAME_RE = /^\s*масляный\s+фильтр\s*$/i;
 function isNonServicePart(...names) {
-  return names.some(n => n && NON_SERVICE_PART_RE.test(String(n)));
+  return names.some(n => n && (NON_SERVICE_PART_RE.test(String(n)) || HOUSING_BARE_NAME_RE.test(String(n))));
 }
 function asksForNonServicePart(messages) {
   const last = [...(messages || [])].reverse().find(m => m && m.role === 'user');
@@ -2307,11 +2311,11 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         // ТО: open the service unit DIRECTLY from the car's catalogue page
         // (26.10, see laximo.getServiceUnit); the old route only as a fallback.
         diagramPromise = capped((async () => {
-          const direct = await capped(laximo.getServiceUnit(laximoResult.vehicleQuery), 10000);
+          const direct = await capped(laximo.getServiceUnit(laximoResult.vehicleQuery), 14000); // car page + 1-4 categories + unit, 3 s apart; keeps running and caches if cut
           if (direct && Array.isArray(direct.unitParts) && direct.unitParts.length > 1 && SERVICE_UNIT_RE.test(direct.unitName || '')) return direct;
           if (serviceCands.length) return viaSchemaButtons();
           return cand ? capped(laximo.getPartDiagram(cand), 6000) : null;
-        })(), 18000);
+        })(), 22000);
       } else if (serviceCands.length) {
         diagramPromise = capped(viaSchemaButtons(), 16000);
       } else if (cand) {
