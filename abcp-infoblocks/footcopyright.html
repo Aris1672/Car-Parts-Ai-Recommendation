@@ -2,7 +2,7 @@
 <div class="bcFoot_cols">
 <div class="bcFoot_brand"><a class="bcFoot_logo" href="/"><img src="https://cdn.abcp.ru/f/661980" alt="BmwClub77 — оригинальные запчасти" width="200" height="59" /></a>
 <p class="bcFoot_about">Оригинальные запчасти BMW и качественные аналоги с 2011 года. Индивидуальный подход к каждому клиенту.</p>
-<div class="bcFoot_social"><a class="bcFoot_soc bcFoot_tg" href="https://t.me/+79675557555" target="_blank" rel="nofollow noopener noreferrer" title="Написать в Telegram" aria-label="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.7 4.3 3.4 11c-1.2.5-1.2 1.2-.2 1.5l4.4 1.4 1.7 5.2c.2.6.1.8.7.8.5 0 .7-.2 1-.5l2.1-2.1 4.4 3.3c.8.4 1.4.2 1.6-.8l2.9-13.7c.3-1.2-.5-1.8-1.3-1.4zM8.6 13.6l9.6-6c.5-.3.9-.1.5.2l-8.2 7.4-.3 3.4-1.6-5z"></path></svg></a><a class="bcFoot_soc bcFoot_max" href="https://max.ru/+79675557555" target="_blank" rel="nofollow noopener noreferrer" title="Написать в MAX" aria-label="MAX">MAX</a></div>
+<div class="bcFoot_social"><a class="bcFoot_soc bcFoot_tg" href="https://t.me/+79675557555" target="_blank" rel="nofollow noopener noreferrer" title="Написать в Telegram" aria-label="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M20.7 4.3 3.4 11c-1.2.5-1.2 1.2-.2 1.5l4.4 1.4 1.7 5.2c.2.6.1.8.7.8.5 0 .7-.2 1-.5l2.1-2.1 4.4 3.3c.8.4 1.4.2 1.6-.8l2.9-13.7c.3-1.2-.5-1.8-1.3-1.4zM8.6 13.6l9.6-6c.5-.3.9-.1.5.2l-8.2 7.4-.3 3.4-1.6-5z"></path></svg></a><a class="bcFoot_soc bcFoot_max" href="https://max.ru/+79675557555" target="_blank" rel="nofollow noopener noreferrer" title="Написать в MAX" aria-label="MAX"><img src="https://bmwclub77.assistant24info.ru/widget/icons/max.png" alt="MAX" width="38" height="38" /></a></div>
 <a class="bcFoot_review" href="https://yandex.ru/profile/210465980190" target="_blank" rel="noopener">★ Оставить отзыв на Яндексе</a></div>
 <div class="bcFoot_col">
 <div class="bcFoot_h">Покупателям</div>
@@ -32,7 +32,7 @@
     a.title = title; a.setAttribute('aria-label', title); a.innerHTML = html;
     return a;
   }
-  var maxLink = function (cls) { return link('bcHead_max ' + (cls || ''), 'https://max.ru/+79675557555', 'Написать в MAX', 'MAX'); };
+  var maxLink = function (cls) { return link('bcHead_max ' + (cls || ''), 'https://max.ru/+79675557555', 'Написать в MAX', '<img src="https://bmwclub77.assistant24info.ru/widget/icons/max.png" alt="MAX" width="30" height="30">'); };
   // phone side menu: MAX right after Telegram
   var side = document.querySelectorAll('.head-info .phone-links');
   for (var i = 0; i < side.length; i++) {
@@ -113,7 +113,8 @@ footer.footer .footerCopy{width:100% !important;max-width:none !important;float:
 .bcFoot_soc{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff !important;text-decoration:none !important;font-size:11px;font-weight:700;}
 .bcFoot_soc svg{width:20px;height:20px;}
 .bcFoot_tg{background:#29a9eb;}
-.bcFoot_max{background:#0f2440;letter-spacing:.3px;}
+.bcFoot_max{border-radius:9px;}
+.bcFoot_max img{display:block;width:38px;height:38px;border-radius:9px;}
 .bcFoot_soc:hover{opacity:.85;}
 .bcFoot_review{display:inline-block;margin-top:12px;font-size:13px;color:#33404f !important;text-decoration:none !important;}
 .bcFoot_review:hover{color:#0a5cc4 !important;}
@@ -142,7 +143,8 @@ footer.footer .footerCopy{width:100% !important;max-width:none !important;float:
 .bcHead_tg{width:30px;height:30px;border-radius:50%;background:#29a9eb;color:#fff !important;display:flex;align-items:center;justify-content:center;text-decoration:none !important;}
 .bcHead_tg svg{width:17px;height:17px;}
 .bcHead_tg:hover{opacity:.85;}
-.bcHead_max{width:30px;height:30px;border-radius:50%;background:#0f2440;color:#fff !important;display:flex;align-items:center;justify-content:center;font:700 9px/1 Roboto,Arial,sans-serif;letter-spacing:.3px;text-decoration:none !important;}
+.bcHead_max{width:30px;height:30px;display:flex;align-items:center;justify-content:center;text-decoration:none !important;}
+.bcHead_max img{display:block;width:30px;height:30px;border-radius:7px;}
 .phone-links a[href*="t.me"]:hover img,.bcHead_max:hover{opacity:.85;}
 @media (max-width:991px){ .bcFoot_cols{grid-template-columns:1fr 1fr;} }
 @media (max-width:540px){ .bcFoot_cols{grid-template-columns:1fr;gap:24px;} .bcFoot_bottom{display:block;} .bcFoot_bottom a{display:inline-block;margin-top:6px;} }
