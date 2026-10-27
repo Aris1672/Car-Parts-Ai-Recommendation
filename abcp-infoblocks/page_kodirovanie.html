@@ -64,11 +64,32 @@
 </section>
 </div>
 </div>
+<script>
+/* Hero right under the site header (no grey gap above it), like the homepage: the
+   gap is measured (ABCP's spacing may change) and only a small one (<= 150 px) is closed;
+   the header stays above the photo, so its search tab overlaps the top of the hero. */
+(function () {
+  function fit() {
+    var hero = document.querySelector('.bcCd_hero'), header = document.querySelector('header');
+    if (!hero || !header) return;
+    hero.style.marginTop = '';
+    var gap = Math.round(hero.getBoundingClientRect().top - header.getBoundingClientRect().bottom);
+    if (gap <= 0 || gap > 150) return;
+    hero.style.marginTop = -gap + 'px';
+    var hs = getComputedStyle(header);
+    if (hs.position === 'static') header.style.position = 'relative';
+    if (!hs.zIndex || hs.zIndex === 'auto') header.style.zIndex = '5';
+  }
+  fit();
+  window.addEventListener('load', fit);
+  window.addEventListener('resize', fit);
+})();
+</script>
 <style><!--
 /* «Кодирование и чип-тюнинг» page (27.10), in the site's style: photo hero with a dark fade (like the phone homepage), light cards below. */
 .bcCd{font-family:Roboto,Arial,sans-serif;color:#1d2b3c;text-align:left;margin:0 0 50px;}
 .bcCd *{box-sizing:border-box;}
-.bcCd_hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);min-height:460px;display:flex;align-items:center;background:#0f1926 url(https://bmwclub77.assistant24info.ru/widget/brand/coding-hero.jpg?v=1) center 62%/cover no-repeat;}
+.bcCd_hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);min-height:500px;display:flex;align-items:center;background:#0f1926 url(https://bmwclub77.assistant24info.ru/widget/brand/coding-hero.jpg?v=1) center 62%/cover no-repeat;}
 .bcCd_hero::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,20,38,.92) 0%,rgba(9,20,38,.78) 38%,rgba(9,20,38,.15) 66%,rgba(9,20,38,0) 80%);}
 .bcCd_heroIn{position:relative;max-width:1420px;width:100%;margin:0 auto;padding:48px 15px;}
 .bcCd_eyebrow{font-family:'BC Exo 2',Montserrat,sans-serif;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#7cc0ff;}

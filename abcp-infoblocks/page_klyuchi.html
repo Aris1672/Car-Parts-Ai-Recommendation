@@ -56,11 +56,32 @@
 </section>
 </div>
 </div>
+<script>
+/* Hero right under the site header (no grey gap above it), like the homepage: the
+   gap is measured (ABCP's spacing may change) and only a small one (<= 150 px) is closed;
+   the header stays above the photo, so its search tab overlaps the top of the hero. */
+(function () {
+  function fit() {
+    var hero = document.querySelector('.bcKy_hero'), header = document.querySelector('header');
+    if (!hero || !header) return;
+    hero.style.marginTop = '';
+    var gap = Math.round(hero.getBoundingClientRect().top - header.getBoundingClientRect().bottom);
+    if (gap <= 0 || gap > 150) return;
+    hero.style.marginTop = -gap + 'px';
+    var hs = getComputedStyle(header);
+    if (hs.position === 'static') header.style.position = 'relative';
+    if (!hs.zIndex || hs.zIndex === 'auto') header.style.zIndex = '5';
+  }
+  fit();
+  window.addEventListener('load', fit);
+  window.addEventListener('resize', fit);
+})();
+</script>
 <style><!--
 /* «Изготовление ключей» page (27.10), owner's draft in the site style: dark photo hero, light cards below. */
 .bcKy{font-family:Roboto,Arial,sans-serif;color:#1d2b3c;text-align:left;margin:0 0 50px;}
 .bcKy *{box-sizing:border-box;}
-.bcKy_hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);min-height:460px;display:flex;align-items:center;background:#0b1424;overflow:hidden;}
+.bcKy_hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);min-height:500px;display:flex;align-items:center;background:#0b1424;overflow:hidden;}
 .bcKy_heroImg{position:absolute;top:0;right:0;bottom:0;width:58%;background:url(https://bmwclub77.assistant24info.ru/widget/brand/keys/hero.jpg?v=1) center/cover no-repeat;}
 .bcKy_heroImg::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#0b1424 0%,rgba(11,20,36,.6) 22%,rgba(11,20,36,0) 45%);}
 .bcKy_heroIn{position:relative;max-width:1420px;width:100%;margin:0 auto;padding:48px 15px;}
