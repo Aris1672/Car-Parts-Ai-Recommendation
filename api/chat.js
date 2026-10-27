@@ -857,6 +857,32 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
   }
 }
 
+// ─── WORKSHOP SERVICES (keys, coding) -- not a part search ──────────────────
+// Live 27.10: "Потерял ключ от X3 F25, сделаете?" went into the catalog: the
+// model wizard asked for the engine, then the part search for «ключ» showed a
+// torque wrench, a tow-bar key and bike-rack keys with diagrams. These are
+// services of the BMW workshop (prompt skills «ИЗГОТОВЛЕНИЕ КЛЮЧЕЙ» and
+// «КОДИРОВАНИЕ…»): no catalog, no cards, no diagrams.
+const KEY_SERVICE_RE = /ключ|smart\s*key|digital\s*key|comfort\s*access|брелок/i;
+const NOT_CAR_KEY_RE = /гаечн|динамометр|баллонн|колесн|свечн|торцев|шестигран|накидн|рожков|секретк|ключ\S*\s+(для|от)\s+(колес|свеч|фильтр|гаек|болт)/i;
+const CODING_SERVICE_RE = /кодир|чип[\s-]?тюн|прошив|прошить|скрыт\S*\s+функц|launch\s*control|старт[\s-]?стоп|start\s*\/?\s*stop/i;
+const PART_WORDS_RE = /фильтр|колодк|диск|масл|свеч|амортиз|рычаг|стойк|датчик|ламп|фар|бампер|ремен|помп|термостат|прокладк|сальник|антифриз|жидкост|щетк|аккумулят|подшип|шрус|опор|сайлент|детал|запчаст|артикул|\d{7,}/i;
+function serviceTopicOf(text) {
+  const t = String(text || '');
+  if (CODING_SERVICE_RE.test(t)) return 'coding';
+  if (KEY_SERVICE_RE.test(t) && !NOT_CAR_KEY_RE.test(t)) return 'keys';
+  return null;
+}
+/** 'keys' | 'coding' | null -- the latest message, or a short follow-up to the one before (e.g. a model button). */
+function workshopServiceTopic(messages) {
+  const users = (messages || []).filter(m => m && m.role === 'user' && typeof m.content === 'string').map(m => m.content);
+  const last = users[users.length - 1] || '';
+  const own = serviceTopicOf(last);
+  if (own) return own;
+  if (users.length < 2 || last.length > 60 || PART_WORDS_RE.test(last)) return null;
+  return serviceTopicOf(users[users.length - 2]);
+}
+
 // ─── PHONE SANITY CHECK ─────────────────────────────────────────────────────
 // The extraction step once took a BMW part number for the customer's phone
 // ("Подойдёт 13627823945? VIN …" -> contactPhone "13627823945", 23.10), which
@@ -1872,6 +1898,13 @@ async function handler(req, res) {
     // already-matched result instead of the full dataset.
     const extracted = await extractVehicleInfo(messages);
     sanitizeContactPhone(extracted);
+    // Keys / coding = workshop services: no catalog work at all (see workshopServiceTopic).
+    const workshopTopic = extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true' ? null : workshopServiceTopic(messages);
+    if (workshopTopic) {
+      console.log(`[service] workshop topic "${workshopTopic}": no part search (keywords were ${JSON.stringify(extracted.partKeywords)})`);
+      extracted.partKeywords = null;
+      extracted.vendorCode = null;
+    }
     console.log("========== VEHICLE ==========");
 console.log(JSON.stringify(extracted, null, 2));
 
@@ -1943,7 +1976,7 @@ console.log(JSON.stringify(extracted, null, 2));
     }
 
     const laximoOutcome = {};
-    const laximoResult = await lookupLaximo(extracted, messages, laximoOutcome);
+    const laximoResult = workshopTopic ? null : await lookupLaximo(extracted, messages, laximoOutcome);
     // Dashboard «Подбор» (green / red dot per chat): the outcome goes back with
     // the reply and the widget logs it -- the chat session is created only
     // after the first reply, so the server doesn't know it yet. No outcome =
@@ -2190,6 +2223,7 @@ console.log(JSON.stringify(extracted, null, 2));
     } else {
       matchedCatalog = matchedCatalogByVehicle;
     }
+    if (workshopTopic) matchedCatalog = []; // keys / coding: no product cards
     if (serviceOnly) {
       const dropped = matchedCatalog.filter(p => isNonServicePart(p.name, p.category, laximoNameOf(p.article)));
       if (dropped.length) {
@@ -2318,7 +2352,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Part number typed by the customer IN THIS MESSAGE -> the widget shows a
     // button to the site's search page for it (all offers incl. "под заказ",
     // prices, delivery times -- also for parts with no card in the feed).
-    const partLinkCodes = partLinksForMessage(extracted, messages);
+    const partLinkCodes = workshopTopic ? [] : partLinksForMessage(extracted, messages);
     const compatNote = compat ? `\n\n═══════════════════════════════════════════\nПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА (результат автоматической проверки по оригинальному каталогу — опирайся ТОЛЬКО на него):\n═══════════════════════════════════════════\n${JSON.stringify({ ...compat, matchedBy: laximoResult?.matchedBy || null, vehicle: laximoResult?.vehicle?.name || null })}\nПравила по полю "verdict":\n- "fits": номер ЕСТЬ в оригинальном каталоге для автомобиля клиента. Если matchedBy = "vin" — скажи, что совместимость подтверждена по VIN. Если "model" — что по каталогу номер подходит для этой модели, а для полной уверенности можно прислать VIN. Упомяни узел (unit) и условия из notes, если есть.\n- "other_numbers": номера клиента в каталоге его автомобиля НЕТ, но для этой детали каталог указывает другие номера (catalogNumbers). Скажи это прямо и вежливо, назови номера из каталога. Возможные причины: номер устарел/заменён, деталь для другой модификации. Если "aftermarket": true — номер клиента от другого производителя (аналог), а оригинальный номер для машины — из catalogNumbers; подходит ли аналог, уточнит менеджер. Предложи менеджера для окончательной проверки.\n- "part_not_found": по названию детали в каталоге автомобиля ничего не найдено — скажи, что автоматически проверить не удалось, предложи менеджера (<<<MANAGER_BUTTON>>>).\n- "vehicle_not_found": автомобиль по VIN не найден — попроси проверить VIN.\n- "unavailable" или "no_part_name": проверить автоматически сейчас не удалось — скажи это и предложи менеджера (<<<MANAGER_BUTTON>>>), НЕ утверждай, что деталь подходит или не подходит.
 - "vin_unavailable_need_model": проверка по VIN в оригинальном каталоге СЕЙЧАС ВРЕМЕННО НЕДОСТУПНА. Скажи это коротко и попроси марку, модель с кодом кузова (например X5 F15), двигатель или год — по ним проверишь по базе совместимости. НЕ утверждай, подходит ли деталь.
 - "table_fits": оригинальный каталог сейчас недоступен, но по НАШЕЙ БАЗЕ СОВМЕСТИМОСТИ номер указан для автомобиля клиента (tableVehicles). Если есть поле carFromVin — автомобиль уже определён по VIN, НЕ проси подтвердить модель, сразу дай результат. Скажи "по нашей базе совместимости подходит для …", назови запись(и) и добавь, что для 100% уверенности можно проверить по VIN позже или уточнить у менеджера.
@@ -2504,6 +2538,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     }
     if (diagram) delete diagram.unitParts; // the card gets `kit` instead
 
+    const workshopNote = workshopTopic
+      ? `\n\n═══════════════════════════════════════════\nТЕМА — УСЛУГА СЕРВИСА (${workshopTopic === 'keys' ? 'изготовление ключей' : 'кодирование / чип-тюнинг / прошивка'}):\n═══════════════════════════════════════════\nКлиент спрашивает про услугу BMW-сервиса, а не про запчасть. Отвечай по навыку «${workshopTopic === 'keys' ? 'ИЗГОТОВЛЕНИЕ КЛЮЧЕЙ BMW и MINI' : 'КОДИРОВАНИЕ, ЧИП-ТЮНИНГ, ПРОШИВКА'}». НЕ подбирай детали, НЕ добавляй блоки <<<PRODUCTS>>> и кнопки подбора запчастей; кнопки — только про запись/связь (например «📞 Записаться», «Связаться с менеджером»). Модификацию двигателя для этой услуги не уточняй.`
+      : '';
     const morePartDiagramsNote = partDiagramJobs && partDiagramJobs.size > 1
       ? `\nДля остальных предлагаемых номеров без фото система тоже покажет схемы узлов (по одной на узел, позиции отмечены красным) — перечислять их отдельно не нужно; каждый номер, который ты предлагаешь, пиши полностью (11 цифр), чтобы к нему добавилась схема.`
       : '';
@@ -2538,7 +2575,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
                            // <<<PRODUCTS>>> block, so it silently fell back
                            // to showing the raw (broken) text instead of
                            // rendering cards.
-        system:      systemWithData + diagramNote + extraDiagramNote + morePartDiagramsNote + serviceKitNote,
+        system:      systemWithData + diagramNote + extraDiagramNote + morePartDiagramsNote + serviceKitNote + workshopNote,
         messages:    messages,
       }),
       signal: AbortSignal.timeout(75000),
@@ -2658,6 +2695,7 @@ module.exports.orderStatusReply = orderStatusReply;
 module.exports.compatVerdict = compatVerdict;
 module.exports.keywordsFromName = keywordsFromName;
 module.exports.offeredCodes = offeredCodes;
+module.exports.workshopServiceTopic = workshopServiceTopic;
 module.exports.positiveFirstSentence = positiveFirstSentence;
 module.exports.groupPartDiagrams = groupPartDiagrams;
 module.exports.abcpPartName = abcpPartName;

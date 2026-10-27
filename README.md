@@ -206,6 +206,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - New ABCP page «Изготовление ключей» at /izgotovlenieklyuchey (abcp-infoblocks/page_klyuchi.html, images widget/brand/keys/); footer link added; agent skill «ИЗГОТОВЛЕНИЕ КЛЮЧЕЙ» (no part search / cards, booking contacts, no invented prices or guarantee terms).
 
+- Workshop services are not a part search (live 27.10: «Потерял ключ от X3 F25» → engine wizard + torque wrench / tow-bar key diagrams): `workshopServiceTopic()` detects keys / coding (also on a short follow-up like a model button; wrench keys and part words excluded) → no Laximo, no compatibility check, no cards, no part links, plus a prompt note to answer by the service skill.
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
