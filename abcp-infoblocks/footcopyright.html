@@ -13,7 +13,7 @@
 <div class="bcFoot_col bcFoot_contacts">
 <div class="bcFoot_h">Контакты</div>
 <a class="bcFoot_phone" href="tel:+79675557555">+7 (967) 555-7-555</a> <a href="mailto:Orders@BmwClub77.ru">Orders@BmwClub77.ru</a>
-<p class="bcFoot_addr">Химки, ул. Молодёжная 9Н (BMW СЕРВИС)<br /><a class="bcFoot_route" href="https://yandex.ru/maps/?text=%D0%A5%D0%B8%D0%BC%D0%BA%D0%B8%2C%20%D1%83%D0%BB.%20%D0%9C%D0%BE%D0%BB%D0%BE%D0%B4%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F%209%D0%9D" target="_blank" rel="noopener">Как проехать →</a></p>
+<p class="bcFoot_addr">Химки, ул. Молодёжная 9Н (BMW СЕРВИС)<br /><a class="bcFoot_route" href="https://yandex.ru/maps/?rtext=~55.882628%2C37.415488&rtt=auto" target="_blank" rel="noopener">Как проехать →</a></p>
 <p class="bcFoot_hours">Пн–Пт: 10:30–20:00<br />Сб–Вс: 11:00–18:00 (выдача готовых заказов)</p>
 </div>
 </div>
@@ -89,7 +89,7 @@
     if (/ПВЗ/.test(t) && /Молод[её]жн/i.test(t) && (!el || el.contains(els[i]))) el = els[i];
   }
   if (!el) return;
-  var url = 'https://yandex.ru/maps/?text=%D0%A5%D0%B8%D0%BC%D0%BA%D0%B8%2C%20%D1%83%D0%BB.%20%D0%9C%D0%BE%D0%BB%D0%BE%D0%B4%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F%209%D0%9D';
+  var url = 'https://yandex.ru/maps/?rtext=~55.882628%2C37.415488&rtt=auto';
   var pin = document.createElement('a');
   pin.className = 'bcHead_pin'; pin.href = url; pin.target = '_blank'; pin.rel = 'noopener';
   pin.title = 'Как проехать'; pin.setAttribute('aria-label', 'Как проехать');
