@@ -198,6 +198,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Dashboard «Подбор» (27.10): column «Каталог» with a dot per chat — white = the original catalog (Laximo) wasn't needed, green = used, red = blocked / no answer (paused after the site's browser check, hourly budget, breaker, time-out, part search interrupted); hover shows the reason / car. api/chat.js returns `catalog: {status, reason, mode, vehicle}` with the reply; the widget logs it as event `laximo` (lib/chatEvents.js). Chats from before 27.10 show white.
 
+- Part number with an «Открыть деталь» button (owner, 27.10: customers read only the first sentence and didn't open the button after «нет данных…»): prompt rule — first sentence exactly «По номеру <номер> все актуальные предложения можно посмотреть по кнопке «Открыть деталь» ниже.», never open with «нет данных / не могу / к сожалению»; safety net `positiveFirstSentence()` rewrites the «…нет данных … — но … Открыть деталь …» first sentence.
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).

@@ -984,6 +984,19 @@ function compatVerdict(code, laximoResult) {
 // wait at most this long for the ones still loading.
 const MAX_PART_DIAGRAMS = 6;
 
+/**
+ * "По номеру 5JA 809 999 B у меня сейчас нет данных о цене, наличии и
+ * совместимости — но все актуальные предложения по этому номеру можно
+ * посмотреть по кнопке «Открыть деталь» ниже." -> "По номеру 5JA 809 999 B
+ * все актуальные предложения можно посмотреть по кнопке «Открыть деталь» ниже."
+ * Only the first sentence, only this "no data — but …" shape; anything else is left as written.
+ */
+function positiveFirstSentence(text) {
+  return String(text || '').replace(
+    /^(\s*По (?:номеру|артикулу) [^\n,.—]+?),? (?:у меня |пока |сейчас |к сожалению,? )*(?:нет|не нашлось|не нашёл)[^\n—]*?—\s*(?:но\s+)?([^\n]*?Открыть деталь[^\n]*)/i,
+    (m, head, rest) => `${head} ${rest.replace(/\s*по этому (?:номеру|артикулу)/i, '')}`);
+}
+
 /** Codes (normalized) the reply offers: written in the text or with a button; in reply order. */
 function offeredCodes(text, codes, linkCodes) {
   const compact = String(text || '').toUpperCase().replace(/[\s\-]/g, '');
@@ -2313,7 +2326,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       ? `\n\n═══════════════════════════════════════════\nАКТУАЛЬНЫЕ ЦЕНЫ (прямо сейчас из поиска на сайте, профиль «Гость (Опт)»; этот раздел ВАЖНЕЕ запрета называть цену для номеров, которых нет в КАТАЛОГЕ ТОВАРОВ):\n═══════════════════════════════════════════\n${JSON.stringify(livePrices)}\nДля каждого номера: cheapest — самое дешёвое предложение (price в ₽, days — срок поставки в днях, 0 = в наличии/сегодня; daysMax — максимальный срок; noReturn — без возврата), count — сколько всего предложений. Назови цену "от <price> ₽" и срок этого предложения ("в наличии" при inStock, иначе "~N дн."). Если noReturn — предупреди, что без возврата. Скажи, что цена актуальна на сейчас, а все предложения (в том числе с более быстрым сроком) — по кнопке «Открыть деталь», где можно выбрать подходящее. НЕ добавляй эти номера в блок <<<PRODUCTS>>>. Для номеров, которых нет в этом разделе, цену НЕ называй.`
       : '';
     const partLinkNote = partLinkCodes.length
-      ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных", "нет в наличии" или что его "нет в каталоге/на сайте": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ${compat ? ' (совместимость — см. раздел ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА)' : ' и проверит совместимость с автомобилем клиента'}. Саму кнопку и ссылку в тексте НЕ дублируй.`
+      ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных", "нет в наличии" или что его "нет в каталоге/на сайте": скажи, что цену и срок поставки можно посмотреть по кнопке ниже, а менеджер поможет оформить заказ${compat ? ' (совместимость — см. раздел ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА)' : ' и проверит совместимость с автомобилем клиента'}. Саму кнопку и ссылку в тексте НЕ дублируй.\n\nНАЧАЛО ОТВЕТА (владелец, 27.10: клиенты читают только первую фразу и не открывают кнопку, если она начинается с «нет данных»): ПЕРВАЯ фраза ответа — ровно в таком виде: «По номеру <номер, как его написал клиент> все актуальные предложения можно посмотреть по кнопке «Открыть деталь» ниже.» Никогда не начинай ответ со слов «нет данных», «нет информации», «не могу», «к сожалению», «у меня нет». Про совместимость пиши ПОСЛЕ этого, позитивно: например «Чтобы проверить, подойдёт ли деталь к вашему автомобилю, пришлите VIN или марку, модель и год».`
       : '';
 
     const systemWithData = SYSTEM_PROMPT
@@ -2526,6 +2539,10 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       console.warn(`[chat] reply hit max_tokens (output ${data.usage?.output_tokens ?? '?'} tokens)`);
     }
     text = repairTruncatedBlocks(text);
+    // A part number with an "Открыть деталь" button: never open the answer with
+    // "нет данных" (owner, 27.10 -- customers stop reading and don't open the
+    // button). Safety net for the prompt rule in partLinkNote.
+    if (allLinkCodes.length) text = positiveFirstSentence(text);
 
     // If the customer typed a phone/email instead of clicking the manager
     // button, tell the widget to trigger the same handoff automatically
@@ -2616,6 +2633,7 @@ module.exports.orderStatusReply = orderStatusReply;
 module.exports.compatVerdict = compatVerdict;
 module.exports.keywordsFromName = keywordsFromName;
 module.exports.offeredCodes = offeredCodes;
+module.exports.positiveFirstSentence = positiveFirstSentence;
 module.exports.groupPartDiagrams = groupPartDiagrams;
 module.exports.abcpPartName = abcpPartName;
 module.exports.looksGarbled = looksGarbled;
