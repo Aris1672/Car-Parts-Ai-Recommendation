@@ -777,6 +777,94 @@ function catalogBrand(extracted, laximoResult) {
   return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b;
 }
 
+// ─── VERSIONS OF ONE PART: production date + equipment question ─────────────
+// The VIN catalog lists every version of a part, e.g. the power-steering pump
+// «для автомобилей с D Steering (S217A)» vs the Adaptive Drive one (live
+// 28.10, X5 E70) -- which one fits depends on factory options the catalog
+// does not show for the car. So:
+//  1. production date (known from the VIN, «Дата выпуска»): versions whose
+//     date notes exclude the car are dropped -- only among versions of the
+//     same part, and never all of them;
+//  2. versions left that differ by an equipment note -> one question with
+//     plain buttons (+ «Не знаю»: all versions are shown, the manager confirms).
+const VARIANT_LEAD = 'Эта деталь отличается по комплектации';
+const VARIANT_UNKNOWN = 'Не знаю';
+const MONTHS = { 'янв': 1, 'фев': 2, 'мар': 3, 'апр': 4, 'май': 5, 'мая': 5, 'июн': 6, 'июл': 7, 'авг': 8, 'сен': 9, 'окт': 10, 'ноя': 11, 'дек': 12 };
+/** "29.09.2010" / "09/2010" / "2010-09" / "сентябрь 2010" -> 201009 (year*100+month), or null. */
+function yearMonth(text) {
+  const t = String(text || '').toLowerCase();
+  let m = t.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/); if (m) return +m[3] * 100 + +m[2];
+  m = t.match(/\b(\d{1,2})[./](\d{4})\b/); if (m && +m[1] >= 1 && +m[1] <= 12) return +m[2] * 100 + +m[1];
+  m = t.match(/\b(\d{4})-(\d{2})\b/); if (m) return +m[1] * 100 + +m[2];
+  m = t.match(/\b(янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек)[а-я]*\.?\s+(\d{4})\b/); if (m) return +m[2] * 100 + MONTHS[m[1]];
+  return null;
+}
+const noteEntries = p => Object.entries(p.notes || {}).map(([k, v]) => [String(k), String(v)]);
+/** The vehicle production window a part's notes give, { from, to } (yyyymm), or null. */
+function partDateWindow(p) {
+  let from = null, to = null;
+  for (const [k, v] of noteEntries(p)) {
+    const both = `${k}: ${v}`.toLowerCase();
+    const ym = yearMonth(v) || yearMonth(k);
+    if (!ym) continue;
+    if (/не\s+производ|окончан|по\s+дат|(^|[^а-яё])до\s|выпуск\S*\s+до/.test(both)) to = ym;
+    else if (/производ\S*\s+с|начал|выпуск\S*\s+(с|от)|(^|[^а-яё])(с|от)\s+\d/.test(both)) from = ym;
+  }
+  return from || to ? { from, to } : null;
+}
+/** Equipment condition from the notes, e.g. «D Steering (S217A)», or null. */
+function equipmentCondition(p) {
+  for (const [, v] of noteEntries(p)) {
+    const m = v.match(/для\s+автомобил\S*\s+(?:с|со)\s+(.+)/i);
+    if (!m) continue;
+    const alts = m[1].split(/\s+или\s+|\s*;\s*/i);
+    const first = alts[0];
+    const without = /=\s*(нет|no)(?![а-яёa-z])/i.test(first); // (\b does not work next to Cyrillic)
+    const name = first.replace(/\s*=\s*(да|нет|yes|no)(?![а-яёa-z]).*$/i, '').replace(/\s+/g, ' ').trim();
+    if (name) return ((without ? 'Без ' : '') + name).slice(0, 40) + (alts.length > 1 ? ' и др.' : '');
+  }
+  return null;
+}
+const fullNameKey = p => String(p.name || '').toLowerCase().replace(/[^а-яёa-z0-9]+/g, ' ').trim();
+/**
+ * Pure. parts + car's production date -> { parts, dropped, question } where
+ * question = { question, options:[{label, rows:[oem…]}] } or null.
+ */
+function versionCheck(parts, vehicleDate, opts = {}) {
+  const car = yearMonth(vehicleDate);
+  const groups = new Map();
+  for (const p of parts) (groups.get(fullNameKey(p)) || groups.set(fullNameKey(p), []).get(fullNameKey(p))).push(p);
+  const drop = new Set();
+  for (const list of groups.values()) {
+    if (!car || list.length < 2) continue;
+    const fits = list.filter(p => { const w = partDateWindow(p); return !w || ((!w.from || car >= w.from) && (!w.to || car < w.to)); });
+    if (fits.length && fits.length < list.length) for (const p of list) if (!fits.includes(p)) drop.add(p);
+  }
+  const kept = parts.filter(p => !drop.has(p));
+  let question = null;
+  if (opts.allowAsk) {
+    for (const list of groups.values()) {
+      const left = list.filter(p => !drop.has(p));
+      const oems = [...new Set(left.map(p => p.oem))];
+      if (oems.length < 2 || oems.length > 5) continue;
+      const labels = new Map();
+      for (const p of left) {
+        const label = equipmentCondition(p) || 'Без этих опций (обычная)';
+        (labels.get(label) || labels.set(label, []).get(label)).push(p.oem);
+      }
+      if (labels.size < 2 || ![...labels.keys()].some(l => !/^Без этих опций/.test(l))) continue;
+      question = {
+        lead: VARIANT_LEAD,
+        question: `«${left[0].name}» для вашей машины есть в нескольких исполнениях. Какая у неё комплектация?`,
+        options: [...labels.entries()].map(([label, rows]) => ({ label, rows })),
+        allLabel: VARIANT_UNKNOWN,
+      };
+      break; // one question: the main part (first group in the answer's order)
+    }
+  }
+  return { parts: Object.assign(kept, { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad, droppedByGroup: parts.droppedByGroup }), dropped: [...drop].map(p => p.oem), question };
+}
+
 // ─── AI FILTER + CLARIFYING QUESTION for catalog results ────────────────────
 // The part search uses the catalog's own short names ("суппорт", "фильтр",
 // "глушитель"), which find the part however the customer phrased it, but also
@@ -802,11 +890,12 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
   const rows = parts.slice(0, PART_FILTER_MAX_ROWS);
   const asked = (extracted.partKeywords || []).join(', ');
   const lastUser = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').slice(-3).map(m => m.content.slice(0, 300)).join(' | ');
-  const list = rows.map((p, i) => `${i + 1}. ${p.name || ''}${p.unit ? ' — узел: ' + p.unit : ''}`).join('\n');
+  const noteText = p => Object.entries(p.notes || {}).filter(([k]) => k !== 'Количество').map(([k, v]) => `${k}: ${v}`).join('; ').slice(0, 160);
+  const list = rows.map((p, i) => `${i + 1}. ${p.name || ''}${p.unit ? ' — узел: ' + p.unit : ''}${noteText(p) ? ' — ' + noteText(p) : ''}`).join('\n');
   const askRule = opts.allowAsk
     ? `\n\nЕсли запрос клиента ОБЩИЙ (например просто «глушитель», «датчик», «ремень», «колодки») и подходящие строки -- это РАЗНЫЕ детали или разные места установки (передняя/задняя ось, средний/задний глушитель, впуск/выпуск), которые клиент не уточнил, -- НЕ выбирай за него, а верни вопрос:\n{"ask":{"question":"короткий вопрос","options":[{"label":"короткое понятное название варианта, до 40 символов","rows":[номера строк]}]}}\n2-6 вариантов, только из этого списка. Левую и правую стороны одной детали НЕ разделяй (это один вариант). Крепёж и мелочи (кронштейн, хомут, болт, прокладка) отдельным вариантом не выноси, если клиент спрашивает про саму деталь.`
     : '';
-  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» -- оставь все подходящие по смыслу строки. Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${askRule}\n\nТолько JSON, без пояснений.`;
+  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» или «${VARIANT_UNKNOWN}» -- оставь все подходящие по смыслу строки. Если клиент выбрал комплектацию (например «D Steering (S217A)» или «Без этих опций (обычная)») -- оставь исполнение с этим примечанием (для «Без этих опций» -- без такого примечания). Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${askRule}\n\nТолько JSON, без пояснений.`;
   try {
     const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
@@ -912,13 +1001,25 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     let filteredOut = 0;
     // Also when the rows are different parts (e.g. middle / rear / intake
     // silencer): the customer may have to choose -- one clarifying question.
-    if (plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2)) {
+    const lastAssistantText = String((([...(messages || [])].reverse().find(m => m.role === 'assistant')) || {}).content || '');
+    const sameNameVersions = parts => { const seen = new Map(); for (const p of parts || []) { const k = fullNameKey(p); seen.set(k, (seen.get(k) || new Set()).add(p.oem)); } return [...seen.values()].some(v => v.size >= 2); };
+    if (plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2 || (lastAssistantText.includes(VARIANT_LEAD) && sameNameVersions(result.parts)))) {
       const before = result.parts.length;
       const lastAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant');
       const allowAsk = !String((lastAssistant && lastAssistant.content) || '').includes(CLARIFY_LEAD); // never two questions in a row
       result.parts = await aiFilterParts(result.parts, extracted, messages, { allowAsk });
       if (result.parts.clarify) result.clarify = result.parts.clarify;
       filteredOut = before - result.parts.length;
+    }
+    // Versions of the same part: drop those the car's production date excludes,
+    // then ask about equipment if versions remain (not twice in a row).
+    let versionInfo = null;
+    if (plainPartSearch && result?.parts?.length && !result.clarify) {
+      const vc = versionCheck(result.parts, result.vehicle?.options?.['Дата выпуска'], { allowAsk: !lastAssistantText.includes(VARIANT_LEAD) });
+      if (vc.dropped.length || vc.question) versionInfo = { droppedByDate: vc.dropped.length ? vc.dropped : undefined, asks: vc.question ? vc.question.options.map(o => o.label) : undefined };
+      if (vc.dropped.length) console.log(`[laximo] date check (car ${result.vehicle?.options?.['Дата выпуска']}): dropped ${vc.dropped.join(', ')}`);
+      result.parts = vc.parts;
+      if (vc.question) result.clarify = vc.question;
     }
     console.log('DIAG laximo', JSON.stringify({
       mode,
@@ -936,6 +1037,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       groups: partGroups ? (extracted.partGroups || {}) : undefined,
       droppedByGroup: result?.droppedByGroup && Object.keys(result.droppedByGroup).length ? result.droppedByGroup : undefined,
       filteredOut: filteredOut || undefined,
+      versions: versionInfo || undefined,
       rows: (result?.parts || []).slice(0, 15).map(p => `${p.oem} ${p.name || ''}${p.unit ? ' [' + p.unit + ']' : ''}`),
       ms: Date.now() - started,
     }));
@@ -2163,8 +2265,11 @@ console.log(JSON.stringify(extracted, null, 2));
       const v = laximoResult.vehicle;
       const car = v && v.name ? ` для вашего ${v.brand || 'BMW'} ${v.name}` : '';
       // The AI's own question line is not shown (live 28.10: «Какую деталь вам нужна?») -- the fixed lead already asks.
-      const reply = `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов. Выберите ниже:` +
-        `\n<<<BUTTONS>>>\n${JSON.stringify([...options.map(o => o.label), CLARIFY_ALL])}\n<<<END_BUTTONS>>>`;
+      const isVersion = laximoResult.clarify.lead === VARIANT_LEAD;
+      const reply = (isVersion
+        ? `${VARIANT_LEAD}. ${question}\n\nЕсли не знаете -- нажмите «${VARIANT_UNKNOWN}»: покажу все варианты, а менеджер уточнит по VIN.`
+        : `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов. Выберите ниже:`) +
+        `\n<<<BUTTONS>>>\n${JSON.stringify([...options.map(o => o.label), laximoResult.clarify.allLabel || CLARIFY_ALL])}\n<<<END_BUTTONS>>>`;
       console.log('DIAG laximo-clarify', JSON.stringify({ question, options }));
       Object.entries(headers).forEach(([k, v2]) => res.setHeader(k, v2));
       res.setHeader('Content-Type', 'application/json');
@@ -2867,3 +2972,7 @@ module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
 module.exports.aiFilterParts = aiFilterParts;
 module.exports.distinctPartNames = distinctPartNames;
 module.exports.dropInventedQualifiers = dropInventedQualifiers;
+module.exports.versionCheck = versionCheck;
+module.exports.yearMonth = yearMonth;
+module.exports.partDateWindow = partDateWindow;
+module.exports.equipmentCondition = equipmentCondition;
