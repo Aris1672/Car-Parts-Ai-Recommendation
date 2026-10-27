@@ -2162,8 +2162,8 @@ console.log(JSON.stringify(extracted, null, 2));
       const { question, options } = laximoResult.clarify;
       const v = laximoResult.vehicle;
       const car = v && v.name ? ` для вашего ${v.brand || 'BMW'} ${v.name}` : '';
-      const reply = `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов.` +
-        (question ? `\n\n${question}` : '') +
+      // The AI's own question line is not shown (live 28.10: «Какую деталь вам нужна?») -- the fixed lead already asks.
+      const reply = `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов. Выберите ниже:` +
         `\n<<<BUTTONS>>>\n${JSON.stringify([...options.map(o => o.label), CLARIFY_ALL])}\n<<<END_BUTTONS>>>`;
       console.log('DIAG laximo-clarify', JSON.stringify({ question, options }));
       Object.entries(headers).forEach(([k, v2]) => res.setHeader(k, v2));
