@@ -202,6 +202,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Client decisions (27.10): no company details on the site; only the Химки address; only phone +7 (967) 555-7-555 and Orders@BmwClub77.ru; no holiday schedule / delivery terms to add; weekends = pickup of pre-placed orders only (no walk-in purchases) — wording updated on Контакты and in the footer.
 
+- Agent knowledge (27.10): system prompt now has payment (card online Visa/MC/Мир, invoice for companies with closing documents, cash/card in the shop), delivery details (courier / СДЭК with track number / pickup; cost calculated at checkout), weekends = pre-placed orders only, and a skill «КОДИРОВАНИЕ, ЧИП-ТЮНИНГ, ПРОШИВКА» (function list, remote service, booking contacts; no part search / cards for these questions; no invented prices).
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
