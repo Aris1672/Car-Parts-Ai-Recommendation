@@ -777,36 +777,71 @@ function catalogBrand(extracted, laximoResult) {
   return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b;
 }
 
-// ─── AI FILTER for broad catalog searches ───────────────────────────────────
-// The part search now uses the catalog's own short names (partSearchNames:
-// "суппорт", "фильтр", "диск") which find the part however the customer
-// phrased it, but also bring its neighbours. A small, fast call keeps only the
-// rows the customer is asking about. Any failure -> the rows stay as they are.
+// ─── AI FILTER + CLARIFYING QUESTION for catalog results ────────────────────
+// The part search uses the catalog's own short names ("суппорт", "фильтр",
+// "глушитель"), which find the part however the customer phrased it, but also
+// bring its neighbours. A small, fast call either
+//   - keeps only the rows the customer asked for ("задний глушитель" -> the
+//     rear muffler only), or
+//   - when the request is vague and the rows are genuinely different parts
+//     ("глушитель" -> middle / rear / intake), asks ONE question with buttons
+//     made from the real rows (opts.allowAsk; never twice in a row).
+// Any failure -> the rows stay as they are.
 const PART_FILTER_MAX_ROWS = 80;
-async function aiFilterParts(parts, extracted, messages) {
+const CLARIFY_LEAD = 'Уточните, какая именно деталь нужна';
+const CLARIFY_ALL = 'Все варианты';
+/** Distinct part names, ignoring side markers (Л/П, левый/правый) -- a left/right pair is one part. */
+function distinctPartNames(parts) {
+  return new Set(parts.map(p => ` ${String(p.name || '').toLowerCase()} `
+    .replace(/[^а-яёa-z]+/g, ' ')
+    .replace(/ (л|п|лев[а-яё]*|прав[а-яё]*)(?= )/g, ' ')
+    .replace(/\s+/g, ' ').trim()).filter(Boolean)).size;
+}
+async function aiFilterParts(parts, extracted, messages, opts = {}) {
   if (!ANTHROPIC_API_KEY || !parts.length) return parts;
   const rows = parts.slice(0, PART_FILTER_MAX_ROWS);
   const asked = (extracted.partKeywords || []).join(', ');
   const lastUser = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').slice(-3).map(m => m.content.slice(0, 300)).join(' | ');
   const list = rows.map((p, i) => `${i + 1}. ${p.name || ''}${p.unit ? ' — узел: ' + p.unit : ''}`).join('\n');
-  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там много ЧУЖИХ деталей с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя). Формат строки: номер. название — узел (раздел каталога):\n${list}\n\nВерни JSON-массив номеров строк, которые ТОЧНО являются запрошенными деталями. Решай прежде всего по УЗЛУ: деталь должна быть из той системы автомобиля, о которой спрашивает клиент. Обе стороны / оси и варианты исполнения одной детали -- оставляй. Если сомневаешься -- НЕ включай. Если подходящих нет -- []. Только JSON, без пояснений.`;
+  const askRule = opts.allowAsk
+    ? `\n\nЕсли запрос клиента ОБЩИЙ (например просто «глушитель», «датчик», «ремень», «колодки») и подходящие строки -- это РАЗНЫЕ детали или разные места установки (передняя/задняя ось, средний/задний глушитель, впуск/выпуск), которые клиент не уточнил, -- НЕ выбирай за него, а верни вопрос:\n{"ask":{"question":"короткий вопрос","options":[{"label":"короткое понятное название варианта, до 40 символов","rows":[номера строк]}]}}\n2-6 вариантов, только из этого списка. Левую и правую стороны одной детали НЕ разделяй (это один вариант). Крепёж и мелочи (кронштейн, хомут, болт, прокладка) отдельным вариантом не выноси, если клиент спрашивает про саму деталь.`
+    : '';
+  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» -- оставь все подходящие по смыслу строки. Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${askRule}\n\nТолько JSON, без пояснений.`;
   try {
     const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, temperature: 0, messages: [{ role: 'user', content: prompt }] }),
       signal: AbortSignal.timeout(7000),
     });
     if (!res.ok) return parts;
     const data = await res.json();
     const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
-    const m = raw.match(/\[[\d\s,]*\]/);
-    if (!m) return parts;
-    const keep = new Set(JSON.parse(m[0]).map(Number).filter(n => n >= 1 && n <= rows.length));
+    let answer = null;
+    const obj = raw.match(/\{[\s\S]*\}/);
+    if (obj) { try { answer = JSON.parse(obj[0]); } catch { answer = null; } }
+    if (!answer) { const arr = raw.match(/\[[\d\s,]*\]/); if (arr) answer = { keep: JSON.parse(arr[0]) }; } // plain-array answer
+    if (!answer) return parts;
+    const extra = { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad, droppedByGroup: parts.droppedByGroup };
+    const validRows = list => [...new Set([].concat(list || []).map(Number).filter(n => n >= 1 && n <= rows.length))];
+
+    if (opts.allowAsk && answer.ask && Array.isArray(answer.ask.options)) {
+      const options = answer.ask.options
+        .map(o => ({ label: String((o && o.label) || '').replace(/[<>\n]/g, ' ').trim().slice(0, 45), rows: validRows(o && o.rows) }))
+        .filter(o => o.label && o.rows.length && o.label !== CLARIFY_ALL)
+        .slice(0, 6);
+      if (options.length >= 2) {
+        const all = [...new Set(options.flatMap(o => o.rows))].sort((a, b) => a - b);
+        const kept = all.map(n => rows[n - 1]);
+        console.log(`[laximo] AI filter "${asked}": asks "${answer.ask.question}" -> ${options.map(o => `${o.label} [${o.rows.join(',')}]`).join(' | ')}`);
+        return Object.assign(kept, extra, { clarify: { question: String(answer.ask.question || '').slice(0, 160), options } });
+      }
+    }
+    if (!Array.isArray(answer.keep)) return parts;
+    const keep = new Set(validRows(answer.keep));
     const kept = rows.filter((_, i) => keep.has(i + 1));
     console.log(`[laximo] AI filter "${asked}": kept ${kept.length} of ${rows.length}` + (parts.length > rows.length ? ` (+${parts.length - rows.length} not checked, dropped)` : ''));
-    // Keep the array's extra fields (searchFailed, searched, broad).
-    return Object.assign(kept, { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad });
+    return Object.assign(kept, extra);
   } catch (err) {
     console.error('[laximo] AI filter failed, rows kept as they are:', err.message);
     return parts;
@@ -875,9 +910,14 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     // Broad catalog names ("суппорт", "фильтр", "диск") bring neighbours too
     // (clutch disc, fuel filter...): the AI keeps only what the customer asked for.
     let filteredOut = 0;
-    if (plainPartSearch && result?.parts?.length && result.broad) {
+    // Also when the rows are different parts (e.g. middle / rear / intake
+    // silencer): the customer may have to choose -- one clarifying question.
+    if (plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2)) {
       const before = result.parts.length;
-      result.parts = await aiFilterParts(result.parts, extracted, messages);
+      const lastAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant');
+      const allowAsk = !String((lastAssistant && lastAssistant.content) || '').includes(CLARIFY_LEAD); // never two questions in a row
+      result.parts = await aiFilterParts(result.parts, extracted, messages, { allowAsk });
+      if (result.parts.clarify) result.clarify = result.parts.clarify;
       filteredOut = before - result.parts.length;
     }
     console.log('DIAG laximo', JSON.stringify({
@@ -1252,7 +1292,7 @@ const WIZARD_STEP_QUESTIONS = {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. 'Ремень и ролики' / 'ремень двигателя' / 'ремень генератора' -- это ПРИВОДНОЙ (поликлиновой) ремень навесного оборудования: [\"приводной ремень\",\"натяжной ролик\",\"обводной ролик\",\"натяжитель\"]. На современных двигателях BMW и MINI привод ГРМ -- ЦЕПЬ, а не ремень: 'ремень ГРМ' пиши, ТОЛЬКО если клиент сам так написал. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список ТО: [\"масляный фильтр\",\"воздушный фильтр\",\"салонный фильтр\",\"микрофильтр\",\"свеча\",\"щетка\",\"жидкость\",\"антифриз\",\"CHF\"] (моторное масло, тормозные колодки/диски добавляй, ТОЛЬКО если клиент сам их назвал). Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "partSearchNames": "ОБЪЕКТ или null. Для КАЖДОЙ строки из partKeywords (ключ -- точно эта строка) -- массив из 1-3 названий для поиска в ОРИГИНАЛЬНОМ каталоге производителя (BMW/MINI ETK по-русски). Поиск там ищет слова в названии детали буквально, а каталог называет детали по-своему, поэтому: ПЕРВЫМ -- главное существительное детали ОДНИМ словом в единственном числе, именительном падеже (суппорт, диск, амортизатор, фильтр, рычаг, датчик, свеча, накладка, подшипник, термостат, помпа -> насос); дальше -- другие названия этой детали в каталогах BMW (скоба; тормозной диск; амортизаторная стойка; микрофильтр; элемент фильтра; ступица). Исходную фразу клиента не повторяй. Пример: {\"тормозной суппорт\":[\"суппорт\",\"скоба\"],\"тормозные диски\":[\"диск\",\"тормозной диск\"],\"салонный фильтр\":[\"микрофильтр\",\"фильтр\"],\"передний рычаг\":[\"рычаг\",\"поперечный рычаг\"]}. Если partKeywords null -- null.", "partGroups": "ОБЪЕКТ или null. Для КАЖДОЙ строки из partKeywords (ключ -- точно эта строка) -- массив ОСНОВНЫХ ГРУПП оригинального каталога BMW/MINI (первые 2 цифры 11-значного номера детали), в которых может находиться эта деталь. Группы: 01 литература, 07 нормали (болты, гайки, клипсы), 11 двигатель (в т.ч. 11 28 ременный привод, 11 51 помпа), 12 электрооборудование двигателя (стартер, генератор, зажигание, датчики двигателя), 13 подготовка топлива / впрыск (в т.ч. воздушный фильтр), 16 топливоснабжение (бак, насос, топливопроводы), 17 охлаждение (радиатор, корпус термостата, патрубки), 18 выпуск ОГ, 21 сцепление, 22 опоры двигателя и КПП, 23 МКПП, 24 АКПП, 25 переключение передач, 26 карданный вал, 27 раздаточная коробка (xDrive), 31 передний мост (рычаги, стойки, ступица, подшипники), 32 рулевое управление (в т.ч. насос ГУР), 33 задний мост (в т.ч. задние амортизаторы, задний редуктор), 34 тормоза, 35 педали, 36 колёса и шины, 37 электроника подвески (адаптивные амортизаторы, пневмоподвеска), 41 кузов, 51 оборудование кузова / отделка (бамперы, обшивки, зеркала, уплотнители), 52 сиденья, 54 люк / складной верх, 61 общее электрооборудование (проводка, АКБ, щётки стеклоочистителя, блоки управления), 62 приборы, 63 освещение, 64 отопление и кондиционер (в т.ч. компрессор кондиционера, салонный фильтр), 65 аудио, навигация, электроника, 66 парктроник, круиз-контроль, 71 оснащение (инструмент, знак аварийной остановки, буксирная проушина), 72 подушки и ремни безопасности, 82 оригинальные аксессуары BMW (боксы, багажники, коврики), 83 масла, жидкости, вспомогательные материалы, 84 телефон / связь. Указывай ВСЕ группы, где деталь реально бывает (амортизаторы -> [\"31\",\"33\",\"37\"]; приводной ремень и ролики -> [\"11\",\"64\",\"32\"]; датчик ABS -> [\"34\"]), но не добавляй лишние: 82 (аксессуары), 07 и 83 -- только если клиент просит именно аксессуар, крепёж или жидкость/масло. Если partKeywords null -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "orderStatusQuestion": "true, если ПОСЛЕДНЕЕ сообщение клиента касается его УЖЕ ОФОРМЛЕННОГО заказа (статус, где заказ, когда привезут, готов ли к выдаче, оплачен ли) ИЛИ клиент в нём отвечает на вопрос ассистента о номере заказа / телефоне / email для проверки заказа; иначе false", "orderNumber": "номер уже оформленного заказа (обычно 9 цифр, например 286496721), если клиент его назвал, иначе null. НЕ путай с артикулом детали, VIN и номером телефона", "contactPhone": "НЕ путай с артикулом детали: артикулы BMW — 11 цифр и обычно начинаются с 0–6 (например 13627823945, 11428507683), это НЕ телефон. Номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
+{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. СОХРАНЯЙ уточнения клиента в ключевом слове: место и сторону установки (передний/задний, левый/правый, верхний/нижний, впускной/выпускной) -- например 'задний глушитель', 'передние тормозные колодки', 'левая фара', а НЕ просто 'глушитель'. 'Ремень и ролики' / 'ремень двигателя' / 'ремень генератора' -- это ПРИВОДНОЙ (поликлиновой) ремень навесного оборудования: [\"приводной ремень\",\"натяжной ролик\",\"обводной ролик\",\"натяжитель\"]. На современных двигателях BMW и MINI привод ГРМ -- ЦЕПЬ, а не ремень: 'ремень ГРМ' пиши, ТОЛЬКО если клиент сам так написал. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список ТО: [\"масляный фильтр\",\"воздушный фильтр\",\"салонный фильтр\",\"микрофильтр\",\"свеча\",\"щетка\",\"жидкость\",\"антифриз\",\"CHF\"] (моторное масло, тормозные колодки/диски добавляй, ТОЛЬКО если клиент сам их назвал). Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "partSearchNames": "ОБЪЕКТ или null. Для КАЖДОЙ строки из partKeywords (ключ -- точно эта строка) -- массив из 1-3 названий для поиска в ОРИГИНАЛЬНОМ каталоге производителя (BMW/MINI ETK по-русски). Поиск там ищет слова в названии детали буквально, а каталог называет детали по-своему, поэтому: ПЕРВЫМ -- главное существительное детали ОДНИМ словом в единственном числе, именительном падеже (суппорт, диск, амортизатор, фильтр, рычаг, датчик, свеча, накладка, подшипник, термостат, помпа -> насос); дальше -- другие названия этой детали в каталогах BMW (скоба; тормозной диск; амортизаторная стойка; микрофильтр; элемент фильтра; ступица). Исходную фразу клиента не повторяй. Пример: {\"тормозной суппорт\":[\"суппорт\",\"скоба\"],\"тормозные диски\":[\"диск\",\"тормозной диск\"],\"салонный фильтр\":[\"микрофильтр\",\"фильтр\"],\"передний рычаг\":[\"рычаг\",\"поперечный рычаг\"]}. Если partKeywords null -- null.", "partGroups": "ОБЪЕКТ или null. Для КАЖДОЙ строки из partKeywords (ключ -- точно эта строка) -- массив ОСНОВНЫХ ГРУПП оригинального каталога BMW/MINI (первые 2 цифры 11-значного номера детали), в которых может находиться эта деталь. Группы: 01 литература, 07 нормали (болты, гайки, клипсы), 11 двигатель (в т.ч. 11 28 ременный привод, 11 51 помпа), 12 электрооборудование двигателя (стартер, генератор, зажигание, датчики двигателя), 13 подготовка топлива / впрыск (в т.ч. воздушный фильтр), 16 топливоснабжение (бак, насос, топливопроводы), 17 охлаждение (радиатор, корпус термостата, патрубки), 18 выпуск ОГ, 21 сцепление, 22 опоры двигателя и КПП, 23 МКПП, 24 АКПП, 25 переключение передач, 26 карданный вал, 27 раздаточная коробка (xDrive), 31 передний мост (рычаги, стойки, ступица, подшипники), 32 рулевое управление (в т.ч. насос ГУР), 33 задний мост (в т.ч. задние амортизаторы, задний редуктор), 34 тормоза, 35 педали, 36 колёса и шины, 37 электроника подвески (адаптивные амортизаторы, пневмоподвеска), 41 кузов, 51 оборудование кузова / отделка (бамперы, обшивки, зеркала, уплотнители), 52 сиденья, 54 люк / складной верх, 61 общее электрооборудование (проводка, АКБ, щётки стеклоочистителя, блоки управления), 62 приборы, 63 освещение, 64 отопление и кондиционер (в т.ч. компрессор кондиционера, салонный фильтр), 65 аудио, навигация, электроника, 66 парктроник, круиз-контроль, 71 оснащение (инструмент, знак аварийной остановки, буксирная проушина), 72 подушки и ремни безопасности, 82 оригинальные аксессуары BMW (боксы, багажники, коврики), 83 масла, жидкости, вспомогательные материалы, 84 телефон / связь. Указывай ВСЕ группы, где деталь реально бывает (амортизаторы -> [\"31\",\"33\",\"37\"]; приводной ремень и ролики -> [\"11\",\"64\",\"32\"]; датчик ABS -> [\"34\"]), но не добавляй лишние: 82 (аксессуары), 07 и 83 -- только если клиент просит именно аксессуар, крепёж или жидкость/масло. ВСЕГДА объект с ключами из partKeywords, НЕ просто массив. Если partKeywords null -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "orderStatusQuestion": "true, если ПОСЛЕДНЕЕ сообщение клиента касается его УЖЕ ОФОРМЛЕННОГО заказа (статус, где заказ, когда привезут, готов ли к выдаче, оплачен ли) ИЛИ клиент в нём отвечает на вопрос ассистента о номере заказа / телефоне / email для проверки заказа; иначе false", "orderNumber": "номер уже оформленного заказа (обычно 9 цифр, например 286496721), если клиент его назвал, иначе null. НЕ путай с артикулом детали, VIN и номером телефона", "contactPhone": "НЕ путай с артикулом детали: артикулы BMW — 11 цифр и обычно начинаются с 0–6 (например 13627823945, 11428507683), это НЕ телефон. Номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -2082,6 +2122,21 @@ console.log(JSON.stringify(extracted, null, 2));
     // Ask the customer directly with the catalog's own options as buttons --
     // their click comes back as text the wizard can match on the next turn.
     // Cheap: no Sonnet call, no catalog payload.
+    // Clarifying question from the AI filter: the catalog has several
+    // different parts for a vague request -- the customer picks, and the next
+    // message gets exactly that part (results are cached: no new catalog requests).
+    if (laximoResult?.clarify) {
+      const { question, options } = laximoResult.clarify;
+      const v = laximoResult.vehicle;
+      const car = v && v.name ? ` для вашего ${v.brand || 'BMW'} ${v.name}` : '';
+      const reply = `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов.` +
+        (question ? `\n\n${question}` : '') +
+        `\n<<<BUTTONS>>>\n${JSON.stringify([...options.map(o => o.label), CLARIFY_ALL])}\n<<<END_BUTTONS>>>`;
+      console.log('DIAG laximo-clarify', JSON.stringify({ question, options }));
+      Object.entries(headers).forEach(([k, v2]) => res.setHeader(k, v2));
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(200).json({ reply, ...(catalogOutcome ? { catalog: catalogOutcome } : {}) });
+    }
     if (laximoResult?.needsChoice) {
       const { step, options } = laximoResult.needsChoice;
       const what = WIZARD_STEP_QUESTIONS[step] || String(step).toLowerCase();
@@ -2777,3 +2832,4 @@ module.exports.isNonServicePart = isNonServicePart;
 module.exports.asksForNonServicePart = asksForNonServicePart;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
 module.exports.aiFilterParts = aiFilterParts;
+module.exports.distinctPartNames = distinctPartNames;
