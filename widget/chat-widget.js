@@ -658,6 +658,8 @@
           /* more room at the top: the hero now starts right under the header
              and the search tab hangs ~35 px into it (owner, 26.10) */
           padding-top: 64px; padding-bottom: 40px;
+          /* the icon row's strip starts right under the photo (owner, 27.10) */
+          margin-bottom: 0; border-bottom: none;
         }
       }
       #pc-panel.pc-compact #pc-hero {
