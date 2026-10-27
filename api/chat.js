@@ -777,6 +777,42 @@ function catalogBrand(extracted, laximoResult) {
   return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b;
 }
 
+// ─── AI FILTER for broad catalog searches ───────────────────────────────────
+// The part search now uses the catalog's own short names (partSearchNames:
+// "суппорт", "фильтр", "диск") which find the part however the customer
+// phrased it, but also bring its neighbours. A small, fast call keeps only the
+// rows the customer is asking about. Any failure -> the rows stay as they are.
+const PART_FILTER_MAX_ROWS = 80;
+async function aiFilterParts(parts, extracted, messages) {
+  if (!ANTHROPIC_API_KEY || !parts.length) return parts;
+  const rows = parts.slice(0, PART_FILTER_MAX_ROWS);
+  const asked = (extracted.partKeywords || []).join(', ');
+  const lastUser = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').slice(-3).map(m => m.content.slice(0, 300)).join(' | ');
+  const list = rows.map((p, i) => `${i + 1}. ${p.name || ''}${p.unit ? ' — узел: ' + p.unit : ''}`).join('\n');
+  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля (поиск по короткому названию, поэтому там есть и соседние детали):\n${list}\n\nВерни JSON-массив номеров строк, которые являются ЗАПРОШЕННЫМИ деталями (обе стороны / оси и варианты исполнения -- оставляй). Ремкомплекты, корпуса и крепёж ЭТОЙ ЖЕ детали оставляй, если самой детали в списке нет. Другие детали (например, диск сцепления при запросе тормозных дисков, топливный фильтр при запросе салонного) -- убери. Если подходящих нет -- []. Только JSON, без пояснений.`;
+  try {
+    const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 300, temperature: 0, messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!res.ok) return parts;
+    const data = await res.json();
+    const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+    const m = raw.match(/\[[\d\s,]*\]/);
+    if (!m) return parts;
+    const keep = new Set(JSON.parse(m[0]).map(Number).filter(n => n >= 1 && n <= rows.length));
+    const kept = rows.filter((_, i) => keep.has(i + 1));
+    console.log(`[laximo] AI filter "${asked}": kept ${kept.length} of ${rows.length}` + (parts.length > rows.length ? ` (+${parts.length - rows.length} not checked, dropped)` : ''));
+    // Keep the array's extra fields (searchFailed, searched, broad).
+    return Object.assign(kept, { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad });
+  } catch (err) {
+    console.error('[laximo] AI filter failed, rows kept as they are:', err.message);
+    return parts;
+  }
+}
+
 /**
  * Ask Laximo (original manufacturer catalogs, all brands the client's
  * Laximo licence shows -- ~60) for the OEM numbers of the requested parts,
@@ -817,16 +853,31 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
   if (!mode) return null;
   outcome.mode = mode; // the catalog was needed for this message (dashboard dot)
 
+  // AI catalog names (partSearchNames) for a normal part request. Not for ТО
+  // (its own kit/unit route and keyword list) and not for an article check
+  // (the customer's own number must stay among the rows).
+  const plainPartSearch = !isServiceRequest(messages, extracted) && !extracted.vendorCode;
+  const searchNames = plainPartSearch ? extracted.partSearchNames : null;
+
   const started = Date.now();
   let timer;
   try {
     const work = mode === 'vin'
-      ? laximo.findPartsByVin(vin, extracted.partKeywords || [])
-      : laximo.findPartsByModel(customerText, extracted.partKeywords, extracted.brand);
+      ? laximo.findPartsByVin(vin, extracted.partKeywords || [], searchNames)
+      : laximo.findPartsByModel(customerText, extracted.partKeywords, extracted.brand, searchNames);
     const result = await Promise.race([
       work,
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`budget ${LAXIMO_BUDGET_MS}ms exceeded`)), LAXIMO_BUDGET_MS); }),
     ]);
+    clearTimeout(timer);
+    // Broad catalog names ("суппорт", "фильтр", "диск") bring neighbours too
+    // (clutch disc, fuel filter...): the AI keeps only what the customer asked for.
+    let filteredOut = 0;
+    if (plainPartSearch && result?.parts?.length && result.broad) {
+      const before = result.parts.length;
+      result.parts = await aiFilterParts(result.parts, extracted, messages);
+      filteredOut = before - result.parts.length;
+    }
     console.log('DIAG laximo', JSON.stringify({
       mode,
       vin: vin || null,
@@ -838,12 +889,20 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       path: result?.vehicle?.path ? result.vehicle.path.join(' › ') : undefined,
       partKeywords: extracted.partKeywords || null,
       oemCount: result?.parts?.length ?? 0,
+      searched: result?.searched || undefined,
+      names: extracted.partSearchNames || undefined,
+      filteredOut: filteredOut || undefined,
       ms: Date.now() - started,
     }));
     if (result?.unavailable) { Object.assign(outcome, { status: 'blocked', reason: String(result.unavailable) }); return null; } // paused / over budget / breaker -- not "VIN not found"
+    const kwList = (extracted.partKeywords || []).filter(Boolean);
     Object.assign(outcome, result?.searchFailed
       ? { status: 'blocked', reason: 'поиск деталей прерван (блокировка / пауза каталога)' }
-      : { status: 'ok', vehicle: result?.vehicle?.name || (mode === 'vin' && !result ? 'VIN не найден' : null) });
+      : (result?.vehicle && !result.needsChoice && kwList.length && !(result.parts || []).length)
+        // Car found, catalog answered, but no part matched: the yellow dashboard dot.
+        ? { status: 'empty', vehicle: result.vehicle.name || null,
+            reason: `ничего не найдено: ${kwList.join(', ')}` + (result.searched && result.searched.length ? ` (искали: ${result.searched.join(', ')})` : '') }
+        : { status: 'ok', vehicle: result?.vehicle?.name || (mode === 'vin' && !result ? 'VIN не найден' : null) });
     if (mode === 'vin') return result ? { ...result, vin, matchedBy: 'vin' } : { vin, notFound: true, matchedBy: 'vin' };
     return result ? { ...result, matchedBy: 'model' } : null;
   } catch (err) {
@@ -1188,7 +1247,7 @@ const WIZARD_STEP_QUESTIONS = {
 // goes into the expensive conversational call on every turn.
 
 const EXTRACT_PROMPT = `Извлеки из диалога данные об автомобиле пользователя и артикуле (если он его называл). Ответь СТРОГО в формате JSON, без пояснений, без markdown-разметки, только сам JSON объект:
-{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список ТО: [\"масляный фильтр\",\"воздушный фильтр\",\"салонный фильтр\",\"микрофильтр\",\"свеча\",\"щетка\",\"жидкость\",\"антифриз\",\"CHF\"] (моторное масло, тормозные колодки/диски добавляй, ТОЛЬКО если клиент сам их назвал). Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "orderStatusQuestion": "true, если ПОСЛЕДНЕЕ сообщение клиента касается его УЖЕ ОФОРМЛЕННОГО заказа (статус, где заказ, когда привезут, готов ли к выдаче, оплачен ли) ИЛИ клиент в нём отвечает на вопрос ассистента о номере заказа / телефоне / email для проверки заказа; иначе false", "orderNumber": "номер уже оформленного заказа (обычно 9 цифр, например 286496721), если клиент его назвал, иначе null. НЕ путай с артикулом детали, VIN и номером телефона", "contactPhone": "НЕ путай с артикулом детали: артикулы BMW — 11 цифр и обычно начинаются с 0–6 (например 13627823945, 11428507683), это НЕ телефон. Номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
+{"vin": "VIN-номер автомобиля (17 символов, латиница и цифры), ТОЛЬКО если пользователь написал его в диалоге, иначе null. Не путай VIN с артикулом детали", "vendorCode": "артикул детали, если пользователь его назвал, иначе null", "brand": "марка авто, иначе null", "model": "модель авто, иначе null", "year": "год выпуска автомобиля (только число), если известен, иначе null", "engineCode": "код(ы) двигателя, иначе null", "powerHp": "мощность в л.с. (только число), иначе null", "partKeywords": "МАССИВ строк с ключевыми словами деталей НА РУССКОМ ЯЗЫКЕ (каталог хранит названия по-русски), без марки/модели авто. Если клиент назвал конкретную деталь -- один элемент массива, но ДОБАВЬ известные синонимы, которые каталог использует вместо обиходного термина: 'тормозные колодки' -- добавь также 'накладки' (каталог часто называет ремкомплект колодок 'рем.к-т торм.накладок', это другое слово, не однокоренное). Например запрос про тормозные колодки -- [\"тормозные колодки\",\"накладки\"]. Если клиент сделал ОБЩИЙ запрос про ТО/техобслуживание/'что нужно менять' -- разверни его в стандартный список ТО: [\"масляный фильтр\",\"воздушный фильтр\",\"салонный фильтр\",\"микрофильтр\",\"свеча\",\"щетка\",\"жидкость\",\"антифриз\",\"CHF\"] (моторное масло, тормозные колодки/диски добавляй, ТОЛЬКО если клиент сам их назвал). Если клиент ничего из этого не называл и не спрашивал про ТО -- null.", "partSearchNames": "ОБЪЕКТ или null. Для КАЖДОЙ строки из partKeywords (ключ -- точно эта строка) -- массив из 1-3 названий для поиска в ОРИГИНАЛЬНОМ каталоге производителя (BMW/MINI ETK по-русски). Поиск там ищет слова в названии детали буквально, а каталог называет детали по-своему, поэтому: ПЕРВЫМ -- главное существительное детали ОДНИМ словом в единственном числе, именительном падеже (суппорт, диск, амортизатор, фильтр, рычаг, датчик, свеча, накладка, подшипник, термостат, помпа -> насос); дальше -- другие названия этой детали в каталогах BMW (скоба; тормозной диск; амортизаторная стойка; микрофильтр; элемент фильтра; ступица). Исходную фразу клиента не повторяй. Пример: {\"тормозной суппорт\":[\"суппорт\",\"скоба\"],\"тормозные диски\":[\"диск\",\"тормозной диск\"],\"салонный фильтр\":[\"микрофильтр\",\"фильтр\"],\"передний рычаг\":[\"рычаг\",\"поперечный рычаг\"]}. Если partKeywords null -- null.", "oilApprovalCode": "допуск производителя для масла, если пользователь его назвал (например VW 507.00, BMW Longlife-01), иначе null", "fuelType": "petrol или diesel, если известно, иначе null", "turbo": "true, false, если известно, иначе null", "mileageKm": "пробег в километрах (только число), если известно, иначе null", "orderStatusQuestion": "true, если ПОСЛЕДНЕЕ сообщение клиента касается его УЖЕ ОФОРМЛЕННОГО заказа (статус, где заказ, когда привезут, готов ли к выдаче, оплачен ли) ИЛИ клиент в нём отвечает на вопрос ассистента о номере заказа / телефоне / email для проверки заказа; иначе false", "orderNumber": "номер уже оформленного заказа (обычно 9 цифр, например 286496721), если клиент его назвал, иначе null. НЕ путай с артикулом детали, VIN и номером телефона", "contactPhone": "НЕ путай с артикулом детали: артикулы BMW — 11 цифр и обычно начинаются с 0–6 (например 13627823945, 11428507683), это НЕ телефон. Номер телефона клиента, ТОЛЬКО если он написал его текстом в диалоге (любой формат: +7..., 8..., с пробелами/дефисами), иначе null", "contactEmail": "email клиента, ТОЛЬКО если он написал его текстом в диалоге, иначе null"}
 For BMW, Mercedes, Audi, VW, Skoda and similar brands:
 
 The "model" field should include BOTH the model designation and the chassis/generation when available.
@@ -1236,7 +1295,7 @@ async function extractVehicleInfo(messages) {
       },
       body: JSON.stringify({
         model:       'claude-haiku-4-5-20251001', // fast + cheap -- pure extraction, no need for a bigger model here
-        max_tokens:  200,
+        max_tokens:  500, // partSearchNames made the JSON longer
         temperature: 0, // deterministic extraction
         messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }],
       }),
@@ -1981,7 +2040,7 @@ console.log(JSON.stringify(extracted, null, 2));
     // the reply and the widget logs it -- the chat session is created only
     // after the first reply, so the server doesn't know it yet. No outcome =
     // the catalog wasn't needed for this message (white dot).
-    const catalogOutcome = laximoOutcome.mode ? { status: laximoOutcome.status === 'ok' ? 'ok' : 'blocked',
+    const catalogOutcome = laximoOutcome.mode ? { status: ['ok', 'empty'].includes(laximoOutcome.status) ? laximoOutcome.status : 'blocked',
       reason: laximoOutcome.reason || (laximoOutcome.status ? null : 'нет результата'), mode: laximoOutcome.mode, vehicle: laximoOutcome.vehicle || null } : null;
     if (compat && !compat.verdict) Object.assign(compat, compatVerdict(compat.code, laximoResult));
     // Laximo couldn't check (site block, pause, disabled): fall back to our
@@ -2712,3 +2771,4 @@ module.exports.lookupCatalog = lookupCatalog;
 module.exports.isNonServicePart = isNonServicePart;
 module.exports.asksForNonServicePart = asksForNonServicePart;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
+module.exports.aiFilterParts = aiFilterParts;
