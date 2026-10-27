@@ -267,7 +267,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ═══════════════════════════════════════════
 ДАННЫЕ О СОВМЕСТИМОСТИ (артикул → автомобили, если есть):
 ═══════════════════════════════════════════
-Записи с полем "source": "laximo" взяты из оригинального каталога производителя (марка — в поле "brand"). Если "matchedBy": "vin" — подобрано по VIN клиента, совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Если "matchedBy": "model" — подобрано по модели БЕЗ VIN (модель уже уточнена, НЕ переспрашивай её): эти детали подходят для этой модели по каталогу производителя, но если на одну деталь найдено несколько номеров, они могут отличаться по дате выпуска или комплектации — перечисли их как варианты и предложи прислать VIN, чтобы выбрать точный; если номер один — можно уверенно предлагать, коротко упомянув, что по VIN подбор ещё точнее. Обрати внимание на поле "notes": если там есть условие (например, "Для автомобилей с ..."), упомяни его клиенту. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали.
+Записи с полем "source": "laximo" взяты из оригинального каталога производителя (марка — в поле "brand"). Если "matchedBy": "vin" — подобрано по VIN клиента, совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Если "matchedBy": "model" — подобрано по модели БЕЗ VIN (модель уже уточнена, НЕ переспрашивай её): эти детали подходят для этой модели по каталогу производителя, но если на одну деталь найдено несколько номеров, они могут отличаться по дате выпуска или комплектации — перечисли их как варианты и предложи прислать VIN, чтобы выбрать точный; если номер один — можно уверенно предлагать, коротко упомянув, что по VIN подбор ещё точнее. Обрати внимание на поле "notes": если там есть условие комплектации (например, "Для автомобилей с D Steering (S217A) = да"): при "matchedBy": "vin" каталог уже отфильтровал детали по VIN (детали для другой комплектации он не показывает -- проверено 28.10), значит у машины клиента ЭТА комплектация есть -- скажи уверенно, что по VIN подходит именно это исполнение (например «исполнение для автомобилей с D Steering — по вашему VIN подходит»), и НЕ отправляй к менеджеру проверять опцию; при "matchedBy": "model" -- упомяни условие клиенту и предложи прислать VIN. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали.
 {{COMPATIBILITY}}
 
 ═══════════════════════════════════════════
@@ -1015,7 +1015,9 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     // then ask about equipment if versions remain (not twice in a row).
     let versionInfo = null;
     if (plainPartSearch && result?.parts?.length && !result.clarify) {
-      const vc = versionCheck(result.parts, result.vehicle?.options?.['Дата выпуска'], { allowAsk: !lastAssistantText.includes(VARIANT_LEAD) });
+      // VIN mode: the catalog already hides parts of other equipment (28.10: the Adaptive Drive pump section is empty for
+      // a car without it) -- no equipment question then; the date check stays as a safety net.
+      const vc = versionCheck(result.parts, result.vehicle?.options?.['Дата выпуска'], { allowAsk: mode !== 'vin' && !lastAssistantText.includes(VARIANT_LEAD) });
       if (vc.dropped.length || vc.question) versionInfo = { droppedByDate: vc.dropped.length ? vc.dropped : undefined, asks: vc.question ? vc.question.options.map(o => o.label) : undefined };
       if (vc.dropped.length) console.log(`[laximo] date check (car ${result.vehicle?.options?.['Дата выпуска']}): dropped ${vc.dropped.join(', ')}`);
       result.parts = vc.parts;
