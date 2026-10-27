@@ -200,6 +200,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 
 - Part number with an «Открыть деталь» button (owner, 27.10: customers read only the first sentence and didn't open the button after «нет данных…»): prompt rule — first sentence exactly «По номеру <номер> все актуальные предложения можно посмотреть по кнопке «Открыть деталь» ниже.», never open with «нет данных / не могу / к сожалению»; safety net `positiveFirstSentence()` rewrites the «…нет данных … — но … Открыть деталь …» first sentence.
 
+- Client decisions (27.10): no company details on the site; only the Химки address; only phone +7 (967) 555-7-555 and Orders@BmwClub77.ru; no holiday schedule / delivery terms to add; weekends = pickup of pre-placed orders only (no walk-in purchases) — wording updated on Контакты and in the footer.
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).
