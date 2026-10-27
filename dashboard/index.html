@@ -615,6 +615,14 @@
   .pv-first { white-space: normal; max-width: 340px; font-size: 13px; line-height: 1.45; }
   .pv-none { color: var(--text3); font-style: italic; font-size: 12px; }
   .pv-top { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* Original catalog (Laximo) per chat: white = not needed, green = used, red = blocked / failed */
+  .lx-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle; flex-shrink: 0; }
+  .lx-none    { background: #fff; border: 1.5px solid #9aa3ad; }
+  .lx-ok      { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.18); }
+  .lx-blocked { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
+  .lx-cell { text-align: center; }
+  .lx-legend { display: inline-flex; gap: 14px; align-items: center; font-size: 12px; color: var(--text2); }
+  .lx-legend span { display: inline-flex; gap: 6px; align-items: center; }
 
   .expand-icon { font-size: 10px; color: var(--text3); transition: transform 0.2s; }
   tr.expanded .expand-icon { transform: rotate(90deg); }
@@ -993,6 +1001,11 @@
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div class="table-title">Диалоги</div>
             <div class="table-count" id="views-count">0</div>
+            <div class="lx-legend" title="Оригинальный каталог производителя (Laximo)">Каталог:
+              <span><i class="lx-dot lx-none"></i>не нужен</span>
+              <span><i class="lx-dot lx-ok"></i>использован</span>
+              <span><i class="lx-dot lx-blocked"></i>заблокирован</span>
+            </div>
           </div>
           <input type="text" class="table-search" id="views-search" placeholder="🔍  Поиск по сообщению или артикулу…">
         </div>
@@ -1001,6 +1014,7 @@
             <thead>
               <tr>
                 <th>Дата</th>
+                <th title="Оригинальный каталог (Laximo): белый — не нужен, зелёный — использован, красный — заблокирован / не ответил">Каталог</th>
                 <th>Первое сообщение</th>
                 <th>Показанные карточки <span style="font-weight:400;text-transform:none;letter-spacing:0;">(зелёные — открыты)</span></th>
                 <th>Открыто</th>
@@ -2130,6 +2144,16 @@
     return `<span class="pv-chip${p.opened ? ' opened' : ''}" title="${esc(title)}">${p.opened ? '✓ ' : ''}${inner}</span>`;
   }
 
+  // Original catalog (Laximo) dot: white = not needed, green = used, red = blocked.
+  function laximoDot(lx) {
+    const st = lx && lx.status || 'none';
+    let title = 'Каталог Laximo не понадобился';
+    if (st === 'ok') title = `Каталог Laximo использован (${lx.ok})` + (lx.vehicle ? ` · ${lx.vehicle}` : '');
+    if (st === 'blocked') title = `Каталог Laximo заблокирован / не ответил (${lx.blocked})`
+      + (lx.ok ? `, успешно: ${lx.ok}` : '') + (lx.reasons && lx.reasons.length ? ` · ${lx.reasons.join('; ')}` : '');
+    return `<span class="lx-dot lx-${st}" title="${esc(title)}" aria-label="${esc(title)}"></span>`;
+  }
+
   function filterViews() {
     const q = document.getElementById('views-search').value.toLowerCase().trim();
     const list = !q ? allViews : allViews.filter(v =>
@@ -2148,6 +2172,7 @@
     tbody.innerHTML = list.map(v => `
       <tr style="cursor:default;">
         <td class="td-date">${viewDate(v)}</td>
+        <td class="lx-cell">${laximoDot(v.laximo)}</td>
         <td><div class="pv-first">${v.first_message ? esc(v.first_message) : '<span class="pv-none">—</span>'}</div></td>
         <td>${v.shown.length ? `<div class="pv-chips">${v.shown.map(chip).join('')}</div>` : '<span class="pv-none">карточки не показывались</span>'}</td>
         <td class="td-dur">${v.shown.length ? `${v.opened.length} / ${v.shown.filter(p => p.times > 0).length}` : '—'}</td>

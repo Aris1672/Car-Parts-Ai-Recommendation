@@ -196,6 +196,8 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 - Header (26.10, via footcopyright): dark top bar = «Заказы · VIN-запросы · Гараж» + phone, Telegram, MAX (white, Exo 2) on the left where it fits (narrower screens: the number stays in the white tab); the white tab kept empty; logo 20% bigger; right side «Доставка · 📍 ПВЗ BMW Сервис…» (pin + address open the route in Yandex Maps). MAX icon: `widget/icons/max.png`. Footer year automatic. Widget credit «Разработано: ASSISTANT24». Bubble avatar = the «/AI» logo. Desktop hero fade 20%.
 - Still open: company details (ИНН/ОГРН) for the footer; `mailto:malito:` on the Контакты page (owner to fix in ABCP); live check of the rear shock-absorber diagram (3 marks on one card).
 
+- Dashboard «Подбор» (27.10): column «Каталог» with a dot per chat — white = the original catalog (Laximo) wasn't needed, green = used, red = blocked / no answer (paused after the site's browser check, hourly budget, breaker, time-out, part search interrupted); hover shows the reason / car. api/chat.js returns `catalog: {status, reason, mode, vehicle}` with the reply; the widget logs it as event `laximo` (lib/chatEvents.js). Chats from before 27.10 show white.
+
 ## 📝 Open items (25.10)
 
 - **Compatibility table years:** the generation question showed wrong years (e.g. X5 E70 "2007–2008", built 2006–2013; E53 "2003–2006"). Comes from the table data (`detectGenerationAmbiguity()`).

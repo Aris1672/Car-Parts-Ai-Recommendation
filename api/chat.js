@@ -770,7 +770,7 @@ function catalogBrand(extracted, laximoResult) {
  * Returns null whenever the regular compatibility-table path should be used
  * instead -- never throws.
  */
-async function lookupLaximo(extracted, messages) {
+async function lookupLaximo(extracted, messages, outcome = {}) {
   if (!LAXIMO_ENABLED) return null;
   const vin = laximo.normalizeVin(extracted.vin);
 
@@ -796,6 +796,7 @@ async function lookupLaximo(extracted, messages) {
     ].filter(Boolean).join(' \n ');
   }
   if (!mode) return null;
+  outcome.mode = mode; // the catalog was needed for this message (dashboard dot)
 
   const started = Date.now();
   let timer;
@@ -820,10 +821,14 @@ async function lookupLaximo(extracted, messages) {
       oemCount: result?.parts?.length ?? 0,
       ms: Date.now() - started,
     }));
-    if (result?.unavailable) return null; // paused / over budget / breaker -- not "VIN not found"
+    if (result?.unavailable) { Object.assign(outcome, { status: 'blocked', reason: String(result.unavailable) }); return null; } // paused / over budget / breaker -- not "VIN not found"
+    Object.assign(outcome, result?.searchFailed
+      ? { status: 'blocked', reason: 'поиск деталей прерван (блокировка / пауза каталога)' }
+      : { status: 'ok', vehicle: result?.vehicle?.name || (mode === 'vin' && !result ? 'VIN не найден' : null) });
     if (mode === 'vin') return result ? { ...result, vin, matchedBy: 'vin' } : { vin, notFound: true, matchedBy: 'vin' };
     return result ? { ...result, matchedBy: 'model' } : null;
   } catch (err) {
+    Object.assign(outcome, { status: 'blocked', reason: /budget .* exceeded/.test(err.message) ? 'нет ответа вовремя (тайм-аут)' : err.message });
     // Budget exceeded: the scrape keeps running in the background and its
     // results land in the cache, so the customer's NEXT message is fast.
     console.error(`lookupLaximo (${mode}) failed, using compatibility table instead:`, err.message, `(${Date.now() - started}ms)`);
@@ -1899,7 +1904,14 @@ console.log(JSON.stringify(extracted, null, 2));
       if (!extracted.partKeywords || !extracted.partKeywords.length) compat.verdict = 'no_part_name';
     }
 
-    const laximoResult = await lookupLaximo(extracted, messages);
+    const laximoOutcome = {};
+    const laximoResult = await lookupLaximo(extracted, messages, laximoOutcome);
+    // Dashboard «Подбор» (green / red dot per chat): the outcome goes back with
+    // the reply and the widget logs it -- the chat session is created only
+    // after the first reply, so the server doesn't know it yet. No outcome =
+    // the catalog wasn't needed for this message (white dot).
+    const catalogOutcome = laximoOutcome.mode ? { status: laximoOutcome.status === 'ok' ? 'ok' : 'blocked',
+      reason: laximoOutcome.reason || (laximoOutcome.status ? null : 'нет результата'), mode: laximoOutcome.mode, vehicle: laximoOutcome.vehicle || null } : null;
     if (compat && !compat.verdict) Object.assign(compat, compatVerdict(compat.code, laximoResult));
     // Laximo couldn't check (site block, pause, disabled): fall back to our
     // compatibility table when the model is known; with only a VIN, ask for
@@ -1945,7 +1957,7 @@ console.log(JSON.stringify(extracted, null, 2));
       console.log('DIAG laximo-needs-choice', JSON.stringify({ step, optionCount: options.length }));
       Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
       res.setHeader('Content-Type', 'application/json');
-      return res.status(200).json({ reply });
+      return res.status(200).json({ reply, ...(catalogOutcome ? { catalog: catalogOutcome } : {}) });
     }
     let vinVehicleForPrompt = 'Нет данных (клиент не назвал VIN).';
     const laximoDownReason = !LAXIMO_ENABLED ? 'disabled' : await laximo.unavailableReason().catch(() => null);
@@ -2584,7 +2596,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
     res.setHeader('Content-Type', 'application/json');
-    return res.status(200).json({ reply: text });
+    return res.status(200).json({ reply: text, ...(catalogOutcome ? { catalog: catalogOutcome } : {}) });
 
   } catch (err) {
     console.error('Handler error:', err);

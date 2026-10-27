@@ -2142,6 +2142,8 @@
         const first = messages.find(m => m.role === 'user');
         if (first) logEvent('first_message', { text: first.content, placement: inlineHost ? 'inline' : 'bubble' });
       }
+      // Original catalog (Laximo) used for this message: ok / blocked (dashboard «Подбор» dot).
+      if (data.catalog && typeof data.catalog === 'object') logEvent('laximo', data.catalog);
 
       if (text) {
         addBotBubble(text);
