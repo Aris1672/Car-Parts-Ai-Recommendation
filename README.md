@@ -1602,3 +1602,8 @@ If your catalog uses different field names, update the mapping in `api/chat.js` 
 
 Any push to `main` branch triggers automatic Vercel redeployment.
 No manual steps needed after initial setup.
+
+### Self-service purchase: no manager on a found part (28.10)
+- **Owner:** when the part is found, the customer opens it («Открыть деталь» / «Подробнее»), picks an offer, adds it to the cart and clicks «Оформить заказ» (tested on the site: 32416796464 → cart → order). The manager is for what the AI cannot answer.
+- **Prompt:** new section «ПОКУПКА САМОСТОЯТЕЛЬНО» (short purchase path, no «менеджер поможет с заказом» / «оставьте телефон» in such answers); the manager-button rule «готов оформить заказ» replaced by «проблема с уже оформленным заказом»; the «Открыть деталь» / missing-number / live-price texts say «там же можно оформить заказ» instead of «менеджер поможет».
+- **Guard `dropNeedlessManagerButton()`:** on a found part (cards or part buttons) the green manager button is removed, unless the customer's last message asks for a person (менеджер/оператор/специалист/позвоните…), the article check did not confirm the part (verdict ≠ fits), or the answer itself escalates («уточню у специалиста», «не подтверждена», «нет данных о совместимости», «не удалось»). Test: selfservice-test (2).
