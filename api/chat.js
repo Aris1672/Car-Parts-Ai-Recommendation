@@ -904,7 +904,7 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
   const askRule = opts.allowAsk
     ? `\n\nЕсли запрос клиента ОБЩИЙ (например просто «глушитель», «датчик», «ремень», «колодки») и подходящие строки -- это РАЗНЫЕ детали или разные места установки (передняя/задняя ось, средний/задний глушитель, впуск/выпуск), которые клиент не уточнил, -- НЕ выбирай за него, а верни вопрос:\n{"ask":{"question":"короткий вопрос","options":[{"label":"короткое понятное название варианта, до 40 символов","rows":[номера строк]}]}}\n2-6 вариантов, только из этого списка. Левую и правую стороны одной детали НЕ разделяй (это один вариант). Крепёж и мелочи (кронштейн, хомут, болт, прокладка) отдельным вариантом не выноси, если клиент спрашивает про саму деталь.`
     : '';
-  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Для клиента «амортизаторная стойка», «стойка» и «амортизатор» -- одно и то же: на многих BMW спереди стоит «Амортизационная стойка», а сзади -- «Амортизатор»; поэтому на «задние амортизаторные стойки» оставляй задние амортизаторы (Зд), на «передние амортизаторы» -- передние стойки (Пд). «Дополнительный амортизатор» (отбойник) -- не амортизатор. Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» или «${VARIANT_UNKNOWN}» -- оставь все подходящие по смыслу строки. Если клиент выбрал комплектацию (например «D Steering (S217A)» или «Без этих опций (обычная)») -- оставь исполнение с этим примечанием (для «Без этих опций» -- без такого примечания). Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${askRule}\n\nТолько JSON, без пояснений.`;
+  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Для клиента «амортизаторная стойка», «стойка» и «амортизатор» -- одно и то же: на многих BMW спереди стоит «Амортизационная стойка», а сзади -- «Амортизатор»; поэтому на «задние амортизаторные стойки» оставляй задние амортизаторы (Зд), на «передние амортизаторы» -- передние стойки (Пд). «Дополнительный амортизатор» (отбойник) -- не амортизатор. Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» или «${VARIANT_UNKNOWN}» -- оставь все подходящие по смыслу строки. Если клиент выбрал комплектацию (например «D Steering (S217A)» или «Без этих опций (обычная)») -- оставь исполнение с этим примечанием (для «Без этих опций» -- без такого примечания). Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${opts.allowSearchAgain ? ' Если в списке НЕТ запрошенной детали, но в оригинальном каталоге BMW она может называться иначе (например клиент просит «задние амортизаторные стойки», а в списке только передняя «Амортизационная стойка» -- сзади на многих BMW стоит «Амортизатор»), добавь в ответ "searchAgain": [1-3 других названия для поиска в каталоге -- одно-два слова, единственное число, именительный падеж], например {"keep":[],"searchAgain":["амортизатор"]}.' : ''}${askRule}\n\nТолько JSON, без пояснений.`;
   try {
     // Owner 28.10: this semantic step runs on Sonnet 5 (stronger than Haiku at
     // telling «стойка» = «амортизатор», boot strap ≠ engine belt...). Sonnet 5
@@ -956,8 +956,11 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     if (!Array.isArray(answer.keep)) return parts;
     const keep = new Set(validRows(answer.keep));
     const kept = rows.filter((_, i) => keep.has(i + 1));
-    console.log(`[laximo] AI filter "${asked}": kept ${kept.length} of ${rows.length}` + (parts.length > rows.length ? ` (+${parts.length - rows.length} not checked, dropped)` : ''));
-    return Object.assign(kept, extra);
+    const searchAgain = opts.allowSearchAgain && !kept.length && Array.isArray(answer.searchAgain)
+      ? [...new Set(answer.searchAgain.map(x => String(x || '').toLowerCase().replace(/\s+/g, ' ').trim()).filter(x => x.length >= 3 && x.length <= 40))].slice(0, 3)
+      : [];
+    console.log(`[laximo] AI filter "${asked}": kept ${kept.length} of ${rows.length}` + (parts.length > rows.length ? ` (+${parts.length - rows.length} not checked, dropped)` : '') + (searchAgain.length ? `; search again: ${searchAgain.join(', ')}` : ''));
+    return Object.assign(kept, extra, searchAgain.length ? { searchAgain } : {});
   } catch (err) {
     console.error('[laximo] AI filter failed, rows kept as they are:', err.message);
     return parts;
@@ -1034,9 +1037,31 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       const before = result.parts.length;
       const lastAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant');
       const allowAsk = !String((lastAssistant && lastAssistant.content) || '').includes(CLARIFY_LEAD); // never two questions in a row
-      result.parts = await aiFilterParts(result.parts, extracted, messages, { allowAsk });
+      result.parts = await aiFilterParts(result.parts, extracted, messages, { allowAsk, allowSearchAgain: true });
       if (result.parts.clarify) result.clarify = result.parts.clarify;
       filteredOut = before - result.parts.length;
+      // Rows were found but none is what the customer asked for (28.10: «Амортизаторные
+      // стойки задние» -> only the front strut): search once more with the words the
+      // filter suggested, then filter again (or ask with buttons).
+      const again = result.parts.searchAgain;
+      if (again) result.searchedAgain = again;
+      if (again && again.length && !result.clarify && result.vehicleQuery) {
+        const kws = (extracted.partKeywords || []).filter(Boolean);
+        const names = Object.fromEntries(kws.map(k => [k, again]));
+        try {
+          const veh = { query: result.vehicleQuery, vin: result.vehicle && result.vehicle.vin, cacheId: result.vehicleCacheId };
+          const more = await laximo.searchPartsForVehicle(veh, kws, names, partGroups);
+          console.log(`[laximo] search again (${again.join(', ')}): ${more.length} row(s)`);
+          if (more.length) {
+            const refiltered = await aiFilterParts(more, extracted, messages, { allowAsk, allowSearchAgain: false });
+            result.parts = refiltered;
+            if (refiltered.clarify) result.clarify = refiltered.clarify;
+            result.searched = [...(result.searched || []), ...(more.searched || [])];
+          }
+        } catch (err) {
+          console.error('[laximo] search again failed:', err.message);
+        }
+      }
     }
     // Versions of the same part: drop those the car's production date excludes,
     // then ask about equipment if versions remain (not twice in a row).
@@ -1062,6 +1087,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       partKeywords: extracted.partKeywords || null,
       oemCount: result?.parts?.length ?? 0,
       searched: result?.searched || undefined,
+      searchedAgain: result?.searchedAgain || undefined,
       names: extracted.partSearchNames || undefined,
       groups: partGroups ? (extracted.partGroups || {}) : undefined,
       droppedByGroup: result?.droppedByGroup && Object.keys(result.droppedByGroup).length ? result.droppedByGroup : undefined,
@@ -1501,12 +1527,20 @@ etc.
 Диалог:
 `;
 
+const EXTRACT_MODEL = process.env.EXTRACT_MODEL || 'claude-sonnet-5'; // owner 28.10 (was Haiku 4.5)
+const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 20000);
+
 async function extractVehicleInfo(messages) {
   const transcript = messages
     .map(m => `${m.role === 'user' ? 'Клиент' : 'Ассистент'}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
     .join('\n');
 
-  try {
+  // Owner 28.10: reading the request (part words, the catalog search names, BMW
+  // groups) runs on Sonnet 5 -- Haiku chose «стойка» but not «амортизатор» for
+  // «Амортизаторные стойки задние». Sonnet 5 thinks by default and rejects a
+  // custom temperature. Haiku (old settings) answers if Sonnet fails or is slow.
+  const call = async (model, body, ms) => {
+    const started = Date.now();
     const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: {
@@ -1514,21 +1548,25 @@ async function extractVehicleInfo(messages) {
         'x-api-key':         ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model:       'claude-haiku-4-5-20251001', // fast + cheap -- pure extraction, no need for a bigger model here
-        max_tokens:  700, // partSearchNames + partGroups made the JSON longer
-        temperature: 0, // deterministic extraction
-        messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }],
-      }),
-      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }] }),
+      signal: AbortSignal.timeout(ms),
     });
-    if (!res.ok) return {};
-
+    if (!res.ok) throw new Error(`${model} HTTP ${res.status}`);
     const data = await res.json();
-    const textBlock = (data.content || []).find(b => b.type === 'text');
-    const raw = textBlock?.text ?? '{}';
-    const cleaned = raw.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleaned);
+    const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+    const m = raw.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
+    if (!m) throw new Error(`${model}: no JSON (stop: ${data.stop_reason})`);
+    const out = JSON.parse(m[0]);
+    console.log(`[extract] ${model}: ${Date.now() - started} ms`);
+    return out;
+  };
+  try {
+    return await call(EXTRACT_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
+  } catch (err) {
+    console.error(`[extract] ${EXTRACT_MODEL} failed (${err.message}) -- Haiku instead`);
+  }
+  try {
+    return await call('claude-haiku-4-5-20251001', { max_tokens: 700, temperature: 0 }, 10000);
   } catch {
     return {}; // safe fallback -- matching below just yields nothing, agent keeps asking clarifying questions
   }
@@ -3019,6 +3057,7 @@ module.exports.isNonServicePart = isNonServicePart;
 module.exports.asksForNonServicePart = asksForNonServicePart;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
 module.exports.aiFilterParts = aiFilterParts;
+module.exports.extractVehicleInfo = extractVehicleInfo;
 module.exports.distinctPartNames = distinctPartNames;
 module.exports.dropInventedQualifiers = dropInventedQualifiers;
 module.exports.versionCheck = versionCheck;
