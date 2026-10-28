@@ -1648,3 +1648,6 @@ No manual steps needed after initial setup.
 
 ### Diagram cards in the reply's order (28.10)
 - The diagram prepared before the reply (first catalog candidate) always stayed first, so the text could list the front kit first while the cards showed the rear one first. `orderCardsByText(cards, text)` now sorts the diagram cards by where their part numbers (own number or extra marks; spaces/dashes ignored) first appear in the reply; unmentioned cards keep their order at the end.
+
+### Model decision (owner, 28.10 evening)
+- **Sonnet 5 for every AI step, confirmed.** Same test questions before/after: «Шариковый подшипник» + VIN $0.07 → $0.08, «Тормозные колодки на BMW X5» $0.09 → $0.08 — no real cost difference, while Haiku chose search words and judged rows noticeably worse. Haiku 4.5 stays only as the emergency fallback. Summary of the whole pipeline: `docs/catalog-search-pipeline.md`.
