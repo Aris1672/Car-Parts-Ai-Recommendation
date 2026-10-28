@@ -1645,3 +1645,6 @@ No manual steps needed after initial setup.
 ### Front / rear axle from the BMW number (28.10)
 - **Live:** no-VIN brake pads → «каталог не разделяет передние/задние, пришлите VIN»; bearing + VIN → two strut-mount kits «могут быть разные стороны — к менеджеру». But the number tells the axle.
 - **`axleOf(oem)` (lib/laximo.js):** 31… → «передняя ось», 33… → «задняя ось», 34 1x… → front brakes, 34 2x… → rear brakes; others / non-BMW → none. Every catalog row gets `axle`; the AI filter sees «[передняя ось]» in its list (rule: keep by it; if both axles and the customer didn't say → ask «Передние / Задние», no «Другой вариант»); the compatibility records for the answer carry `axle`, and the prompt says it is exact — name the axle, don't send to the manager or ask for a VIN because of it.
+
+### Diagram cards in the reply's order (28.10)
+- The diagram prepared before the reply (first catalog candidate) always stayed first, so the text could list the front kit first while the cards showed the rear one first. `orderCardsByText(cards, text)` now sorts the diagram cards by where their part numbers (own number or extra marks; spaces/dashes ignored) first appear in the reply; unmentioned cards keep their order at the end.

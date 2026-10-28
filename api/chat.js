@@ -1364,6 +1364,24 @@ function offeredCodes(text, codes, linkCodes) {
 }
 
 /**
+ * Diagram cards in the order their part numbers first appear in the reply
+ * (owner 28.10: the text listed the front kit first, the cards showed the rear
+ * one first -- the card prepared before the reply always stayed on top).
+ * A card counts by its own number and its extra marks; cards not mentioned keep
+ * their order at the end.
+ */
+function orderCardsByText(cards, text) {
+  const compact = String(text || '').toUpperCase().replace(/[\s\-]/g, '');
+  const norm = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const firstAt = card => {
+    const codes = [card.oem, ...(card.marks || []).map(m => m.oem)].map(norm).filter(Boolean);
+    const at = codes.map(c => compact.indexOf(c)).filter(i => i >= 0);
+    return at.length ? Math.min(...at) : Infinity;
+  };
+  return cards.map((c, i) => ({ c, i, at: firstAt(c) })).sort((a, b) => a.at - b.at || a.i - b.i).map(x => x.c);
+}
+
+/**
  * Diagram cards for the offered parts: one card per unit picture; further
  * parts of the same unit become extra marks on it (`marks`). `cards` = cards
  * already there (the main diagram), `ready` = diagrams (or null) to add.
@@ -3035,7 +3053,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
           && !(diagram.marks || []).some(m => offered.includes(laximo.normalizeOem(m.oem)))) {
         diagramCards = diagramCards.filter(c => c !== diagram);
       }
-      diagramCards = diagramCards.slice(0, MAX_PART_DIAGRAMS);
+      diagramCards = orderCardsByText(diagramCards, text).slice(0, MAX_PART_DIAGRAMS); // same order as the reply text (owner 28.10)
       extraDiagrams = diagramCards.filter(c => c !== diagram);
       console.log(`DIAG part-diagrams offered=${offered.length} ready=${ready.filter(Boolean).length}${got ? '' : ' (wait cut)'} cards=${diagramCards.length} marks=${diagramCards.reduce((n, c) => n + (c.marks ? c.marks.length : 1), 0)}`);
     }
@@ -3090,6 +3108,7 @@ module.exports.offeredCodes = offeredCodes;
 module.exports.workshopServiceTopic = workshopServiceTopic;
 module.exports.positiveFirstSentence = positiveFirstSentence;
 module.exports.groupPartDiagrams = groupPartDiagrams;
+module.exports.orderCardsByText = orderCardsByText;
 module.exports.abcpPartName = abcpPartName;
 module.exports.looksGarbled = looksGarbled;
 module.exports.plausiblePhone = plausiblePhone;
