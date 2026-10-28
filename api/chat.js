@@ -1561,9 +1561,7 @@ async function extractVehicleInfo(messages) {
     return out;
   };
   try {
-    // Thinking off for this structured step (live 28.10: 12.3 s with default thinking).
-    // Sonnet 5 accepts thinking {type:'disabled'} (migration guide); Sonnet 5.5 would not.
-    return await call(EXTRACT_MODEL, { max_tokens: 1500, ...(/sonnet-5$/.test(EXTRACT_MODEL) ? { thinking: { type: 'disabled' } } : {}) }, EXTRACT_TIMEOUT_MS);
+    return await call(EXTRACT_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
   } catch (err) {
     console.error(`[extract] ${EXTRACT_MODEL} failed (${err.message}) -- Haiku instead`);
   }
