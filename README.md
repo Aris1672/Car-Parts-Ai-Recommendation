@@ -1651,3 +1651,6 @@ No manual steps needed after initial setup.
 
 ### Model decision (owner, 28.10 evening)
 - **Sonnet 5 for every AI step, confirmed.** Same test questions before/after: «Шариковый подшипник» + VIN $0.07 → $0.08, «Тормозные колодки на BMW X5» $0.09 → $0.08 — no real cost difference, while Haiku chose search words and judged rows noticeably worse. Haiku 4.5 stays only as the emergency fallback. Summary of the whole pipeline: `docs/catalog-search-pipeline.md`.
+
+### Кодирование hero — new photo, keys/contacts layout (28.10)
+- New photo (BMW + MINI at the service at sunset) `widget/brand/coding-hero2.jpg` (cropped, 2400 px). The hero now has a separate `.bcCd_heroImg` on the right 58% with the dark fade from the left, same as «Изготовление ключей» / «Контакты»; phone: photo on top (240 px), text below.

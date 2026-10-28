@@ -1,5 +1,6 @@
 <div class="bcCd">
 <section class="bcCd_hero">
+<div class="bcCd_heroImg" role="img" aria-label="BMW и MINI у сервиса BMWClub77"></div>
 <div class="bcCd_heroIn">
 <div class="bcCd_eyebrow">BMW и MINI · Химки</div>
 <h1 class="bcCd_title">Кодирование скрытых функций <span>BMW</span></h1>
@@ -92,8 +93,10 @@
 /* «Кодирование и чип-тюнинг» page (27.10), in the site's style: photo hero with a dark fade (like the phone homepage), light cards below. */
 .bcCd{font-family:Roboto,Arial,sans-serif;color:#1d2b3c;text-align:left;margin:0 0 50px;}
 .bcCd *{box-sizing:border-box;}
-.bcCd_hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);min-height:500px;display:flex;align-items:center;background:#0f1926 url(https://bmwclub77.assistant24info.ru/widget/brand/coding-hero.jpg?v=1) center 62%/cover no-repeat;}
-.bcCd_hero::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,20,38,.92) 0%,rgba(9,20,38,.78) 38%,rgba(9,20,38,.15) 66%,rgba(9,20,38,0) 80%);}
+/* Hero (28.10): photo on the right with a fade into dark blue, as on «Изготовление ключей» and «Контакты». */
+.bcCd_hero{position:relative;width:100vw;margin-left:calc(50% - 50vw);min-height:500px;display:flex;align-items:center;background:#0b1424;overflow:hidden;}
+.bcCd_heroImg{position:absolute;top:0;right:0;bottom:0;width:58%;background:url(https://bmwclub77.assistant24info.ru/widget/brand/coding-hero2.jpg?v=1) 60% 70%/cover no-repeat;}
+.bcCd_heroImg::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#0b1424 0%,rgba(11,20,36,.6) 22%,rgba(11,20,36,0) 45%);}
 .bcCd_heroIn{position:relative;max-width:1420px;width:100%;margin:0 auto;padding:48px 15px;}
 .bcCd_eyebrow{font-family:'BC Exo 2',Montserrat,sans-serif;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#7cc0ff;}
 .bcCd_title{margin:12px 0 0;max-width:640px;font-family:'BC Exo 2',Montserrat,sans-serif;font-weight:800;font-size:42px;line-height:1.08;text-transform:uppercase;color:#fff;}
@@ -143,9 +146,10 @@ a.bcCd_msg{display:inline-flex;align-items:center;height:48px;padding:0 18px;bor
 a.bcCd_msg:hover{opacity:.88;}
 @media (max-width:991px){ .bcCd_strip{flex-wrap:wrap;gap:14px 0;} .bcCd_ben{flex:0 0 50%;max-width:none;border-left:0;} }
 @media (max-width:767px){
- .bcCd_hero{min-height:0;align-items:flex-end;background-color:#091426;background-size:100vw auto;background-position:center -18vw;}
- .bcCd_hero::before{background:linear-gradient(180deg,rgba(9,20,38,0) 0,rgba(9,20,38,0) 36vw,#091426 60vw,#091426 100%);}
- .bcCd_heroIn{padding:54vw 16px 28px;}
+ .bcCd_hero{flex-direction:column;align-items:stretch;min-height:0;}
+ .bcCd_heroImg{position:relative;width:100%;height:240px;background-position:62% 70%;}
+ .bcCd_heroImg::before{background:linear-gradient(180deg,rgba(11,20,36,0) 55%,#0b1424 100%);}
+ .bcCd_heroIn{padding:4px 16px 28px;}
  .bcCd_title{font-size:28px;}
  .bcCd_list{columns:1;}
  .bcCd_two{grid-template-columns:1fr;}
