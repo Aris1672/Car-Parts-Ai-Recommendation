@@ -77,13 +77,13 @@ async function generateSummary(messages) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 400,
+      model:      'claude-sonnet-5', // owner 28.10: Sonnet 5 everywhere (thinks by default; room for it)
+      max_tokens: 4000,
       messages: [
         { role: 'user', content: SUMMARY_PROMPT + transcript }
       ],
     }),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(45000),
   });
 
   if (!response.ok) {

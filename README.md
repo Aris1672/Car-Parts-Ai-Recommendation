@@ -1636,3 +1636,8 @@ No manual steps needed after initial setup.
 
 ### Cost per message in the log (28.10)
 - One line per chat message: `[cost] message: claude-sonnet-5 ×3: in …, out … (~$…) | claude-haiku-4-5-20251001 ×1: … | total ~$… (~… ¢)`. Every Anthropic call of the message (request reading, AI filter, re-search, English→Russian names, generation question, final answer) adds its usage (AsyncLocalStorage around the handler). Input is billed-equivalent (cache writes ×1.25, reads ×0.1). Prices per million tokens: env `PRICE_<MODEL>_IN` / `_OUT` (e.g. `PRICE_CLAUDE_SONNET_5_IN`); defaults Sonnet 5 $3/$15, Haiku 4.5 $1/$5 — **estimates, check against the Anthropic pricing page**. The manager summary (api/session/manager.js, Haiku) is a separate request, not in this line.
+
+### 100% Sonnet 5 (28.10)
+- Owner tests: «Шариковый подшипник» + VIN ≈ $0.07, «Нужны тормозные колодки на BMW X5» (no VIN, model wizard) ≈ $0.09 — Haiku was not used in either, so the switch costs almost nothing.
+- Moved to `claude-sonnet-5` (no temperature, `max_tokens` 4000 for its thinking, longer timeouts): English→Russian part names (`toRussianPartName`, 20 s), the generation question without catalog data (30 s), the manager-handoff summary (`api/session/manager.js`, 45 s).
+- Haiku 4.5 remains only as the emergency fallback of request reading and the AI filter (Sonnet error / timeout / unreadable answer).

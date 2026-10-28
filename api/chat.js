@@ -1289,13 +1289,13 @@ async function toRussianPartName(name) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001', max_tokens: 60, temperature: 0,
+        model: 'claude-sonnet-5', max_tokens: 4000, // owner 28.10: Sonnet 5 everywhere (thinks by default, no temperature)
         messages: [{ role: 'user', content: `Переведи название автозапчасти на русский так, как оно называется в оригинальном каталоге BMW (ETK), коротко, без пояснений и кавычек. Название: ${name}` }],
       }),
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(20000),
     });
     const data = await res.json();
-    trackUsage('claude-haiku-4-5-20251001', data);
+    trackUsage('claude-sonnet-5', data);
     const out = String(((data.content || []).find(b => b.type === 'text') || {}).text || '').split('\n')[0].replace(/["«».]/g, '').trim();
     const ru = /[а-яё]/i.test(out) ? out.slice(0, 80) : null;
     translateCache.set(key, ru);
@@ -2663,17 +2663,16 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model:       'claude-haiku-4-5-20251001',
-              max_tokens:  300,
-              temperature: 0.3,
+              model:       'claude-sonnet-5', // owner 28.10: Sonnet 5 everywhere (no temperature; thinks by default)
+              max_tokens:  4000,
               messages:    [{ role: 'user', content: CLARIFY_PROMPT }],
             }),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(30000),
           });
 
           if (clarifyRes.ok) {
             const clarifyData = await clarifyRes.json();
-            trackUsage('claude-haiku-4-5-20251001', clarifyData);
+            trackUsage('claude-sonnet-5', clarifyData);
             const clarifyBlock = (clarifyData.content || []).find(b => b.type === 'text');
             const clarifyText = clarifyBlock?.text
               || `Для BMW ${extracted.model} есть несколько поколений с разными деталями. Уточните, пожалуйста, год выпуска или код кузова (${optionsForPrompt.map(g => g.generation).join(', ')}).`;
