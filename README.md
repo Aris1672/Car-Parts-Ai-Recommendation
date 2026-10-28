@@ -1611,3 +1611,11 @@ No manual steps needed after initial setup.
 ### Контакты page — owner's design (28.10)
 - `abcp-infoblocks/page_contacts.html` (paste into ABCP «Контакты»): photo hero right under the header (BMW Service building), «Новое: филиал в Химках» banner, address + static map (opens Yandex at 55.882628, 37.415488; «Построить маршрут» on the map), «Открыть в Яндекс Картах» + «★ Оставить отзыв на Яндексе» under the map, contact / hours / delivery cards (same facts as before), «Всё для вашего BMW» (catalog /laximo, AI-подбор opens `window.AutoChat`, /kodirovanie, /izgotovlenieklyuchey), «Как нас найти» (client 28.10: 5–10 минут от МКАД, подъезд с Ленинградского и Вашутинского шоссе, бесплатная парковка; ориентир = «в навигаторе пишите «БмвКлуб77»»), dark «Остались вопросы?» band. Phone: photo on top, cards 2 per row.
 - Images: `widget/brand/contacts/` (hero 2400 px, building, parts, ai, coding, keys).
+- Owner 28.10: address line «BMWClub77 · в навигаторе пишите «БмвКлуб77»» and landmark «BMWClub77 на ул. Молодежная, 9Н…» (no «BMW СЕРВИС» on the page).
+
+### Phone menu fixes (28.10)
+- **Symptom:** on Android (Yandex Browser, Edge) the side menu flashed open and closed at once — on every page.
+- **Cause:** ABCP's `js/script.js` toggles `html.openNav` on `.openPanel` click and closes it on any click on `.darkscreen` / `.siteWrapper`; on these browsers one tap also produced a "ghost" click on the dark overlay that had just appeared. Not caused by our pages or the widget (checked live in a 390 px frame: no overlay over the icon, one handler).
+- **Fix 1 (footcopyright script, all pages):** clicks on `.darkscreen` / `.siteWrapper` / `.openPanel` are ignored for 500 ms after the menu opens (capture-phase listener before ABCP's handlers; taps inside `.mainAsideMobile` unaffected).
+- **Fix 2 (footcopyright CSS, ≤991 px):** invisible tap area around the menu icon via `a.openPanel::after` (36×19 → ~64×48 px), same look. Owner confirmed both on the phone.
+- **Also:** the hero-gap script of the Контакты / Ключи / Кодирование pages no longer gives the header its own layer (position/z-index) on screens ≤991 px — not needed there and could trap the menu.
