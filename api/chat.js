@@ -921,6 +921,7 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
       });
       if (!res.ok) throw new Error(`${model} HTTP ${res.status}`);
       const data = await res.json();
+      trackUsage(model, data);
       const text = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
       if (!text.trim()) throw new Error(`${model} returned no text (stop: ${data.stop_reason})`);
       console.log(`[laximo] AI filter model ${model}: ${Date.now() - started} ms`);
@@ -1294,6 +1295,7 @@ async function toRussianPartName(name) {
       signal: AbortSignal.timeout(6000),
     });
     const data = await res.json();
+    trackUsage('claude-haiku-4-5-20251001', data);
     const out = String(((data.content || []).find(b => b.type === 'text') || {}).text || '').split('\n')[0].replace(/["«».]/g, '').trim();
     const ru = /[а-яё]/i.test(out) ? out.slice(0, 80) : null;
     translateCache.set(key, ru);
@@ -1553,6 +1555,7 @@ async function extractVehicleInfo(messages) {
     });
     if (!res.ok) throw new Error(`${model} HTTP ${res.status}`);
     const data = await res.json();
+    trackUsage(model, data);
     const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
     const m = raw.replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
     if (!m) throw new Error(`${model}: no JSON (stop: ${data.stop_reason})`);
@@ -2178,7 +2181,50 @@ function corsHeaders() {
 }
 
 // ─── MAIN HANDLER ──────────────────────────────────────────────────────────────
+// ─── COST PER MESSAGE (owner 28.10: compare Haiku+Sonnet vs Sonnet only) ───────
+// Every Anthropic call of one chat message adds its token usage here; one log
+// line per message: tokens per model + an estimate in $ (prices per million
+// tokens from env PRICE_<MODEL>_IN / _OUT, defaults below -- check them on the
+// Anthropic pricing page).
+const { AsyncLocalStorage } = require('async_hooks');
+const usageStore = new AsyncLocalStorage();
+const DEFAULT_PRICES = { 'claude-sonnet-5': [3, 15], 'claude-haiku-4-5-20251001': [1, 5] };
+function priceOf(model) {
+  const key = model.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  const d = DEFAULT_PRICES[model] || [3, 15];
+  return [Number(process.env[`PRICE_${key}_IN`] || d[0]), Number(process.env[`PRICE_${key}_OUT`] || d[1])];
+}
+function trackUsage(model, data) {
+  const store = usageStore.getStore();
+  const u = data && data.usage;
+  if (!store || !u) return;
+  // billed-equivalent input: cache writes ×1.25, cache reads ×0.1 of the input price
+  const input = Math.round((u.input_tokens || 0) + 1.25 * (u.cache_creation_input_tokens || 0) + 0.1 * (u.cache_read_input_tokens || 0));
+  store.push({ model, input, output: u.output_tokens || 0 });
+}
+function logUsage(calls) {
+  if (!calls.length) return;
+  const by = {};
+  for (const c of calls) { const m = (by[c.model] ||= { calls: 0, input: 0, output: 0 }); m.calls++; m.input += c.input; m.output += c.output; }
+  let usd = 0;
+  const parts = Object.entries(by).map(([model, m]) => {
+    const [pin, pout] = priceOf(model);
+    const cost = (m.input * pin + m.output * pout) / 1e6; usd += cost;
+    return `${model} ×${m.calls}: in ${m.input}, out ${m.output} (~$${cost.toFixed(4)})`;
+  });
+  console.log(`[cost] message: ${parts.join(' | ')} | total ~$${usd.toFixed(4)} (~${(usd * 100).toFixed(2)} ¢)`);
+}
+
 async function handler(req, res) {
+  const calls = [];
+  try {
+    return await usageStore.run(calls, () => handleChat(req, res));
+  } finally {
+    logUsage(calls);
+  }
+}
+
+async function handleChat(req, res) {
   const headers = corsHeaders();
 
   if (req.method === 'OPTIONS') {
@@ -2627,6 +2673,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
           if (clarifyRes.ok) {
             const clarifyData = await clarifyRes.json();
+            trackUsage('claude-haiku-4-5-20251001', clarifyData);
             const clarifyBlock = (clarifyData.content || []).find(b => b.type === 'text');
             const clarifyText = clarifyBlock?.text
               || `Для BMW ${extracted.model} есть несколько поколений с разными деталями. Уточните, пожалуйста, год выпуска или код кузова (${optionsForPrompt.map(g => g.generation).join(', ')}).`;
@@ -2926,6 +2973,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     }
 
     const data = await claudeRes.json();
+    trackUsage('claude-sonnet-5', data);
     // Find the actual text block by TYPE, not by array position. Sonnet 5
     // (and any model with thinking/adaptive-thinking enabled) can return a
     // {type: "thinking", ...} block BEFORE the text block, so content[0]
@@ -3065,3 +3113,4 @@ module.exports.dropNeedlessManagerButton = dropNeedlessManagerButton;
 module.exports.yearMonth = yearMonth;
 module.exports.partDateWindow = partDateWindow;
 module.exports.equipmentCondition = equipmentCondition;
+module.exports._usage = { usageStore, trackUsage, logUsage };
