@@ -76,6 +76,9 @@
     var gap = Math.round(hero.getBoundingClientRect().top - header.getBoundingClientRect().bottom);
     if (gap <= 0 || gap > 150) return;
     hero.style.marginTop = -gap + 'px';
+    // Phones / tablets: no own layer for the header -- it trapped the site's slide-out
+    // menu (28.10: «меню не открывается»). The photo only touches the header there.
+    if (window.innerWidth <= 991) { header.style.position = ''; header.style.zIndex = ''; return; }
     var hs = getComputedStyle(header);
     if (hs.position === 'static') header.style.position = 'relative';
     if (!hs.zIndex || hs.zIndex === 'auto') header.style.zIndex = '5';
