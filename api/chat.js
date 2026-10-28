@@ -883,6 +883,8 @@ function versionCheck(parts, vehicleDate, opts = {}) {
 //     made from the real rows (opts.allowAsk; never twice in a row).
 // Any failure -> the rows stay as they are.
 const PART_FILTER_MAX_ROWS = 80;
+const PART_FILTER_MODEL = process.env.PART_FILTER_MODEL || 'claude-sonnet-5'; // owner 28.10 (was Haiku)
+const PART_FILTER_TIMEOUT_MS = Number(process.env.PART_FILTER_TIMEOUT_MS || 20000);
 const CLARIFY_LEAD = 'Уточните, какая именно деталь нужна';
 const CLARIFY_ALL = 'Все варианты';
 /** Distinct part names, ignoring side markers (Л/П, левый/правый) -- a left/right pair is one part. */
@@ -904,15 +906,33 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     : '';
   const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Для клиента «амортизаторная стойка», «стойка» и «амортизатор» -- одно и то же: на многих BMW спереди стоит «Амортизационная стойка», а сзади -- «Амортизатор»; поэтому на «задние амортизаторные стойки» оставляй задние амортизаторы (Зд), на «передние амортизаторы» -- передние стойки (Пд). «Дополнительный амортизатор» (отбойник) -- не амортизатор. Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» или «${VARIANT_UNKNOWN}» -- оставь все подходящие по смыслу строки. Если клиент выбрал комплектацию (например «D Steering (S217A)» или «Без этих опций (обычная)») -- оставь исполнение с этим примечанием (для «Без этих опций» -- без такого примечания). Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${askRule}\n\nТолько JSON, без пояснений.`;
   try {
-    const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, temperature: 0, messages: [{ role: 'user', content: prompt }] }),
-      signal: AbortSignal.timeout(7000),
-    });
-    if (!res.ok) return parts;
-    const data = await res.json();
-    const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+    // Owner 28.10: this semantic step runs on Sonnet 5 (stronger than Haiku at
+    // telling «стойка» = «амортизатор», boot strap ≠ engine belt...). Sonnet 5
+    // thinks by default and rejects a custom temperature, so no temperature and a
+    // budget that leaves room for thinking. Haiku is the fallback if Sonnet fails
+    // or is too slow, so a reply is never stuck on this step.
+    const ask = async (model, body, ms) => {
+      const started = Date.now();
+      const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: prompt }] }),
+        signal: AbortSignal.timeout(ms),
+      });
+      if (!res.ok) throw new Error(`${model} HTTP ${res.status}`);
+      const data = await res.json();
+      const text = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+      if (!text.trim()) throw new Error(`${model} returned no text (stop: ${data.stop_reason})`);
+      console.log(`[laximo] AI filter model ${model}: ${Date.now() - started} ms`);
+      return text;
+    };
+    let raw;
+    try {
+      raw = await ask(PART_FILTER_MODEL, { max_tokens: 6000 }, PART_FILTER_TIMEOUT_MS);
+    } catch (err) {
+      console.error(`[laximo] AI filter on ${PART_FILTER_MODEL} failed (${err.message}) -- Haiku instead`);
+      raw = await ask('claude-haiku-4-5-20251001', { max_tokens: 500, temperature: 0 }, 7000);
+    }
     let answer = null;
     const obj = raw.match(/\{[\s\S]*\}/);
     if (obj) { try { answer = JSON.parse(obj[0]); } catch { answer = null; } }
