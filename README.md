@@ -1641,3 +1641,7 @@ No manual steps needed after initial setup.
 - Owner tests: «Шариковый подшипник» + VIN ≈ $0.07, «Нужны тормозные колодки на BMW X5» (no VIN, model wizard) ≈ $0.09 — Haiku was not used in either, so the switch costs almost nothing.
 - Moved to `claude-sonnet-5` (no temperature, `max_tokens` 4000 for its thinking, longer timeouts): English→Russian part names (`toRussianPartName`, 20 s), the generation question without catalog data (30 s), the manager-handoff summary (`api/session/manager.js`, 45 s).
 - Haiku 4.5 remains only as the emergency fallback of request reading and the AI filter (Sonnet error / timeout / unreadable answer).
+
+### Front / rear axle from the BMW number (28.10)
+- **Live:** no-VIN brake pads → «каталог не разделяет передние/задние, пришлите VIN»; bearing + VIN → two strut-mount kits «могут быть разные стороны — к менеджеру». But the number tells the axle.
+- **`axleOf(oem)` (lib/laximo.js):** 31… → «передняя ось», 33… → «задняя ось», 34 1x… → front brakes, 34 2x… → rear brakes; others / non-BMW → none. Every catalog row gets `axle`; the AI filter sees «[передняя ось]» in its list (rule: keep by it; if both axles and the customer didn't say → ask «Передние / Задние», no «Другой вариант»); the compatibility records for the answer carry `axle`, and the prompt says it is exact — name the axle, don't send to the manager or ask for a VIN because of it.
