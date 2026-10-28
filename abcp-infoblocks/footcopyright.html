@@ -105,6 +105,27 @@
     window.open(url, '_blank', 'noopener');
   });
 })();
+/* Phone menu (28.10): on Android (Yandex, Edge) one tap on the menu icon opened the
+   menu and a following "ghost" click on the dark overlay / page closed it at once.
+   ABCP closes the menu on clicks on .darkscreen / .siteWrapper; such clicks are
+   ignored for 500 ms after the menu opens (capture phase, before ABCP's handlers). */
+(function () {
+  var html = document.documentElement, openedAt = 0;
+  new MutationObserver(function () {
+    var open = html.classList.contains('openNav');
+    if (open && !openedAt) openedAt = Date.now();
+    if (!open) openedAt = 0;
+  }).observe(html, { attributes: true, attributeFilter: ['class'] });
+  function guard(e) {
+    if (!openedAt || Date.now() - openedAt > 500) return;
+    var t = e.target;
+    if (!t.closest || t.closest('.mainAsideMobile')) return; // taps inside the menu work normally
+    if (t.closest('.darkscreen') || t.closest('.siteWrapper') || t.closest('.openPanel')) {
+      e.stopImmediatePropagation(); e.preventDefault();
+    }
+  }
+  document.addEventListener('click', guard, true);
+})();
 /* Current year in «© 2011–…» (the written year is the fallback). */
 (function () { var y = document.querySelectorAll('.bcFoot_year'); for (var i = 0; i < y.length; i++) y[i].textContent = new Date().getFullYear(); })();
 /* «ИИ-консультант» in the footer: open the chat on the page instead of following the link. */
