@@ -1654,3 +1654,6 @@ No manual steps needed after initial setup.
 
 ### Кодирование hero — new photo, keys/contacts layout (28.10)
 - New photo (BMW + MINI at the service at sunset) `widget/brand/coding-hero2.jpg` (cropped, 2400 px). The hero now has a separate `.bcCd_heroImg` on the right 58% with the dark fade from the left, same as «Изготовление ключей» / «Контакты»; phone: photo on top (240 px), text below.
+
+### Кодирование page — owner design (29.10)
+- `page_kodirovanie.html` rebuilt: hero (photo right, fade) with the benefit strip inside its bottom; remote-service banner + function list + dark «Профессиональный подход» card (cockpit photo); 4 photo cards (chip = engine, прошивка = M rear, программисты = tablet, подход = hand+key; «Подробнее» on the two services opens the AI chat, Telegram fallback); hero buttons scroll to the two service cards; «Остались вопросы?» band (phone/Telegram/MAX + address). All facts as before. Photos: `widget/brand/coding/` (cropped from the owner collage).
