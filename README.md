@@ -1668,3 +1668,7 @@ No manual steps needed after initial setup.
 
 ### Laximo direct API (plan, 29.10)
 - See `docs/laximo-direct-api.md`: the shop has its own Laximo.Cat licence (ABCP only plugs the key in); waiting for Laximo to confirm direct API use from our server. Credentials will only ever be Coolify env vars.
+
+### Доставка page — owner design (29.10)
+- New infoblock `abcp-infoblocks/page_dostavka.html` (paste into the ABCP «Доставка» page; footer unchanged): photo hero + benefit strip; 1. Яндекс.Доставка (Москва и область, 1–2 дня) / СДЭК (регионы и СНГ, 2–7 дней) / Самовывоз (Химки, hours, weekends = pre-placed orders); 2. cost at checkout + factors, dispatch in the order day; 3. the 5 steps for regions + «Где мой заказ?»; side cards; «Остались вопросы?» band. Owner: no Почта России, no free-delivery threshold, neutral icons. Photos `widget/brand/delivery/`.
+- «Отследить заказ» calls the new `window.AutoChat.ask(text)` (chat-widget.js: opens the chat and sends the text as if typed) with «Где мой заказ?» → the bot's order-status flow; without the widget the link goes to /orders. «Спросить ИИ-консультанта о доставке» opens the chat (fallback /contacts).

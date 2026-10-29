@@ -2267,7 +2267,16 @@
   }
 
   // ─── PUBLIC API ──────────────────────────────────────────────────────────────
-  window.AutoChat = { open, close, toggle };
+  // ask(text): open the chat and send `text` as if the visitor typed it --
+  // e.g. the delivery page's «Отследить заказ» sends «Где мой заказ?» (29.10).
+  // While an answer is still coming, only opens the chat.
+  function ask(text) {
+    open();
+    const t = String(text || '').trim();
+    if (!t || isLoading) return;
+    setTimeout(() => { if (!isLoading) doSend(t); }, inlineHost ? 0 : 250);
+  }
+  window.AutoChat = { open, close, toggle, ask };
 
   // ─── BOOT ────────────────────────────────────────────────────────────────────
   if (document.readyState === 'loading') {
