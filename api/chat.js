@@ -27,6 +27,11 @@ const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
 const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
+// A car chosen by model (no VIN) that the bot has never looked up needs up to
+// ~11 catalog requests, 3 s apart, plus the part / ТО search -- 40-60 s the
+// first time (live 29.10: X4 G02 M40iX ТО cut at 30 s -> old price list ->
+// nothing found). Owner: quality over speed. Repeats come from the cache.
+const LAXIMO_MODEL_BUDGET_MS = Number(process.env.LAXIMO_MODEL_BUDGET_MS || 75000);
 
 // Find-part advice about VINs, depending on whether the VIN lookup can run
 // right now (LAXIMO_ENABLED, and not paused/over budget -- see lib/laximo.js).
@@ -1043,7 +1048,10 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       : laximo.findPartsByModel(customerText, extracted.partKeywords, extracted.brand, searchNames, partGroups);
     const result = await Promise.race([
       work,
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`budget ${LAXIMO_BUDGET_MS}ms exceeded`)), LAXIMO_BUDGET_MS); }),
+      new Promise((_, reject) => {
+        const budget = mode === 'vin' ? LAXIMO_BUDGET_MS : LAXIMO_MODEL_BUDGET_MS;
+        timer = setTimeout(() => reject(new Error(`budget ${budget}ms exceeded`)), budget);
+      }),
     ]);
     clearTimeout(timer);
     // Broad catalog names ("суппорт", "фильтр", "диск") bring neighbours too

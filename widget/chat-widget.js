@@ -1608,6 +1608,10 @@
     'Сверяю по каталогу…',
     'Почти готово…',
   ];
+  // Shown from ~25 s on and kept (not rotated): a model the bot has never
+  // looked up takes up to a minute in the original catalog (29.10).
+  const TYPING_STATUS_LONG = 'Проверяю оригинальный каталог — для новой модели это может занять до минуты…';
+  const TYPING_STATUS_LONG_MS = 25000;
   const TYPING_STATUS_DELAY_MS   = 2500; // don't show text on fast replies
   const TYPING_STATUS_ROTATE_MS  = 3000;
 
@@ -1642,7 +1646,16 @@
       let i = 0;
       statusEl.textContent = TYPING_STATUS_MESSAGES[i];
       statusEl.classList.add('pc-visible');
+      const startedAt = Date.now();
       const rotateInterval = setInterval(() => {
+        if (Date.now() - startedAt + TYPING_STATUS_DELAY_MS >= TYPING_STATUS_LONG_MS) {
+          const el3 = document.getElementById('pc-typing-status');
+          if (el3 && el3.textContent !== TYPING_STATUS_LONG) {
+            el3.classList.remove('pc-visible');
+            setTimeout(() => { const e = document.getElementById('pc-typing-status'); if (e) { e.textContent = TYPING_STATUS_LONG; e.classList.add('pc-visible'); } }, 300);
+          }
+          return;
+        }
         i = (i + 1) % TYPING_STATUS_MESSAGES.length;
         statusEl.classList.remove('pc-visible');
         setTimeout(() => {
@@ -2105,7 +2118,10 @@
     const fetchWithRetry = async (retries = 1) => {
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 60000);
+        // 150 s: a first lookup of a car by model can take a minute in the
+        // catalog, plus the answer (29.10). At 60 s the widget used to give up
+        // and send the whole message again.
+        const timer = setTimeout(() => controller.abort(), 150000);
         try {
           const res = await fetch(AGENT_URL, {
             method:  'POST',
@@ -2120,7 +2136,8 @@
           clearTimeout(timer);
         }
       } catch (err) {
-        if (retries > 0) {
+        // No resend after our own timeout: the server is still working on it.
+        if (retries > 0 && err && err.name !== 'AbortError') {
           await new Promise(r => setTimeout(r, 1500));
           return fetchWithRetry(retries - 1);
         }
