@@ -1657,3 +1657,7 @@ No manual steps needed after initial setup.
 
 ### Кодирование page — owner design (29.10)
 - `page_kodirovanie.html` rebuilt: hero (photo right, fade) with the benefit strip inside its bottom; remote-service banner + function list + dark «Профессиональный подход» card (cockpit photo); 4 photo cards (chip = engine, прошивка = M rear, программисты = tablet, подход = hand+key; «Подробнее» on the two services opens the AI chat, Telegram fallback); hero buttons scroll to the two service cards; «Остались вопросы?» band (phone/Telegram/MAX + address). All facts as before. Photos: `widget/brand/coding/` (cropped from the owner collage).
+
+### Loops in the model questions (29.10)
+- **X4 G02:** the catalog «Модель» list has 20 options (7 models, also listed with engine codes); above 16 the bot gave up silently, so the catalog search was skipped and the old price-list path asked «G02 / G02 LCI» — and asked again after «G02», because «G02» is also inside «G02 LCI».
+- **Fixes:** `modelGroups()` (lib/laximo.js) — a long model list is asked without engine codes («X4 20dX … X4 M40iX», 7 buttons); a click narrows to its engine variants if there are several. `generationAnswer()` (api/chat.js) — the customer's generation answer (exact, longest first: «G02» ≠ «G02 LCI») narrows the compatibility records and skips the question; the same generation question is never asked twice in a row; no greeting in it. Wizard question repeated (customer re-sent the generation): «Для точного подбора осталось выбрать … (X5 G05 LCI — уже учтено)».

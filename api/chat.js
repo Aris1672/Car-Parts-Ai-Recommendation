@@ -350,6 +350,25 @@ function extractGeneration(model) {
 // {generation, years} for each distinct generation found (deduped), so
 // the caller can list concrete options rather than a vague "tell me your
 // year" -- capped by the caller, not here.
+/**
+ * Which of `generations` the customer named: the latest message that IS a
+ * generation («G02», a button click) or ends with one («X4 G02»). Longest
+ * match first, so «X4 G02 LCI» means «G02 LCI», and «X4 G02» never does.
+ */
+function generationAnswer(messages, generations) {
+  if (!generations || generations.length < 2) return null;
+  const lines = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string')
+    .map(m => ' ' + m.content.toLowerCase().replace(/[^a-zа-яё0-9]+/g, ' ').trim() + ' ').reverse();
+  const byLength = [...generations].sort((a, b) => b.length - a.length);
+  for (const line of lines) {
+    for (const g of byLength) {
+      const w = ' ' + g.toLowerCase().replace(/[^a-zа-яё0-9]+/g, ' ').trim() + ' ';
+      if (line === w || line.endsWith(w)) return g;
+    }
+  }
+  return null;
+}
+
 function detectGenerationAmbiguity(matchedCompatibility) {
   const generations = new Map();
   for (const hits of Object.values(matchedCompatibility)) {
@@ -2423,7 +2442,14 @@ console.log(JSON.stringify(extracted, null, 2));
       const { step, options } = laximoResult.needsChoice;
       const what = WIZARD_STEP_QUESTIONS[step] || String(step).toLowerCase();
       const buttons = options.slice(0, 16);
-      const reply = `Чтобы подобрать детали по оригинальному каталогу производителя, уточните, пожалуйста, ${what}:` +
+      // Same question again (live 29.10: the customer re-sent «X5 G05 LCI» instead of a
+      // modification): say what is already known and what is still missing, not the same text.
+      const prev = String(([...(messages || [])].reverse().find(m => m.role === 'assistant') || {}).content || '');
+      const again = prev.includes(`уточните, пожалуйста, ${what}`);
+      const known = laximoResult.needsChoice.chosen && laximoResult.needsChoice.chosen.length ? ` (${laximoResult.needsChoice.chosen.join(', ')} — уже учтено)` : '';
+      const reply = (again
+        ? `Для точного подбора осталось выбрать ${what}${known} — нажмите нужную кнопку ниже.`
+        : `Чтобы подобрать детали по оригинальному каталогу производителя, уточните, пожалуйста, ${what}:`) +
         `\n\nЛибо пришлите VIN (17 символов, указан в СТС) — по нему подбор будет точнее.` +
         `\n<<<BUTTONS>>>\n${JSON.stringify(buttons)}\n<<<END_BUTTONS>>>`;
       console.log('DIAG laximo-needs-choice', JSON.stringify({ step, optionCount: options.length }));
@@ -2640,6 +2666,26 @@ console.log(JSON.stringify(extracted, null, 2));
       if (matchedCompatibilityByVehicle[code]) matchedCompatibility[code] = matchedCompatibilityByVehicle[code];
     }
 
+    // The customer already said which generation (a button «G02» / «G02 LCI»,
+    // or «X4 G02» typed): keep that generation's records and the parts that
+    // fit it. Live 29.10: «G02» was asked again and again -- «G02» is also
+    // inside «G02 LCI», and the answer was never used. Exact match per
+    // message, so «G02» never counts as «G02 LCI» (and the other way round).
+    const chosenGeneration = generationAnswer(messages, detectGenerationAmbiguity(matchedCompatibility).map(g => g.generation));
+    if (chosenGeneration) {
+      const kept = {};
+      for (const [code, hits] of Object.entries(matchedCompatibility)) {
+        const fit = hits.filter(r => extractGeneration(r.model) === chosenGeneration);
+        if (fit.length) kept[code] = fit;
+      }
+      if (Object.keys(kept).length) {
+        for (const code of Object.keys(matchedCompatibility)) if (!kept[code]) delete matchedCompatibility[code];
+        Object.assign(matchedCompatibility, kept);
+        matchedCatalog = matchedCatalog.filter(p => matchedCompatibility[p.article] || !matchedCompatibilityByVehicle[p.article]);
+        console.log(`[generation] customer chose "${chosenGeneration}": ${Object.keys(kept).length} code(s) kept`);
+      }
+    }
+
     const compatibility = JSON.stringify(matchedCompatibility);
     const catalogForPrompt = JSON.stringify(matchedCatalog);
 
@@ -2658,7 +2704,12 @@ console.log(JSON.stringify(extracted, null, 2));
     // phrase the clarifying question using ONLY the small list of detected
     // generations (a few dozen tokens, not the full matched dataset).
     // (Never needed on the VIN path -- the VIN already pins the generation.)
-    if (!laximoResult?.vehicle && partFilterApplied && extracted.model && !extracted.year && !extracted.engineCode) {
+    // Never the same generation question twice in a row: if the last reply
+    // already offered these generations, the full answer path takes over.
+    const lastReply = String(([...(messages || [])].reverse().find(m => m.role === 'assistant') || {}).content || '');
+    const askedBefore = gens => gens.length > 1 && gens.every(g => lastReply.includes(g));
+    if (!laximoResult?.vehicle && partFilterApplied && extracted.model && !extracted.year && !extracted.engineCode && !chosenGeneration
+        && !askedBefore(detectGenerationAmbiguity(matchedCompatibility).map(g => g.generation))) {
       const generationOptions = detectGenerationAmbiguity(matchedCompatibility);
       if (generationOptions.length > 1) {
         const optionsForPrompt = generationOptions.slice(0, 6);
@@ -2671,7 +2722,7 @@ console.log(JSON.stringify(extracted, null, 2));
         const CLARIFY_PROMPT = `Ты — дружелюбный ИИ-консультант по автозапчастям BMW Club77, отвечаешь ТОЛЬКО по-русски, кратко и по делу.
 Клиент ищет деталь "${(extracted.partKeywords || []).join(', ')}" для ${extracted.brand || ''} ${extracted.model || ''}, но для этой модели есть несколько поколений с разными деталями:
 ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`).join('\n')}
-Кратко объясни, что для точного подбора нужно уточнить поколение (код кузова) или год выпуска, и перечисли перечисленные варианты. НЕ упоминай товары, цены или артикулы -- их в этом ответе быть не должно.`;
+Кратко объясни, что для точного подбора нужно уточнить поколение (код кузова) или год выпуска, и перечисли перечисленные варианты. Не здоровайся (это продолжение диалога). НЕ упоминай товары, цены или артикулы -- их в этом ответе быть не должно.`;
 
         try {
           const clarifyRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
@@ -3109,6 +3160,7 @@ module.exports.workshopServiceTopic = workshopServiceTopic;
 module.exports.positiveFirstSentence = positiveFirstSentence;
 module.exports.groupPartDiagrams = groupPartDiagrams;
 module.exports.orderCardsByText = orderCardsByText;
+module.exports.generationAnswer = generationAnswer;
 module.exports.abcpPartName = abcpPartName;
 module.exports.looksGarbled = looksGarbled;
 module.exports.plausiblePhone = plausiblePhone;
