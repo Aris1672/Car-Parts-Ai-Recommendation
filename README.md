@@ -1665,3 +1665,6 @@ No manual steps needed after initial setup.
 ### Time for a first lookup by model (29.10)
 - **Live:** «X4 G02 M40iX» ТО → `lookupLaximo (model) failed … budget 30000ms exceeded` → old price list → nothing. A car never looked up by model needs up to ~11 catalog requests (3 s apart) + the part/ТО search: 40–60 s the first time; repeats come from the cache.
 - **Now:** model path budget `LAXIMO_MODEL_BUDGET_MS` = 75 s (VIN path stays `LAXIMO_BUDGET_MS` 30 s). Widget waits up to 150 s (was 60 s) and no longer re-sends the message after its own timeout; from ~25 s the typing line shows «Проверяю оригинальный каталог — для новой модели это может занять до минуты…». Owner: quality over speed.
+
+### Laximo direct API (plan, 29.10)
+- See `docs/laximo-direct-api.md`: the shop has its own Laximo.Cat licence (ABCP only plugs the key in); waiting for Laximo to confirm direct API use from our server. Credentials will only ever be Coolify env vars.
