@@ -1896,7 +1896,7 @@
     const frame = card.querySelector('.pc-diag-img');
     if (!frame || !d) return;
     const img = frame.querySelector('img'), mark = frame.querySelector('.pc-diag-mark'), wait = frame.querySelector('.pc-diag-wait');
-    let box = null, full = d.image || null;
+    let box = d.box || null, full = d.image || null; // ТО cards bring their marker with them
     const showFallback = () => { if (!img.naturalWidth) { wait.textContent = '🔩'; wait.style.fontSize = '42px'; } };
     img.addEventListener('load', () => { wait.style.display = 'none'; layoutDiagram(frame, img, mark, box); });
     img.addEventListener('error', showFallback);

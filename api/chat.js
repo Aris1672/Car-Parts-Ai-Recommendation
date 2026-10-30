@@ -584,6 +584,98 @@ function serviceKitFacts(kit) {
   return facts;
 }
 
+/** ТО cards mode: facts per position -- discontinued (and whether it can still be bought), as needed («X»). */
+const AS_NEEDED_QTY_RE = /^\s*(x|х|по\s+необх\S*)\s*$/i;
+function serviceKitCardFacts(kit) {
+  const byPos = new Map();
+  for (const k of kit || []) {
+    const key = String(k.position || k.oem).replace(/^0+(?=\d)/, '');
+    if (!byPos.has(key)) byPos.set(key, []);
+    byPos.get(key).push(k);
+  }
+  const facts = { positions: [], discontinued: [], asNeeded: [] };
+  for (const variants of byPos.values()) {
+    const name = variants[0].name || variants[0].oem;
+    facts.positions.push(name);
+    if (variants.every(v => v.discontinued)) facts.discontinued.push(name + (variants.some(v => v.inFeed || v.priceFrom) ? ' (есть у поставщиков)' : ' (предложений нет — замену подберёт менеджер)'));
+    if (variants.some(v => AS_NEEDED_QTY_RE.test(String(v.qty || '')))) facts.asNeeded.push(name);
+  }
+  return facts;
+}
+/** «Не производится с: 20211116» -> «16.11.2021» (or null). */
+function endOfProduction(notes) {
+  for (const [k, v] of Object.entries(notes || {})) {
+    const t = `${k} ${v}`;
+    if (!/не\s*производ|снят|end_of_production/i.test(t)) continue;
+    const m = t.match(/(\d{4})(\d{2})(\d{2})/) || t.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    if (!m) return '';
+    return m[1].length === 4 ? `${m[3]}.${m[2]}.${m[1]}` : `${m[1]}.${m[2]}.${m[3]}`;
+  }
+  return null;
+}
+/**
+ * ТО cards mode: one card per kit position, in position order. Position in the
+ * price list -> its product card (photo); otherwise the variant with a live
+ * offer (else the first) as a card with the service-unit diagram, its own
+ * position marked, live price and delivery. «X» positions are labelled
+ * «по необходимости» and go last; discontinued ones say so (with the date).
+ */
+function buildKitCards(kitParts, index, kitPrices, diagram, carLabel) {
+  const byPos = new Map();
+  for (const p of kitParts) {
+    const key = String(p.position || p.oem).replace(/^0+(?=\d)/, '');
+    if (!byPos.has(key)) byPos.set(key, []);
+    byPos.get(key).push(p);
+  }
+  const cards = [];
+  const posNum = k => { const n = parseInt(k, 10); return Number.isFinite(n) ? n : 999; };
+  for (const [pos, variants] of [...byPos].sort((a, b) => posNum(a[0]) - posNum(b[0]))) {
+    const asNeeded = variants.some(v => AS_NEEDED_QTY_RE.test(String(v.qty || '')));
+    const feeds = variants.filter(v => index.get(v.oem));
+    // Not in the price list: one card per distinct part name at this position
+    // (wiper versions -> one; «X» position with CHF and ATF -> both), the
+    // variant with a live offer first.
+    const priced = v => { const l = kitPrices[laximo.normalizeOem(v.oem)]; return l && l.cheapest ? 2 : l ? 1 : 0; };
+    const byName = new Map();
+    for (const v of [...variants].sort((a, b) => priced(b) - priced(a))) { const k = String(v.name || v.oem).toLowerCase(); if (!byName.has(k)) byName.set(k, v); }
+    const picks = feeds.length ? feeds : [...byName.values()];
+    for (const p of picks) {
+      const eop = endOfProduction(p.notes);
+      const live = kitPrices[laximo.normalizeOem(p.oem)];
+      const where = `Состав ТО по каталогу BMW, поз. ${pos}${p.qty && !AS_NEEDED_QTY_RE.test(String(p.qty)) && !/^\s*1\s*$/.test(String(p.qty)) ? ` (${p.qty})` : ''}`;
+      const note = [
+        asNeeded ? 'По необходимости — не на каждом ТО.' : '',
+        eop !== null ? `⚠ Снят с производства BMW${eop ? ' с ' + eop : ''}${live || index.get(p.oem) ? ' — пока есть у поставщиков; менеджер подскажет новый номер.' : ' — менеджер подберёт замену.'}` : '',
+        where + '.',
+      ].filter(Boolean).join(' ');
+      const feed = index.get(p.oem);
+      const card = feed ? {
+        article: feed.article, name: feed.name, brand: feed.brand, category: feed.category,
+        compatibility: `${carLabel} — по оригинальному каталогу BMW`,
+        price: feed.price, stock: feed.stock, url: feed.url, picture: feed.picture, best_for: note,
+      } : {
+        ...diagramCardFor({ oem: p.oem, name: p.name, unit: diagram.unitName, unitImage: diagram.image, position: p.position, schema: null }, live, carLabel),
+        best_for: note,
+      };
+      if (!feed && card.diagram && p.box) card.diagram.box = p.box;
+      cards.push({ card, last: asNeeded });
+    }
+  }
+  return [...cards.filter(c => !c.last), ...cards.filter(c => c.last)].map(c => c.card);
+}
+/** ТО cards first (position order), then the AI's own cards that aren't kit positions. */
+function mergeServiceCards(text, kitCards) {
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = String(text || '').match(re);
+  let ai = [];
+  if (m) { try { const j = JSON.parse(m[1]); if (Array.isArray(j)) ai = j; } catch { ai = []; } }
+  const have = new Set(kitCards.map(c => laximo.normalizeOem(c.article)));
+  const all = [...kitCards, ...ai.filter(c => c && c.article && !have.has(laximo.normalizeOem(c.article)))].slice(0, MAX_KIT_CARDS + 2);
+  console.log(`DIAG kit-cards ${kitCards.length} position card(s) (${kitCards.filter(c => c.diagram).length} with diagram), total ${all.length}`);
+  const block = `<<<PRODUCTS>>>\n${JSON.stringify(all)}\n<<<END_PRODUCTS>>>`;
+  return m ? text.replace(re, block) : `${text}\n${block}`;
+}
+
 /**
  * A reply cut off at max_tokens (seen 25.10: ТО answer stopped inside the
  * <<<PRODUCTS>>> JSON, and the widget showed the raw text) gets its open
@@ -3338,7 +3430,11 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
           return [...all.filter(p => !p.crossSell).slice(0, MAX_DIAGRAM_CARDS), ...all.filter(p => p.crossSell).slice(0, 3)];
         })()
       : [];
-    const missingLinkCodes = !diagramCardsMode && laximoUsed && !(compat && compat.verdict === 'fits')
+    // ТО in one carousel (owner 30.10, X4 G02): every kit position is a card --
+    // price-list card, or the service-unit diagram with live price -- instead of
+    // a separate diagram block, «Открыть деталь» buttons and «подберёт менеджер».
+    const serviceCardsMode = process.env.LAXIMO_DIAGRAM_CARDS !== 'false' && laximoUsed && serviceRequest;
+    const missingLinkCodes = !diagramCardsMode && !serviceCardsMode && laximoUsed && !(compat && compat.verdict === 'fits')
       ? laximoNotInCatalog.map(x => String(x.oem || '').toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean) : [];
     const allLinkCodes = [...new Set([...partLinkCodes, ...missingLinkCodes])].slice(0, 3);
     const missingWithButton = missingLinkCodes.filter(c => allLinkCodes.includes(c));
@@ -3490,6 +3586,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // diagram card; the agent gets the same list.
     let serviceKitNote = '';
     let kitFeed = []; // [{part, feed}] -- kit positions that are in the price list (shown as cards)
+    let kitCards = null; // serviceCardsMode: one card per kit position, in position order
     if (diagram && serviceRequest && Array.isArray(diagram.unitParts) && diagram.unitParts.length > 1
         && SERVICE_UNIT_RE.test(diagram.unitName || '')) {
       const index = await lookupCatalog(diagram.unitParts.map(p => p.oem), priceBrand).catch(() => new Map());
@@ -3526,10 +3623,16 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       // brake fluid, coolant and washer fluid "сняты с производства" because the
       // prompt used one sentence for both cases). A position with any variant
       // in the feed is covered by its card.
-      const kitFacts = serviceKitFacts(diagram.kit);
+      const kitFacts = serviceCardsMode ? serviceKitCardFacts(diagram.kit) : serviceKitFacts(diagram.kit);
       diagram.kitFacts = kitFacts;
-      console.log('DIAG service-kit', JSON.stringify({ unit: diagram.unitName, items: diagram.kit.length, inFeed: diagram.kit.filter(k => k.inFeed).length, priced: diagram.kit.filter(k => k.priceFrom).length, positions: { inCards: kitFacts.inCards.length, orderViaManager: kitFacts.orderViaManager.length, discontinued: kitFacts.discontinued.length } }));
-      serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла (с отмеченной позицией) и карточки позиций, которые есть на сайте. Ответ КОРОТКИЙ (см. СТАНДАРТНОЕ ТО): одна строка-вступление, одна строка с перечнем позиций БЕЗ номеров и цен, затем по разделу «ИТОГ ПО ПОЗИЦИЯМ ТО» ниже: если список orderViaManager не пуст — одно предложение, что эти позиции подберёт и закажет менеджер (НЕ называй их снятыми с производства и НЕ говори, что их нет в каталоге/на сайте); если список discontinued не пуст — одно предложение, что эти позиции сняты с производства и менеджер подберёт актуальную замену; затем вопрос про моторное масло и колодки/диски. Слова «снят(ы) с производства» — ТОЛЬКО для позиций из списка discontinued. Номера, цены и сроки по позициям в текст НЕ переписывай — они в карточках. Пробег и интервалы НЕ спрашивай. Это правило ВАЖНЕЕ разделов «АКТУАЛЬНЫЕ ЦЕНЫ» и «КНОПКИ…»: для ответа на ТО цены и сроки отдельных номеров в тексте НЕ называй. Все позиции с inFeed=true система САМА добавит карточками (до 12 карточек) — в блок <<<PRODUCTS>>> их можно не включать.\n\nИТОГ ПО ПОЗИЦИЯМ ТО (готовые факты по позициям узла, используй ТОЛЬКО их): ${JSON.stringify(diagram.kitFacts)}\n- inCards: позиции, которые будут в карточках;\n- orderViaManager: позиций нет в карточках, но их можно заказать — подберёт и закажет менеджер;\n- discontinued: позиции, все номера которых по каталогу сняты с производства.`;
+      if (serviceCardsMode) {
+        const v = laximoResult?.vehicle || {};
+        const label = `${v.brand || 'BMW'} ${v.name || ''}`.trim();
+        kitCards = buildKitCards(kitParts, index, kitPrices, diagram, label);
+      }
+      console.log('DIAG service-kit', JSON.stringify({ unit: diagram.unitName, items: diagram.kit.length, inFeed: diagram.kit.filter(k => k.inFeed).length, priced: diagram.kit.filter(k => k.priceFrom).length, positions: kitFacts.positions ? { all: kitFacts.positions.length, discontinued: kitFacts.discontinued.length, asNeeded: kitFacts.asNeeded.length } : { inCards: kitFacts.inCards.length, orderViaManager: kitFacts.orderViaManager.length, discontinued: kitFacts.discontinued.length } }));
+      if (serviceCardsMode) serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом система САМА покажет КАРТОЧКИ ВСЕХ позиций ТО одной лентой (фото или схема BMW, цена, срок) — в блок <<<PRODUCTS>>> их НЕ добавляй, кнопок «Открыть деталь» и отдельной схемы нет. Ответ КОРОТКИЙ: одна строка-вступление с автомобилем; одна строка с перечнем позиций БЕЗ номеров и цен; затем по разделу «ИТОГ» ниже: если discontinued не пуст — одно предложение, что эти позиции BMW сняла с производства, но они ещё есть у поставщиков (цена и срок в карточке), а менеджер подскажет новый номер; если asNeeded не пуст — одно предложение, что эти позиции по каталогу меняются по необходимости, а не на каждом ТО; затем вопрос про моторное масло и колодки/диски. НЕ пиши, что какие-то позиции «подберёт/закажет менеджер» или что их нет на сайте. Номера, цены и сроки в текст НЕ пиши. Пробег и интервалы НЕ спрашивай.\n\nИТОГ ПО ПОЗИЦИЯМ ТО (используй ТОЛЬКО эти факты): ${JSON.stringify(diagram.kitFacts)}`;
+      else serviceKitNote = `\n\n═══════════════════════════════════════════\nПОЛНЫЙ СОСТАВ ТО ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ (узел «${diagram.unitName}» для этого автомобиля):\n═══════════════════════════════════════════\n${JSON.stringify(diagram.kit)}\nКлиент спрашивает про ТО. Под ответом будет схема узла (с отмеченной позицией) и карточки позиций, которые есть на сайте. Ответ КОРОТКИЙ (см. СТАНДАРТНОЕ ТО): одна строка-вступление, одна строка с перечнем позиций БЕЗ номеров и цен, затем по разделу «ИТОГ ПО ПОЗИЦИЯМ ТО» ниже: если список orderViaManager не пуст — одно предложение, что эти позиции подберёт и закажет менеджер (НЕ называй их снятыми с производства и НЕ говори, что их нет в каталоге/на сайте); если список discontinued не пуст — одно предложение, что эти позиции сняты с производства и менеджер подберёт актуальную замену; затем вопрос про моторное масло и колодки/диски. Слова «снят(ы) с производства» — ТОЛЬКО для позиций из списка discontinued. Номера, цены и сроки по позициям в текст НЕ переписывай — они в карточках. Пробег и интервалы НЕ спрашивай. Это правило ВАЖНЕЕ разделов «АКТУАЛЬНЫЕ ЦЕНЫ» и «КНОПКИ…»: для ответа на ТО цены и сроки отдельных номеров в тексте НЕ называй. Все позиции с inFeed=true система САМА добавит карточками (до 12 карточек) — в блок <<<PRODUCTS>>> их можно не включать.\n\nИТОГ ПО ПОЗИЦИЯМ ТО (готовые факты по позициям узла, используй ТОЛЬКО их): ${JSON.stringify(diagram.kitFacts)}\n- inCards: позиции, которые будут в карточках;\n- orderViaManager: позиций нет в карточках, но их можно заказать — подберёт и закажет менеджер;\n- discontinued: позиции, все номера которых по каталогу сняты с производства.`;
     }
     // Extra diagrams (owner, 25.10): an "Открыть деталь" number that is NOT on
     // the main diagram gets its own card with its position marked -- max 2
@@ -3654,9 +3757,17 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // ТО kit: every kit position that is in the price list becomes a card
     // (the AI tends to pick only what its keywords matched -- live test
     // 25.10 showed 3 cards for a ~10-item service set). Max 12 cards.
-    if (kitFeed.length) text = mergeKitCards(text, kitFeed, laximoResult?.vehicle?.name || [extracted.brand, extracted.model].filter(Boolean).join(' '));
+    if (kitCards && kitCards.length) {
+      text = mergeServiceCards(text, kitCards);
+      // Every position is a card with a price (or the manager is named on the card
+      // itself): «… подберёт / закажет менеджер» sentences are wrong here (live 30.10).
+      const MGR_RE = /(подбер|закаж|уточн)\S*[^.!?\n]{0,30}менеджер|менеджер[^.!?\n]{0,30}(подбер|закаж)/i;
+      text = text.replace(/^[^<]*/, prose => prose.split('\n').map(line => line.split(/(?<=[.!?…])\s+/).filter(x => !MGR_RE.test(x)).join(' ')).join('\n').replace(/\n{3,}/g, '\n\n'));
+      const v = laximoResult?.vehicle || {};
+      text = cleanCardsText(text, `Подобрал набор ТО по оригинальному каталогу BMW для вашего ${v.brand || 'BMW'} ${v.name || ''} — всё в карточках ниже.`.replace(/\s+/g, ' '));
+    } else if (kitFeed.length) text = mergeKitCards(text, kitFeed, laximoResult?.vehicle?.name || [extracted.brand, extracted.model].filter(Boolean).join(' '));
     // ТО: no housings, covers, seals... among the cards (kit positions always stay).
-    if (serviceOnly) text = dropNonServiceCards(text, new Set(kitFeed.map(x => String(x.feed.article || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))));
+    if (serviceOnly) text = dropNonServiceCards(text, new Set([...kitFeed.map(x => String(x.feed.article || '').toUpperCase().replace(/[^A-Z0-9]/g, '')), ...(kitCards || []).map(c => String(c.article || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))]));
     // The diagram card describes only the part marked in red (owner, 25.10):
     // the kit list is used for the cards and the prompt, not shown in the card.
     if (diagram) { delete diagram.kit; delete diagram.kitFacts; }
@@ -3699,7 +3810,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         if (u) d.productUrl = u;
       }
     }
-    const finalCards = partDiagramJobs ? diagramCards : [diagram, ...extraDiagrams].filter(Boolean);
+    const finalCards = kitCards && kitCards.length ? [] : partDiagramJobs ? diagramCards : [diagram, ...extraDiagrams].filter(Boolean);
     for (const d of finalCards) {
       console.log('DIAG diagram', JSON.stringify({ oem: d.oem, unit: d.unitName, position: d.position, box: !!d.box, marks: d.marks ? d.marks.length : 1 }));
       text = `${text}\n<<<DIAGRAM>>>\n${JSON.stringify(d)}\n<<<END_DIAGRAM>>>`;
