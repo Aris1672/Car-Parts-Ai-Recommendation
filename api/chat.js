@@ -14,6 +14,31 @@
 const LLM_API_KEY  = process.env.LLM_API_KEY;
 const LLM_BASE_URL = process.env.LLM_BASE_URL || 'https://api.deepseek.com/anthropic';
 const LLM_MODEL    = process.env.LLM_MODEL || 'deepseek-v4-pro';
+// Quick JSON steps (request reading, part filter, part-name translation) run with
+// thinking OFF: with thinking, deepseek-v4-pro needed >20 s just to read a request
+// (30.10 logs: "[extract] ... aborted due to timeout" -> VEHICLE {}). The final
+// answer, the clarifying question and the manager summary keep thinking on.
+// LLM_FAST_THINKING=enabled turns thinking back on for the quick steps too.
+let fastThinkingOff = (process.env.LLM_FAST_THINKING || 'disabled').toLowerCase() !== 'enabled';
+async function llmFastFetch(payload, ms) {
+  const send = () => fetch(`${LLM_BASE_URL}/v1/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ ...payload, ...(fastThinkingOff ? { thinking: { type: 'disabled' } } : {}) }),
+    signal: AbortSignal.timeout(ms),
+  });
+  let res = await send();
+  if (res.status === 400 && fastThinkingOff) {
+    const body = await res.clone().text().catch(() => '');
+    if (/thinking/i.test(body)) {
+      // Provider doesn't accept thinking:disabled -- stop sending it and retry once.
+      console.warn(`[llm] provider rejected thinking:disabled, sending without it from now on: ${body.slice(0, 200)}`);
+      fastThinkingOff = false;
+      res = await send();
+    }
+  }
+  return res;
+}
 // 401/402/403 = key, billing or account problem (e.g. 403 verification_required).
 // Every model on the same account fails the same way, so don't fall back -- log it loudly.
 const isAccountError = status => status === 401 || status === 402 || status === 403;
@@ -918,7 +943,7 @@ function versionCheck(parts, vehicleDate, opts = {}) {
 //     made from the real rows (opts.allowAsk; never twice in a row).
 // Any failure -> the rows stay as they are.
 const PART_FILTER_MAX_ROWS = 80;
-const PART_FILTER_TIMEOUT_MS = Number(process.env.PART_FILTER_TIMEOUT_MS || 20000);
+const PART_FILTER_TIMEOUT_MS = Number(process.env.PART_FILTER_TIMEOUT_MS || 30000);
 const CLARIFY_LEAD = 'Уточните, какая именно деталь нужна';
 const CLARIFY_ALL = 'Все варианты';
 /** Distinct part names, ignoring side markers (Л/П, левый/правый) -- a left/right pair is one part. */
@@ -945,12 +970,7 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     // model, no fallback -- a failure keeps the rows as they are.
     const ask = async (model, body, ms) => {
       const started = Date.now();
-      const res = await fetch(`${LLM_BASE_URL}/v1/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: prompt }] }),
-        signal: AbortSignal.timeout(ms),
-      });
+      const res = await llmFastFetch({ model, ...body, messages: [{ role: 'user', content: prompt }] }, ms);
       if (!res.ok) throw await llmHttpError(model, res);
       const data = await res.json();
       trackUsage(model, data);
@@ -1315,15 +1335,10 @@ async function toRussianPartName(name) {
   if (!key) return null;
   if (translateCache.has(key)) return translateCache.get(key);
   try {
-    const res = await fetch(`${LLM_BASE_URL}/v1/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: LLM_MODEL, max_tokens: 4000, // room for thinking
-        messages: [{ role: 'user', content: `Переведи название автозапчасти на русский так, как оно называется в оригинальном каталоге BMW (ETK), коротко, без пояснений и кавычек. Название: ${name}` }],
-      }),
-      signal: AbortSignal.timeout(20000),
-    });
+    const res = await llmFastFetch({
+      model: LLM_MODEL, max_tokens: 1000,
+      messages: [{ role: 'user', content: `Переведи название автозапчасти на русский так, как оно называется в оригинальном каталоге BMW (ETK), коротко, без пояснений и кавычек. Название: ${name}` }],
+    }, 20000);
     if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
     const data = await res.json();
     trackUsage(LLM_MODEL, data);
@@ -1578,7 +1593,7 @@ etc.
 Диалог:
 `;
 
-const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 20000);
+const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 30000);
 
 async function extractVehicleInfo(messages) {
   const transcript = messages
@@ -1589,16 +1604,7 @@ async function extractVehicleInfo(messages) {
   // LLM_MODEL. 30.10: single model, no fallback -- a failure returns {}.
   const call = async (model, body, ms) => {
     const started = Date.now();
-    const res = await fetch(`${LLM_BASE_URL}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         LLM_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }] }),
-      signal: AbortSignal.timeout(ms),
-    });
+    const res = await llmFastFetch({ model, ...body, messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }] }, ms);
     if (!res.ok) throw await llmHttpError(model, res);
     const data = await res.json();
     trackUsage(model, data);
@@ -3198,3 +3204,4 @@ module.exports.yearMonth = yearMonth;
 module.exports.partDateWindow = partDateWindow;
 module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
+module.exports._llmFastFetch = llmFastFetch;
