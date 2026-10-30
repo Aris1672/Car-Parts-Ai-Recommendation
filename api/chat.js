@@ -929,7 +929,7 @@ function equipmentCondition(p, ctx) {
     const first = alts[0];
     const without = /=\s*(нет|no)(?![а-яёa-z])/i.test(first); // (\b does not work next to Cyrillic)
     const name = first.replace(/\s*=\s*(да|нет|yes|no)(?![а-яёa-z]).*$/i, '').replace(/\s+/g, ' ').trim();
-    if (name) return ((without ? 'Без ' : '') + name).slice(0, 40) + (alts.length > 1 ? ' и др.' : '');
+    if (name) return ((without ? 'Без: ' : '') + name).slice(0, 44) + (alts.length > 1 ? ' и др.' : '');
   }
   return null;
 }
@@ -952,13 +952,25 @@ function versionCheck(parts, vehicleDate, opts = {}) {
   // drop the versions they exclude -- never a whole group, though.
   const ctx = { european: !!opts.european, known: opts.known || [] };
   const dropCond = [];
+  const exportOnly = p => ctx.european && noteEntries(p).some(([, v]) => { const a = conditionAlts(v); return a && a.every(x => EXPORT_MARKET_RE.test(x.name)) && settleCondition(a, ctx) === false; });
   for (const list of groups.values()) {
-    const no = list.filter(p => !drop.has(p) && noteEntries(p).some(([, v]) => { const a = conditionAlts(v); return a && settleCondition(a, ctx) === false; }));
-    if (no.length && no.length < list.filter(p => !drop.has(p)).length) for (const p of no) { drop.add(p); dropCond.push(p.oem); }
+    const live = list.filter(p => !drop.has(p));
+    const no = live.filter(p => noteEntries(p).some(([, v]) => { const a = conditionAlts(v); return a && settleCondition(a, ctx) === false; }));
+    if (no.length && no.length < live.length) for (const p of no) { drop.add(p); dropCond.push(p.oem); }
+    // A version whose every condition is already met (e.g. «S2NHA = нет» after the
+    // customer said «Нет») is the car's version: the other versions go, no question
+    // (live 30.10: «Без Спортивный комплект стиль M (P337A)» vs «обычная» was asked).
+    const rest = live.filter(p => !drop.has(p));
+    const yes = rest.filter(p => { const c = noteEntries(p).map(([, v]) => conditionAlts(v)).filter(Boolean); return c.length && c.every(a => settleCondition(a, ctx) === true); });
+    if (yes.length && yes.length < rest.length) for (const p of rest) if (!yes.includes(p)) { drop.add(p); dropCond.push(p.oem); }
   }
-  const kept = parts.filter(p => !drop.has(p));
+  // Export-market parts on a European car don't fit even when no other version of
+  // the same name is there (live 30.10: Japan pad 34116865460 as its own card).
+  const exportOut = parts.filter(p => !drop.has(p) && exportOnly(p));
+  if (exportOut.length && exportOut.length < parts.filter(p => !drop.has(p)).length) for (const p of exportOut) { drop.add(p); dropCond.push(p.oem); }
   let question = null;
-  if (opts.allowAsk) {
+  const answer = String(opts.answer || '').trim().toLowerCase();
+  if (opts.allowAsk || answer) {
     for (const list of groups.values()) {
       const left = list.filter(p => !drop.has(p));
       const oems = [...new Set(left.map(p => p.oem))];
@@ -969,6 +981,14 @@ function versionCheck(parts, vehicleDate, opts = {}) {
         (labels.get(label) || labels.set(label, []).get(label)).push(p.oem);
       }
       if (labels.size < 2 || ![...labels.keys()].some(l => !/^Без этих опций/.test(l))) continue;
+      if (answer) {
+        // The customer's button answer to this very question: keep only that version
+        // (live 30.10: «Без этих опций (обычная)» still showed both pad kits).
+        const picked = [...labels.entries()].find(([l]) => l.toLowerCase() === answer);
+        if (picked) for (const p of left) if (!picked[1].includes(p.oem)) { drop.add(p); dropCond.push(p.oem); }
+        continue;
+      }
+      if (!opts.allowAsk) continue;
       question = {
         lead: VARIANT_LEAD,
         question: `«${left[0].name}» для вашей машины есть в нескольких исполнениях. Какая у неё комплектация?`,
@@ -978,6 +998,7 @@ function versionCheck(parts, vehicleDate, opts = {}) {
       break; // one question: the main part (first group in the answer's order)
     }
   }
+  const kept = parts.filter(p => !drop.has(p));
   return { parts: Object.assign(kept, partsMeta(parts)), dropped: [...drop].map(p => p.oem).filter(o => !dropCond.includes(o)), droppedByCondition: dropCond, question };
 }
 
@@ -1221,6 +1242,20 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
         console.log(`[laximo] M Performance parts dropped (not asked for): ${mp.map(p => p.oem).join(', ')}`);
       }
     }
+    // Parking-brake shoes (live 30.10: «Ремкомплект стояночного тормоза, колодки»
+    // came with «тормозные колодки и диски»): only when the customer asks for the
+    // handbrake / parking brake; kept if they are all the catalog has.
+    if (result?.parts?.length) {
+      const userText = (messages || []).filter(m => m.role === 'user').map(m => String(m.content || '')).join(' ');
+      if (!/ручн|ручник|стояноч|парков|handbrake|parking/i.test(userText)) {
+        const isPark = p => /стояноч/i.test(`${p.unit || ''} ${p.name || ''}`);
+        const pk = result.parts.filter(isPark);
+        if (pk.length && pk.length < result.parts.length) {
+          result.parts = Object.assign(result.parts.filter(p => !isPark(p)), partsMeta(result.parts));
+          console.log(`[laximo] parking-brake parts dropped (not asked for): ${pk.map(p => p.oem).join(', ')}`);
+        }
+      }
+    }
     // Equipment question first (owner 30.10): the catalog's option decides which
     // parts fit (S2NHA = M sport brakes -> other discs and pads). Asked once per
     // option; «Не знаю» shows all variants. Model path only (a VIN is exact).
@@ -1270,9 +1305,13 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       // a car without it) -- no equipment question then; the date check stays as a safety net.
       // European car (wizard «Рынок» ЕЭК, or the VIN car's options): export-market versions can't fit.
       const carInfo = [...(result.vehicle?.path || []), ...Object.values(result.vehicle?.options || {})].join(' ');
-      const european = /(^|[^А-ЯЁа-яё])(ЕЭК|ЕЭС|Европ)|\b(ECE|EUR|Europe)\b/i.test(carInfo);
-      const vc = versionCheck(result.parts, result.vehicle?.options?.['Дата выпуска'], { allowAsk: mode !== 'vin' && !lastAssistantText.includes(VARIANT_LEAD), european, known: equipment ? [equipment] : [] });
-      if (vc.droppedByCondition && vc.droppedByCondition.length) console.log(`[laximo] settled conditions (${european ? 'ЕЭК car' : 'market unknown'}${equipment ? `, ${equipment.label} = ${equipment.answer}` : ''}): dropped ${vc.droppedByCondition.join(', ')}`);
+      // No market step in the wizard (live 30.10: 335i 3A95) -> a car sold here is
+      // the European version unless the catalog names another market.
+      const otherMarket = /(^|[^А-ЯЁа-яё])(США|Япони|Кита|Коре|Канад|Мексик|Бразил|Индия|Индии|Австрал|ЮАР|Тайван|Ближн\S*\s+Восток)|\b(USA|US|Japan|China|Korea|Canada|Mexico)\b/i.test(carInfo);
+      const european = /(^|[^А-ЯЁа-яё])(ЕЭК|ЕЭС|Европ)|\b(ECE|EUR|Europe)\b/i.test(carInfo) || !otherMarket;
+      const lastUser = String((([...(messages || [])].reverse().find(m => m.role === 'user')) || {}).content || '');
+      const vc = versionCheck(result.parts, result.vehicle?.options?.['Дата выпуска'], { allowAsk: mode !== 'vin' && !lastAssistantText.includes(VARIANT_LEAD), european, known: equipment ? [equipment] : [], answer: lastAssistantText.includes(VARIANT_LEAD) ? lastUser : '' });
+      if (vc.droppedByCondition && vc.droppedByCondition.length) console.log(`[laximo] settled conditions (${european ? 'European car' : 'other market'}${equipment ? `, ${equipment.label} = ${equipment.answer}` : ''}): dropped ${vc.droppedByCondition.join(', ')}`);
       if (vc.dropped.length || vc.question) versionInfo = { droppedByDate: vc.dropped.length ? vc.dropped : undefined, asks: vc.question ? vc.question.options.map(o => o.label) : undefined };
       if (vc.dropped.length) console.log(`[laximo] date check (car ${result.vehicle?.options?.['Дата выпуска']}): dropped ${vc.dropped.join(', ')}`);
       result.parts = vc.parts;
