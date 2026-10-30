@@ -2912,28 +2912,60 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         .sort((a, b) => serviceCandRank(a) - serviceCandRank(b)).slice(0, 4) : [];
       // The old route to the service unit: the "Схема" button of likely ТО
       // parts (works on the G05; on the E70 it opens the oil filter's own unit).
-      const viaSchemaButtons = async () => {
-        let fallback = null;
+      // opts.stop: stop before the next Laximo request (another route already won).
+      // opts.strict: return only the service unit itself (null otherwise); the
+      // caller then decides on a fallback diagram.
+      let schemaFallback = null; // the oil filter element's own diagram, if seen
+      const viaSchemaButtons = async (opts = {}) => {
         for (const p of serviceCands) {
+          if (opts.stop && opts.stop()) return null;
           const info = await capped(laximo.getPartSchemaInfo(p), 5000);   // 1 request: which unit?
           if (info && SERVICE_UNIT_RE.test(info.unitName || '')) {
             console.log(`[laximo] service unit via ${p.oem} (${p.name}): ${info.unitName}`);
+            if (opts.stop && opts.stop()) return null;
             return capped(laximo.getPartDiagram(p), 6000);               // + unit page for the marker
           }
           console.log(`[laximo] ${p.oem} (${p.name}) -> unit "${info && info.unitName}", not the service unit`);
-          if (!fallback && info && serviceCandRank(p) === 0) fallback = p; // the oil filter element's own diagram
+          if (!schemaFallback && info && serviceCandRank(p) === 0) schemaFallback = p;
         }
-        const fb = fallback || cand;
+        if (opts.strict) return null;
+        const fb = schemaFallback || cand;
         return fb ? capped(laximo.getPartDiagram(fb), 6000) : null;
       };
       if (serviceRequest && laximoResult.vehicleQuery) {
-        // ТО: open the service unit DIRECTLY from the car's catalogue page
-        // (26.10, see laximo.getServiceUnit); the old route only as a fallback.
+        // ТО (30.10): both routes to the service unit run side by side -- the car's
+        // catalogue page (laximo.getServiceUnit) and the "Схема" buttons of likely
+        // ТО parts -- and the first one that finds it wins; the other stops before
+        // its next request. Laximo pacing is unchanged: every request still goes
+        // through laximo's single queue, 3 s apart. If neither finds the unit,
+        // the oil filter element's own diagram (or the first part's) is shown.
         diagramPromise = capped((async () => {
-          const direct = await capped(laximo.getServiceUnit(laximoResult.vehicleQuery), 14000); // car page + 1-4 categories + unit, 3 s apart; keeps running and caches if cut
-          if (direct && Array.isArray(direct.unitParts) && direct.unitParts.length > 1 && SERVICE_UNIT_RE.test(direct.unitName || '')) return direct;
-          if (serviceCands.length) return viaSchemaButtons();
-          return cand ? capped(laximo.getPartDiagram(cand), 6000) : null;
+          const started = Date.now();
+          let won = false;
+          const stop = () => won;
+          const valid = d => d && Array.isArray(d.unitParts) && d.unitParts.length > 1 && SERVICE_UNIT_RE.test(d.unitName || '') ? d : null;
+          const routes = [
+            ['car page', capped(laximo.getServiceUnit(laximoResult.vehicleQuery, { stop }), 20000).then(valid)],
+            ['schema buttons', serviceCands.length ? viaSchemaButtons({ stop, strict: true }).then(d => d || null) : Promise.resolve(null)],
+          ];
+          const winner = await new Promise(resolve => {
+            let left = routes.length;
+            for (const [name, p] of routes) {
+              p.catch(() => null).then(d => {
+                if (d && !won) { won = true; resolve({ name, d }); }
+                else if (--left === 0) resolve(null);
+              });
+            }
+          });
+          won = true; // stop the other route
+          if (winner) {
+            console.log(`[laximo] service unit found via ${winner.name} in ${Date.now() - started} ms`);
+            if (winner.name !== 'car page') laximo.rememberServiceUnit(laximoResult.vehicleQuery, winner.d);
+            return winner.d;
+          }
+          console.log(`[laximo] service unit not found by either route (${Date.now() - started} ms)`);
+          const fb = schemaFallback || cand;
+          return fb ? capped(laximo.getPartDiagram(fb), 6000) : null;
         })(), 22000);
       } else if (serviceCands.length) {
         diagramPromise = capped(viaSchemaButtons(), 16000);
