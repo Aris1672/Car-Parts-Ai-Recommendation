@@ -14,11 +14,10 @@
  *    even if Supabase isn't set up)
  */
 
-const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
-// Same provider settings as chat.js (Anthropic-format API; DeepSeek works via
-// ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic).
-const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
-const MANAGER_MODEL      = process.env.MANAGER_MODEL || 'claude-sonnet-5';
+const LLM_API_KEY  = process.env.LLM_API_KEY;
+// Same provider settings as chat.js (DeepSeek V4 Pro, Anthropic-compatible API).
+const LLM_BASE_URL = process.env.LLM_BASE_URL || 'https://api.deepseek.com/anthropic';
+const LLM_MODEL    = process.env.LLM_MODEL || 'deepseek-v4-pro';
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_KEY;
 
@@ -62,7 +61,7 @@ function corsHeaders() {
 }
 
 async function generateSummary(messages) {
-  if (!ANTHROPIC_API_KEY) {
+  if (!LLM_API_KEY) {
     return { raw: 'API key not configured — summary unavailable.', fields: {} };
   }
 
@@ -70,15 +69,15 @@ async function generateSummary(messages) {
     .map(m => `${m.role === 'user' ? 'Клиент' : 'ИИ'}: ${m.content}`)
     .join('\n');
 
-  const response = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+  const response = await fetch(`${LLM_BASE_URL}/v1/messages`, {
     method: 'POST',
     headers: {
       'Content-Type':      'application/json',
-      'x-api-key':         ANTHROPIC_API_KEY,
+      'x-api-key':         LLM_API_KEY,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model:      MANAGER_MODEL, // env MANAGER_MODEL; room for thinking
+      model:      LLM_MODEL, // room for thinking
       max_tokens: 4000,
       messages: [
         { role: 'user', content: SUMMARY_PROMPT + transcript }
@@ -89,7 +88,7 @@ async function generateSummary(messages) {
 
   if (!response.ok) {
     const body = (await response.text().catch(() => '')).slice(0, 400);
-    console.error(`[manager] summary failed (${MANAGER_MODEL}, HTTP ${response.status}): ${body}`);
+    console.error(`[manager] summary failed (${LLM_MODEL}, HTTP ${response.status}): ${body}`);
     return { raw: 'Summary generation failed.', fields: {} };
   }
 

@@ -4,21 +4,16 @@
  * Keeps the API key secret on the server side.
  */
 
-// LLM provider (30.10): every AI call uses the Anthropic Messages API format
-// (POST {BASE_URL}/v1/messages, x-api-key header). DeepSeek serves the same
-// format at https://api.deepseek.com/anthropic, so switching provider is env-only:
-//   ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-//   ANTHROPIC_API_KEY=<DeepSeek key>
-//   + the *_MODEL vars below (DeepSeek maps any claude-sonnet/haiku name to its
-//     Flash model, so set them explicitly to get deepseek-v4-pro where needed).
-const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
-const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
-// Model per step (env-overridable). EXTRACT_MODEL and PART_FILTER_MODEL are defined
-// next to their functions below.
-const ANSWER_MODEL    = process.env.ANSWER_MODEL    || 'claude-sonnet-5';           // final customer answer
-const CLARIFY_MODEL   = process.env.CLARIFY_MODEL   || 'claude-sonnet-5';           // "which generation?" question
-const TRANSLATE_MODEL = process.env.TRANSLATE_MODEL || 'claude-sonnet-5';           // English -> Russian part names
-const FALLBACK_MODEL  = process.env.FALLBACK_MODEL  || 'claude-haiku-4-5-20251001'; // used when extract/filter model fails
+// LLM provider (30.10): one model for every AI step -- DeepSeek V4 Pro through
+// DeepSeek's Anthropic-compatible API (POST {LLM_BASE_URL}/v1/messages, x-api-key).
+//   LLM_API_KEY  = DeepSeek API key (required)
+//   LLM_BASE_URL = default https://api.deepseek.com/anthropic
+//   LLM_MODEL    = default deepseek-v4-pro
+// New env names on purpose: the old ANTHROPIC_BASE_URL still points at the
+// retired Kazakhstan proxy in Coolify and must not be picked up.
+const LLM_API_KEY  = process.env.LLM_API_KEY;
+const LLM_BASE_URL = process.env.LLM_BASE_URL || 'https://api.deepseek.com/anthropic';
+const LLM_MODEL    = process.env.LLM_MODEL || 'deepseek-v4-pro';
 // 401/402/403 = key, billing or account problem (e.g. 403 verification_required).
 // Every model on the same account fails the same way, so don't fall back -- log it loudly.
 const isAccountError = status => status === 401 || status === 402 || status === 403;
@@ -26,7 +21,7 @@ async function llmHttpError(model, res) {
   const body = (await res.text().catch(() => '')).slice(0, 400);
   const err = new Error(`${model} HTTP ${res.status}${body ? ': ' + body : ''}`);
   err.status = res.status;
-  if (isAccountError(res.status)) console.error(`[llm] ACCOUNT/KEY PROBLEM -- check ANTHROPIC_API_KEY, balance and account status: ${err.message}`);
+  if (isAccountError(res.status)) console.error(`[llm] ACCOUNT/KEY PROBLEM -- check LLM_API_KEY, balance and account status: ${err.message}`);
   return err;
 }
 const CATALOG_API        = process.env.CATALOG_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/catalog';
@@ -923,7 +918,6 @@ function versionCheck(parts, vehicleDate, opts = {}) {
 //     made from the real rows (opts.allowAsk; never twice in a row).
 // Any failure -> the rows stay as they are.
 const PART_FILTER_MAX_ROWS = 80;
-const PART_FILTER_MODEL = process.env.PART_FILTER_MODEL || 'claude-sonnet-5'; // owner 28.10 (was Haiku)
 const PART_FILTER_TIMEOUT_MS = Number(process.env.PART_FILTER_TIMEOUT_MS || 20000);
 const CLARIFY_LEAD = 'Уточните, какая именно деталь нужна';
 const CLARIFY_ALL = 'Все варианты';
@@ -935,7 +929,7 @@ function distinctPartNames(parts) {
     .replace(/\s+/g, ' ').trim()).filter(Boolean)).size;
 }
 async function aiFilterParts(parts, extracted, messages, opts = {}) {
-  if (!ANTHROPIC_API_KEY || !parts.length) return parts;
+  if (!LLM_API_KEY || !parts.length) return parts;
   const rows = parts.slice(0, PART_FILTER_MAX_ROWS);
   const asked = (extracted.partKeywords || []).join(', ');
   const lastUser = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').slice(-3).map(m => m.content.slice(0, 300)).join(' | ');
@@ -946,16 +940,14 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     : '';
   const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Для клиента «амортизаторная стойка», «стойка» и «амортизатор» -- одно и то же: на многих BMW спереди стоит «Амортизационная стойка», а сзади -- «Амортизатор»; поэтому на «задние амортизаторные стойки» оставляй задние амортизаторы (Зд), на «передние амортизаторы» -- передние стойки (Пд). «Дополнительный амортизатор» (отбойник) -- не амортизатор. Пометка [передняя ось] / [задняя ось] у строки определена по номеру BMW и точна: по ней оставляй передние или задние детали; если клиент не сказал, какая ось, а в списке есть обе -- это повод спросить «Передние / Задние» (без вариантов вроде «Другой вариант»). Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» или «${VARIANT_UNKNOWN}» -- оставь все подходящие по смыслу строки. Если клиент выбрал комплектацию (например «D Steering (S217A)» или «Без этих опций (обычная)») -- оставь исполнение с этим примечанием (для «Без этих опций» -- без такого примечания). Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${opts.allowSearchAgain ? ' Если в списке НЕТ запрошенной детали, но в оригинальном каталоге BMW она может называться иначе (например клиент просит «задние амортизаторные стойки», а в списке только передняя «Амортизационная стойка» -- сзади на многих BMW стоит «Амортизатор»), добавь в ответ "searchAgain": [1-3 других названия для поиска в каталоге -- одно-два слова, единственное число, именительный падеж], например {"keep":[],"searchAgain":["амортизатор"]}.' : ''}${askRule}\n\nТолько JSON, без пояснений.`;
   try {
-    // Owner 28.10: this semantic step runs on Sonnet 5 (stronger than Haiku at
-    // telling «стойка» = «амортизатор», boot strap ≠ engine belt...). Sonnet 5
-    // thinks by default and rejects a custom temperature, so no temperature and a
-    // budget that leaves room for thinking. Haiku is the fallback if Sonnet fails
-    // or is too slow, so a reply is never stuck on this step.
+    // Semantic step (telling «стойка» = «амортизатор», boot strap ≠ engine belt...)
+    // on LLM_MODEL with a budget that leaves room for thinking. 30.10: single
+    // model, no fallback -- a failure keeps the rows as they are.
     const ask = async (model, body, ms) => {
       const started = Date.now();
-      const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+      const res = await fetch(`${LLM_BASE_URL}/v1/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: prompt }] }),
         signal: AbortSignal.timeout(ms),
       });
@@ -967,14 +959,8 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
       console.log(`[laximo] AI filter model ${model}: ${Date.now() - started} ms`);
       return text;
     };
-    let raw;
-    try {
-      raw = await ask(PART_FILTER_MODEL, { max_tokens: 6000 }, PART_FILTER_TIMEOUT_MS);
-    } catch (err) {
-      if (isAccountError(err.status)) throw err; // same account -> fallback would fail too
-      console.error(`[laximo] AI filter on ${PART_FILTER_MODEL} failed (${err.message}) -- ${FALLBACK_MODEL} instead`);
-      raw = await ask(FALLBACK_MODEL, { max_tokens: 500, temperature: 0 }, 7000);
-    }
+    // One model, no fallback: any failure -> rows kept as they are (catch below).
+    const raw = await ask(LLM_MODEL, { max_tokens: 6000 }, PART_FILTER_TIMEOUT_MS);
     let answer = null;
     const obj = raw.match(/\{[\s\S]*\}/);
     if (obj) { try { answer = JSON.parse(obj[0]); } catch { answer = null; } }
@@ -1329,18 +1315,18 @@ async function toRussianPartName(name) {
   if (!key) return null;
   if (translateCache.has(key)) return translateCache.get(key);
   try {
-    const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+    const res = await fetch(`${LLM_BASE_URL}/v1/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: TRANSLATE_MODEL, max_tokens: 4000, // room for thinking; no temperature (Sonnet 5 rejects it)
+        model: LLM_MODEL, max_tokens: 4000, // room for thinking
         messages: [{ role: 'user', content: `Переведи название автозапчасти на русский так, как оно называется в оригинальном каталоге BMW (ETK), коротко, без пояснений и кавычек. Название: ${name}` }],
       }),
       signal: AbortSignal.timeout(20000),
     });
-    if (!res.ok) throw await llmHttpError(TRANSLATE_MODEL, res);
+    if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
     const data = await res.json();
-    trackUsage(TRANSLATE_MODEL, data);
+    trackUsage(LLM_MODEL, data);
     const out = String(((data.content || []).find(b => b.type === 'text') || {}).text || '').split('\n')[0].replace(/["«».]/g, '').trim();
     const ru = /[а-яё]/i.test(out) ? out.slice(0, 80) : null;
     translateCache.set(key, ru);
@@ -1592,7 +1578,6 @@ etc.
 Диалог:
 `;
 
-const EXTRACT_MODEL = process.env.EXTRACT_MODEL || 'claude-sonnet-5'; // owner 28.10 (was Haiku 4.5)
 const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 20000);
 
 async function extractVehicleInfo(messages) {
@@ -1600,17 +1585,15 @@ async function extractVehicleInfo(messages) {
     .map(m => `${m.role === 'user' ? 'Клиент' : 'Ассистент'}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
     .join('\n');
 
-  // Owner 28.10: reading the request (part words, the catalog search names, BMW
-  // groups) runs on Sonnet 5 -- Haiku chose «стойка» but not «амортизатор» for
-  // «Амортизаторные стойки задние». Sonnet 5 thinks by default and rejects a
-  // custom temperature. Haiku (old settings) answers if Sonnet fails or is slow.
+  // Reading the request (part words, the catalog search names, BMW groups) on
+  // LLM_MODEL. 30.10: single model, no fallback -- a failure returns {}.
   const call = async (model, body, ms) => {
     const started = Date.now();
-    const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+    const res = await fetch(`${LLM_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-api-key':         ANTHROPIC_API_KEY,
+        'x-api-key':         LLM_API_KEY,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }] }),
@@ -1626,15 +1609,11 @@ async function extractVehicleInfo(messages) {
     console.log(`[extract] ${model}: ${Date.now() - started} ms`);
     return out;
   };
+  // One model, no fallback.
   try {
-    return await call(EXTRACT_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
+    return await call(LLM_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
   } catch (err) {
-    if (isAccountError(err.status)) return {}; // same account -> fallback would fail too (already logged)
-    console.error(`[extract] ${EXTRACT_MODEL} failed (${err.message}) -- ${FALLBACK_MODEL} instead`);
-  }
-  try {
-    return await call(FALLBACK_MODEL, { max_tokens: 700, temperature: 0 }, 10000);
-  } catch {
+    if (!isAccountError(err.status)) console.error(`[extract] ${LLM_MODEL} failed: ${err.message}`); // account errors already logged
     return {}; // safe fallback -- matching below just yields nothing, agent keeps asking clarifying questions
   }
 }
@@ -2313,7 +2292,7 @@ async function handleChat(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!ANTHROPIC_API_KEY) {
+  if (!LLM_API_KEY) {
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
     return res.status(500).json({ error: 'API key not configured' });
   }
@@ -2759,15 +2738,15 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 Кратко объясни, что для точного подбора нужно уточнить поколение (код кузова) или год выпуска, и перечисли перечисленные варианты. Не здоровайся (это продолжение диалога). НЕ упоминай товары, цены или артикулы -- их в этом ответе быть не должно.`;
 
         try {
-          const clarifyRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+          const clarifyRes = await fetch(`${LLM_BASE_URL}/v1/messages`, {
             method: 'POST',
             headers: {
               'Content-Type':      'application/json',
-              'x-api-key':         ANTHROPIC_API_KEY,
+              'x-api-key':         LLM_API_KEY,
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model:       CLARIFY_MODEL, // no temperature (Sonnet 5 rejects it); room for thinking
+              model:       LLM_MODEL, // room for thinking
               max_tokens:  4000,
               messages:    [{ role: 'user', content: CLARIFY_PROMPT }],
             }),
@@ -2776,7 +2755,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
           if (clarifyRes.ok) {
             const clarifyData = await clarifyRes.json();
-            trackUsage(CLARIFY_MODEL, clarifyData);
+            trackUsage(LLM_MODEL, clarifyData);
             const clarifyBlock = (clarifyData.content || []).find(b => b.type === 'text');
             const clarifyText = clarifyBlock?.text
               || `Для BMW ${extracted.model} есть несколько поколений с разными деталями. Уточните, пожалуйста, год выпуска или код кузова (${optionsForPrompt.map(g => g.generation).join(', ')}).`;
@@ -3038,15 +3017,15 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       ? `\nТакже под ответом будут схемы для: ${extraDiagrams.map(d => `${d.oem} — ${d.name || ''} (узел «${d.unitName || ''}», позиция ${d.position || ''}${d.notes && Object.keys(d.notes).length ? `; примечания: ${Object.entries(d.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}` : ''})`).join('; ')}. Если номер снят с производства — скажи об этом одним коротким предложением.`
       : '';
 
-    const claudeRes = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+    const claudeRes = await fetch(`${LLM_BASE_URL}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-api-key':         ANTHROPIC_API_KEY,
+        'x-api-key':         LLM_API_KEY,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:       ANSWER_MODEL,      // env ANSWER_MODEL (default claude-sonnet-5).
+        model:       LLM_MODEL,      // env LLM_MODEL (default deepseek-v4-pro).
                                          // Sonnet 5 REJECTS non-default
                                          // temperature/top_p/top_k with a 400 error, so temperature
                                          // is intentionally omitted here (was 0.2 for Haiku).
@@ -3070,13 +3049,13 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
     if (!claudeRes.ok) {
       const err = await claudeRes.text();
-      console.error(`${isAccountError(claudeRes.status) ? '[llm] ACCOUNT/KEY PROBLEM -- check ANTHROPIC_API_KEY, balance and account status. ' : ''}LLM API error (${ANSWER_MODEL}, HTTP ${claudeRes.status}):`, err);
+      console.error(`${isAccountError(claudeRes.status) ? '[llm] ACCOUNT/KEY PROBLEM -- check LLM_API_KEY, balance and account status. ' : ''}LLM API error (${LLM_MODEL}, HTTP ${claudeRes.status}):`, err);
       Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
       return res.status(502).json({ error: 'Upstream API error', detail: err });
     }
 
     const data = await claudeRes.json();
-    trackUsage(ANSWER_MODEL, data);
+    trackUsage(LLM_MODEL, data);
     // Find the actual text block by TYPE, not by array position. Sonnet 5
     // (and any model with thinking/adaptive-thinking enabled) can return a
     // {type: "thinking", ...} block BEFORE the text block, so content[0]

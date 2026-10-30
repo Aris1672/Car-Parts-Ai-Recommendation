@@ -50,37 +50,20 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 Read sessions 24 and 24b first for the homepage block, then session 15, then session 14's "Status", then session 13 for the compatibility catalog push process.
 
-### 🔁 Session 28 (Oct 30) — LLM provider configurable, DeepSeek ready
+### 🔁 Session 28 (Oct 30) — one model: DeepSeek V4 Pro
 
-- **Why:** Anthropic stopped answering (`403 permission_error`, `verification_required`) for the whole org, so every model failed, including the Haiku fallback. The app then ran on empty extraction data (`VEHICLE {}`, 0 matches). The Kazakhstan reverse-proxy route (`ANTHROPIC_BASE_URL=https://audit.assistant24info.ru`) should no longer be used.
-- **Code (env-only switch, no provider-specific code):** every AI call still uses the Anthropic Messages format. The model for each step now comes from env:
-
-  | Env var | Step | Default (unchanged behaviour) |
-  |---|---|---|
-  | `ANSWER_MODEL` | final customer answer | `claude-sonnet-5` |
-  | `PART_FILTER_MODEL` | `aiFilterParts` (keep rows / clarifying question) | `claude-sonnet-5` |
-  | `CLARIFY_MODEL` | "which generation?" question | `claude-sonnet-5` |
-  | `EXTRACT_MODEL` | `extractVehicleInfo` (reading the request) | `claude-sonnet-5` |
-  | `TRANSLATE_MODEL` | English → Russian part names | `claude-sonnet-5` |
-  | `FALLBACK_MODEL` | used when the extract/filter model fails | `claude-haiku-4-5-20251001` |
-  | `MANAGER_MODEL` | manager handoff summary (`api/session/manager.js`) | `claude-sonnet-5` |
-
-- **401/402/403 errors** (key, balance, account): no more fallback to a second model on the same account; the log shows `[llm] ACCOUNT/KEY PROBLEM` with the provider's error text. Translation and manager-summary errors are logged with their HTTP status too.
-- **Cost log:** models without a known price print `price not set: PRICE_<MODEL>_IN/_OUT` instead of a made-up Sonnet price. Set e.g. `PRICE_DEEPSEEK_V4_PRO_IN` / `_OUT` (USD per million tokens, from DeepSeek's pricing page).
-- **Switch to DeepSeek (Coolify → env vars → redeploy):**
+- **Why:** Anthropic stopped answering (`403 permission_error`, `verification_required`) for the whole org, so every model failed, including the Haiku fallback, and the app ran on empty extraction data (`VEHICLE {}`, 0 matches). The Kazakhstan reverse-proxy route (`audit.assistant24info.ru`) is retired.
+- **Now:** every AI step (request reading, part filter, clarifying question, English→Russian names, final answer, manager summary) uses **one model, `deepseek-v4-pro`**, through DeepSeek's Anthropic-compatible API. The two-model mode (Sonnet + Haiku fallback) is removed: if the call fails, extraction returns `{}`, the part filter keeps the rows, the final answer returns 502 as before.
+- **Env vars (Coolify):**
   ```
-  ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-  ANTHROPIC_API_KEY=<DeepSeek key>
-  ANSWER_MODEL=deepseek-v4-pro
-  PART_FILTER_MODEL=deepseek-v4-pro
-  CLARIFY_MODEL=deepseek-v4-pro
-  EXTRACT_MODEL=deepseek-v4-flash
-  TRANSLATE_MODEL=deepseek-v4-flash
-  FALLBACK_MODEL=deepseek-v4-flash
-  MANAGER_MODEL=deepseek-v4-flash
+  LLM_API_KEY=<DeepSeek key>                          # required
+  LLM_BASE_URL=https://api.deepseek.com/anthropic     # default, can be omitted
+  LLM_MODEL=deepseek-v4-pro                           # default, can be omitted
   ```
-  DeepSeek maps unknown/`claude-*` model names to its Flash model, so set the names explicitly. Check DeepSeek's docs for current model names (they announced renames, e.g. `deepseek-flash`).
-- **Check after switching:** `node scripts/check-llm.js` on the server sends one tiny request per configured model and prints OK or the exact error. Then test a few real requests (VIN, model + part, ТО kit, oil) in the widget and watch `[extract]`, `[laximo] AI filter`, `[cost]` in the logs.
+  New names on purpose: the old `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` (Kazakhstan proxy) are no longer read and can be deleted.
+- **Errors:** 401/402/403 (key, balance, account) are logged as `[llm] ACCOUNT/KEY PROBLEM` with DeepSeek's error text. Translation and manager-summary failures are logged with their HTTP status.
+- **Cost log:** set `PRICE_DEEPSEEK_V4_PRO_IN` / `PRICE_DEEPSEEK_V4_PRO_OUT` (USD per million tokens, from DeepSeek's pricing page); until then `[cost]` shows "price not set".
+- **Check after deploy:** `node scripts/check-llm.js` on the server sends one tiny request and prints OK or the exact error. Then test real requests (VIN, model + part, ТО kit, oil) and watch `[extract]`, `[laximo] AI filter`, `[cost]` in the logs.
 
 ### 🖼 Session 27d (Oct 26, night) — card photos from product pages + button under every diagram
 
