@@ -2531,7 +2531,7 @@ console.log(JSON.stringify(extracted, null, 2));
     if (laximoResult?.needsChoice) {
       const { step, options } = laximoResult.needsChoice;
       const what = WIZARD_STEP_QUESTIONS[step] || String(step).toLowerCase();
-      const buttons = options.slice(0, 16);
+      const buttons = options.slice(0, 32); // 30.10: the 5 Series has ~23 generations/LCI in Laximo; 16 cut off the newest (G30 LCI … G61)
       // Same question again (live 29.10: the customer re-sent «X5 G05 LCI» instead of a
       // modification): say what is already known and what is still missing, not the same text.
       const prev = String(([...(messages || [])].reverse().find(m => m.role === 'assistant') || {}).content || '');
