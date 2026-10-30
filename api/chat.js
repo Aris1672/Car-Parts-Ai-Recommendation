@@ -63,6 +63,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // car; without a VIN (or if Laximo fails) the table path below is used.
 // LAXIMO_ENABLED=false turns it off without a code change.
 const laximo = require('../lib/laximo');
+const diagramToken = require('../lib/diagramToken');
 const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
@@ -935,7 +936,7 @@ function versionCheck(parts, vehicleDate, opts = {}) {
       break; // one question: the main part (first group in the answer's order)
     }
   }
-  return { parts: Object.assign(kept, { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad, droppedByGroup: parts.droppedByGroup }), dropped: [...drop].map(p => p.oem), question };
+  return { parts: Object.assign(kept, partsMeta(parts)), dropped: [...drop].map(p => p.oem), question };
 }
 
 // ─── AI FILTER + CLARIFYING QUESTION for catalog results ────────────────────
@@ -987,6 +988,19 @@ function axleQuestionParts(keywords) {
   }
   return kws.length > 1 ? `${kws.slice(0, -1).join(', ')} и ${kws[kws.length - 1]}` : kws[0];
 }
+/**
+ * Metadata the Laximo search hangs on its parts array (searched, searchFailed,
+ * broad, droppedByGroup, groupSearched, equipmentQuestion, equipmentAnswer …).
+ * Every filter that rebuilds the array must carry ALL of it -- 30.10 live: the
+ * M Performance filter kept only four fields and the S2NHA question vanished.
+ */
+function partsMeta(parts) {
+  const meta = {};
+  for (const k of Object.keys(parts || {})) if (!/^\d+$/.test(k)) meta[k] = parts[k];
+  delete meta.clarify; // a question belongs to one filter run
+  return meta;
+}
+
 /** Distinct part names, ignoring side markers (Л/П, левый/правый) -- a left/right pair is one part. */
 function distinctPartNames(parts) {
   return new Set(parts.map(p => ` ${String(p.name || '').toLowerCase()} `
@@ -1018,7 +1032,7 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     ];
     const question = `${AXLE_LEAD} ${axleQuestionParts(extracted.partKeywords)}`;
     console.log(`[laximo] axle question "${asked}": front ${options[0].rows.length}, rear ${options[1].rows.length} row(s)`);
-    const extra = { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad, droppedByGroup: parts.droppedByGroup };
+    const extra = partsMeta(parts);
     return Object.assign(rows.slice(), extra, { clarify: { question, options, lead: AXLE_LEAD, allLabel: AXLE_BOTH } });
   }
   const askRule = opts.allowAsk
@@ -1047,7 +1061,7 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     if (obj) { try { answer = JSON.parse(obj[0]); } catch { answer = null; } }
     if (!answer) { const arr = raw.match(/\[[\d\s,]*\]/); if (arr) answer = { keep: JSON.parse(arr[0]) }; } // plain-array answer
     if (!answer) return parts;
-    const extra = { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad, droppedByGroup: parts.droppedByGroup };
+    const extra = partsMeta(parts);
     const validRows = list => [...new Set([].concat(list || []).map(Number).filter(n => n >= 1 && n <= rows.length))];
 
     if (opts.allowAsk && answer.ask && Array.isArray(answer.ask.options)) {
@@ -1161,7 +1175,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       const mp = wantsMPerf ? [] : result.parts.filter(isMPerf);
       if (mp.length && mp.length < result.parts.length) {
         const kept = result.parts.filter(p => !isMPerf(p));
-        result.parts = Object.assign(kept, { searchFailed: result.parts.searchFailed, searched: result.parts.searched, broad: result.parts.broad, droppedByGroup: result.parts.droppedByGroup });
+        result.parts = Object.assign(kept, partsMeta(result.parts));
         console.log(`[laximo] M Performance parts dropped (not asked for): ${mp.map(p => p.oem).join(', ')}`);
       }
     }
@@ -1748,6 +1762,61 @@ function markDiscontinuedCards(text, catalogParts) {
   }
   if (marked) console.log(`[chat] ${marked} card(s) marked discontinued`);
   return marked ? text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`) : text;
+}
+
+/** A Laximo part without a price-list card -> product card with its diagram (see DIAGRAM CARDS). */
+function diagramCardFor(p, live, carLabel) {
+  const oem = laximo.normalizeOem(p.oem);
+  const c = live && live.cheapest;
+  const position = p.position || (p.code ? String(p.code).replace(/^\D+/, '') : null);
+  const ref = p.schema && p.schema.vid ? diagramToken.sign({ oem, catalog: p.schema.catalog, vid: p.schema.vid, ssd: p.schema.ssd }) : null;
+  return {
+    article: oem,
+    name: p.name || 'Деталь BMW',
+    brand: 'BMW',
+    category: 'оригинальный каталог',
+    compatibility: `${carLabel}${p.axle ? ' — ' + p.axle : ''}`,
+    price: c && Number(c.price) > 0 ? Number(c.price) : 0,
+    priceFrom: !!(c && Number(c.price) > 0),
+    inStock: !!(c && (c.inStock || Number(c.days) === 0)),
+    days: c && Number(c.days) > 0 ? Number(c.days) : null,
+    offers: live ? live.count || null : null,
+    stock: 0,
+    url: null, // the widget opens the site search for the number
+    picture: null,
+    best_for: '',
+    diagram: { image: p.unitImage || null, position, unit: p.unit || null, ...(ref ? { ref } : {}) },
+  };
+}
+
+/** Adds diagram cards to the reply's PRODUCTS block (creates it if needed); the AI's own cards stay first. */
+function mergeDiagramCards(text, extra) {
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = String(text || '').match(re);
+  let cards = [];
+  if (m) { try { const j = JSON.parse(m[1]); if (Array.isArray(j)) cards = j; } catch { cards = []; } }
+  const have = new Set(cards.map(c => c && c.article ? laximo.normalizeOem(c.article) : '').filter(Boolean));
+  const all = [...cards, ...extra.filter(c => !have.has(laximo.normalizeOem(c.article)))];
+  const block = `<<<PRODUCTS>>>\n${JSON.stringify(all)}\n<<<END_PRODUCTS>>>`;
+  return m ? text.replace(re, block) : `${text}\n${block}`;
+}
+
+/** One carousel in a fixed order: front axle, rear axle, the rest; alternatives last within each. */
+function sortCardsByAxle(text, catalogParts) {
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = String(text || '').match(re);
+  if (!m) return text;
+  let cards;
+  try { cards = JSON.parse(m[1]); } catch { return text; }
+  if (!Array.isArray(cards) || cards.length < 2) return text;
+  const byOem = new Map((catalogParts || []).filter(p => p && p.oem).map(p => [laximo.normalizeOem(p.oem), p]));
+  const rank = c => {
+    const p = c && c.article ? byOem.get(laximo.normalizeOem(c.article)) : null;
+    const axle = p && p.axle === 'передняя ось' ? 0 : p && p.axle === 'задняя ось' ? 1 : 2;
+    return axle * 2 + (p && p.alternative ? 1 : 0);
+  };
+  const sorted = cards.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map(x => x.c);
+  return sorted.some((c, i) => c !== cards[i]) ? text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(sorted)}\n<<<END_PRODUCTS>>>`) : text;
 }
 
 /** Alternative accessories and kits with sensor: labelled cards, alternatives after the standard parts. */
@@ -3085,7 +3154,21 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // prices and delivery times) -- up to 3, after a typed number.
     // (Not when the customer's own number was confirmed: then the other
     // results of the name search are different parts, not alternatives.)
-    const missingLinkCodes = laximoUsed && !(compat && compat.verdict === 'fits')
+    // ─── DIAGRAM CARDS (owner 30.10) ───────────────────────────────────────────
+    // Parts that fit by the catalog but have no card in the price list (the
+    // export only carries items WITH a photo -- they can still be in stock) get a
+    // product card of their own in the same carousel: catalog name, axle, live
+    // price and delivery, the site search link, and the BMW diagram as the
+    // picture (from the group page at once; the marker loads later via
+    // /api/part-diagram). No separate diagram blocks / «Открыть деталь» stacks,
+    // and the reply is no longer held back waiting for diagrams.
+    // LAXIMO_DIAGRAM_CARDS=false -> the old diagram blocks and buttons.
+    const diagramCardsMode = process.env.LAXIMO_DIAGRAM_CARDS !== 'false' && laximoUsed && !serviceRequest && !compat && !workshopTopic;
+    const MAX_DIAGRAM_CARDS = 8;
+    const diagramCardParts = diagramCardsMode
+      ? laximoNotInCatalog.map(x => laximoResult.parts.find(p => laximo.normalizeOem(p.oem) === laximo.normalizeOem(x.oem))).filter(Boolean).slice(0, MAX_DIAGRAM_CARDS)
+      : [];
+    const missingLinkCodes = !diagramCardsMode && laximoUsed && !(compat && compat.verdict === 'fits')
       ? laximoNotInCatalog.map(x => String(x.oem || '').toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean) : [];
     const allLinkCodes = [...new Set([...partLinkCodes, ...missingLinkCodes])].slice(0, 3);
     const missingWithButton = missingLinkCodes.filter(c => allLinkCodes.includes(c));
@@ -3095,15 +3178,20 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Live price & delivery (lib/abcpPrices.js) for the numbers with a button
     // that are NOT in the feed -- same profile/warehouses as the price list.
     const feedArticles = new Set((matchedCatalog || []).map(p => String(p.article || '').toUpperCase().replace(/[^A-Z0-9]/g, '')));
-    const priceNumbers = allLinkCodes.filter(c => !feedArticles.has(c));
+    const priceNumbers = diagramCardsMode
+      ? diagramCardParts.map(p => laximo.normalizeOem(p.oem))
+      : allLinkCodes.filter(c => !feedArticles.has(c));
     const priceBrand = (() => { const b = String(extracted.brand || laximoResult?.vehicle?.brand || 'BMW').trim(); return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b; })();
     let livePrices = {};
     if (priceNumbers.length && abcpPrices.enabled()) {
-      try { livePrices = await abcpPrices.livePrices(priceNumbers, priceBrand, 3); }
+      try { livePrices = await abcpPrices.livePrices(priceNumbers, priceBrand, diagramCardsMode ? MAX_DIAGRAM_CARDS : 3); }
       catch (err) { console.error('[prices] failed:', err.message); }
     }
     if (Object.keys(livePrices).length) console.log('DIAG live-prices', JSON.stringify(Object.fromEntries(Object.entries(livePrices).map(([n, d]) => [n, { from: d.cheapest.price, days: d.cheapest.days, offers: d.count }]))));
-    const livePriceNote = Object.keys(livePrices).length
+    const diagramCardsNote = diagramCardParts.length
+      ? `\n\n═══════════════════════════════════════════\nКАРТОЧКИ СО СХЕМОЙ (система добавит САМА):\n═══════════════════════════════════════════\nЭти детали тоже подходят по оригинальному каталогу и ДОСТУПНЫ для заказа — у них просто нет фото в каталоге товаров: ${diagramCardParts.map(p => `${p.oem} — ${p.name || ''}${p.axle ? ' (' + p.axle + ')' : ''}`).join('; ')}. Под ответом система сама покажет их карточками (схема BMW вместо фото, цена и срок поставки) вместе с остальными карточками. Поэтому: НЕ пиши, что их нет в каталоге, нет в наличии или что их закажет только менеджер; НЕ упоминай кнопки «Открыть деталь»; в блок <<<PRODUCTS>>> их НЕ добавляй.\nКРАТКОСТЬ: всё — номера, цены, сроки, наличие — видно в карточках. В тексте НЕ перечисляй номера деталей и цены. Текст ответа — 1–3 коротких предложения: что подобрано и для какого автомобиля, при необходимости одно короткое пояснение (например, что колодки меняют вместе с датчиком износа, или что по VIN подбор точнее).`
+      : '';
+    const livePriceNote = !diagramCardsMode && Object.keys(livePrices).length
       ? `\n\n═══════════════════════════════════════════\nАКТУАЛЬНЫЕ ЦЕНЫ (прямо сейчас из поиска на сайте, профиль «Гость (Опт)»; этот раздел ВАЖНЕЕ запрета называть цену для номеров, которых нет в КАТАЛОГЕ ТОВАРОВ):\n═══════════════════════════════════════════\n${JSON.stringify(livePrices)}\nДля каждого номера: cheapest — самое дешёвое предложение (price в ₽, days — срок поставки в днях, 0 = в наличии/сегодня; daysMax — максимальный срок; noReturn — без возврата), count — сколько всего предложений. Назови цену "от <price> ₽" и срок этого предложения ("в наличии" при inStock, иначе "~N дн."). Если noReturn — предупреди, что без возврата. Скажи, что цена актуальна на сейчас, а все предложения (в том числе с более быстрым сроком) — по кнопке «Открыть деталь», где можно выбрать подходящее. НЕ добавляй эти номера в блок <<<PRODUCTS>>>. Для номеров, которых нет в этом разделе, цену НЕ называй.`
       : '';
     const partLinkNote = partLinkCodes.length
@@ -3116,7 +3204,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       .replace('{{VIN_VEHICLE}}', vinVehicleForPrompt)
       .replace('{{COMPATIBILITY}}', compatibility)
       .replace('{{LAXIMO_NOT_IN_CATALOG}}', laximoNotInCatalog.length ? JSON.stringify(laximoNotInCatalog) : '[]')
-      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote + missingLinkNote + livePriceNote;
+      .replace('{{OIL_PRODUCTS}}', oilProductsForPrompt) + compatNote + partLinkNote + missingLinkNote + livePriceNote + diagramCardsNote;
 
     // Unit diagram for a catalog part that has no product photo (fetched in
     // parallel with the AI reply; shown as a card under it). One per reply.
@@ -3137,7 +3225,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       // parallel with the AI reply (each new part ~2 Laximo requests, 3 s apart;
       // parts of one unit share its page; everything cached 7 days); after the
       // reply the parts it actually offers are picked, one card per unit.
-      if (!serviceRequest) {
+      if (!serviceRequest && !diagramCardsMode) {
         const seenOem = new Set();
         const cands = [...first, ...laximoResult.parts].filter(p => {
           const k = laximo.normalizeOem(p.oem);
@@ -3213,7 +3301,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         })(), 22000);
       } else if (serviceCands.length) {
         diagramPromise = capped(viaSchemaButtons(), 16000);
-      } else if (cand) {
+      } else if (cand && !diagramCardsMode) {
         const job = partDiagramJobs && partDiagramJobs.get(laximo.normalizeOem(cand.oem));
         diagramPromise = capped(job || laximo.getPartDiagram(cand), 9000);
       }
@@ -3275,7 +3363,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // the main diagram gets its own card with its position marked -- max 2
     // (each costs ~2 Laximo requests; cached 7 days), capped at 9 s together.
     let extraDiagrams = [];
-    if (laximoUsed && laximoResult && process.env.LAXIMO_DIAGRAMS !== 'false' && allLinkCodes.length && !partDiagramJobs) {
+    if (!diagramCardsMode && laximoUsed && laximoResult && process.env.LAXIMO_DIAGRAMS !== 'false' && allLinkCodes.length && !partDiagramJobs) {
       const onMain = new Set([...(diagram && Array.isArray(diagram.unitParts) ? diagram.unitParts.map(p => laximo.normalizeOem(p.oem)) : []),
         ...(diagram ? [laximo.normalizeOem(diagram.oem)] : [])]);
       const extraParts = allLinkCodes.filter(c => !onMain.has(laximo.normalizeOem(c)))
@@ -3354,8 +3442,15 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     text = repairTruncatedBlocks(text);
     // A discontinued part never goes out as a plain card (owner 30.10): the card's
     // line says so whenever the catalog notes for that number say «Не производится».
+    if (diagramCardParts.length) {
+      const v = laximoResult.vehicle || {};
+      const carLabel = `${v.brand || 'BMW'} ${v.name || ''}${v.options?.['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim();
+      text = mergeDiagramCards(text, diagramCardParts.map(p => diagramCardFor(p, livePrices[laximo.normalizeOem(p.oem)], carLabel)));
+      console.log(`[chat] diagram cards: ${diagramCardParts.map(p => p.oem + (livePrices[laximo.normalizeOem(p.oem)] ? ' (price)' : ' (no offers)')).join(', ')}`);
+    }
     text = markDiscontinuedCards(text, [...(laximoResult?.parts || []), ...(diagram ? [diagram] : []), ...extraDiagrams]);
     text = labelVariantCards(text, laximoResult?.parts || []);
+    if (diagramCardsMode) text = sortCardsByAxle(text, laximoResult?.parts || []);
     // A part number with an "Открыть деталь" button: never open the answer with
     // "нет данных" (owner, 27.10 -- customers stop reading and don't open the
     // button). Safety net for the prompt rule in partLinkNote.
@@ -3363,7 +3458,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Found part = self-service purchase (owner, 28.10): no manager button
     // unless the customer asked for a person or the check did not confirm the part.
     text = dropNeedlessManagerButton(text, {
-      partFound: allLinkCodes.length > 0 || /<<<PRODUCTS>>>/.test(text),
+      partFound: allLinkCodes.length > 0 || diagramCardParts.length > 0 || /<<<PRODUCTS>>>/.test(text),
       lastUserText: (([...(messages || [])].reverse().find(m => m.role === 'user')) || {}).content,
       compatVerdict: compat ? compat.verdict : null,
     });
@@ -3488,5 +3583,5 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };

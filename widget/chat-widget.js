@@ -476,6 +476,13 @@
     }
     .pc-product-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.14); }
     .pc-product-img { width: 100%; aspect-ratio: 1; object-fit: cover; background: #efefef; display: block; }
+    /* Diagram card (30.10): BMW diagram instead of a photo, zoomed on the part */
+    .pc-diag-img { position: relative; overflow: hidden; background: #fff; cursor: zoom-in; border-bottom: 1px solid #eee; }
+    .pc-diag-img img { position: absolute; left: 0; top: 0; max-width: none; display: none; }
+    .pc-diag-mark { position: absolute; display: none; border: 2px solid #e30613; border-radius: 4px; box-shadow: 0 0 0 2px rgba(227,6,19,.18); pointer-events: none; }
+    .pc-diag-badge { position: absolute; left: 6px; top: 6px; background: rgba(28,105,212,.92); color: #fff; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; letter-spacing: .2px; }
+    .pc-diag-pos { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.62); color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+    .pc-diag-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa3ad; font-size: 11px; }
     .pc-product-img-ph {
       width: 100%; aspect-ratio: 1;
       background: linear-gradient(135deg, #eee 0%, #d8d8d8 100%);
@@ -1839,6 +1846,102 @@
     appendMsg(wrap);
   }
 
+  // ─── DIAGRAM CARDS (owner, 30.10) ───────────────────────────────────────────
+  // A part that fits by the BMW catalog but has no photo in the price list gets
+  // a normal product card with the catalog diagram as its picture. The diagram
+  // comes with the reply (from the catalog's group page); the part's position
+  // (box) is loaded afterwards from /api/part-diagram, then the picture zooms
+  // in on the part and marks it red. Tap -> the full diagram in a new tab.
+  function diagramSrc(url) { return url ? `${BASE_URL}/api/laximo-image?u=${encodeURIComponent(url)}` : ''; }
+  function layoutDiagram(frame, img, mark, box) {
+    const cw = frame.clientWidth, ch = frame.clientHeight, nw = img.naturalWidth, nh = img.naturalHeight;
+    if (!cw || !ch || !nw || !nh) return;
+    let rx = 0, ry = 0, rw = nw, rh = nh;
+    if (box && box.x != null && box.y != null) {
+      const bw = box.w || 12, bh = box.h || 16;
+      rw = Math.min(nw, Math.max(Math.max(bw, bh) * 9, nw * 0.4));
+      rh = rw * ch / cw;
+      if (rh > nh) { rh = nh; rw = rh * cw / ch; }
+      const cx = box.x + bw / 2, cy = box.y + bh / 2;
+      rx = Math.min(Math.max(cx - rw / 2, 0), Math.max(nw - rw, 0));
+      ry = Math.min(Math.max(cy - rh / 2, 0), Math.max(nh - rh, 0));
+    }
+    const k = Math.min(cw / rw, ch / rh);
+    const offX = (cw - rw * k) / 2, offY = (ch - rh * k) / 2;
+    img.style.width = `${nw * k}px`; img.style.height = `${nh * k}px`;
+    img.style.left = `${offX - rx * k}px`; img.style.top = `${offY - ry * k}px`;
+    img.style.display = 'block';
+    if (mark) {
+      if (box && box.x != null) {
+        const pad = 3;
+        mark.style.left = `${offX + (box.x - rx) * k - pad}px`;
+        mark.style.top = `${offY + (box.y - ry) * k - pad}px`;
+        mark.style.width = `${(box.w || 12) * k + pad * 2}px`;
+        mark.style.height = `${(box.h || 16) * k + pad * 2}px`;
+        mark.style.display = 'block';
+      } else mark.style.display = 'none';
+    }
+  }
+  function diagramCardHtml(d) {
+    const pos = d && d.position ? String(d.position).replace(/^0+(?=\d)/, '') : '';
+    return `<div class="pc-product-img pc-diag-img" title="Схема BMW — нажмите, чтобы открыть крупно">
+        <img alt="Схема BMW">
+        <span class="pc-diag-mark"></span>
+        <span class="pc-diag-wait">схема загружается…</span>
+        <span class="pc-diag-badge">Схема BMW</span>
+        ${pos ? `<span class="pc-diag-pos">поз. ${escHtml(pos)}</span>` : ''}
+      </div>`;
+  }
+  function initDiagramCard(card, d) {
+    const frame = card.querySelector('.pc-diag-img');
+    if (!frame || !d) return;
+    const img = frame.querySelector('img'), mark = frame.querySelector('.pc-diag-mark'), wait = frame.querySelector('.pc-diag-wait');
+    let box = null, full = d.image || null;
+    const showFallback = () => { if (!img.naturalWidth) { wait.textContent = '🔩'; wait.style.fontSize = '42px'; } };
+    img.addEventListener('load', () => { wait.style.display = 'none'; layoutDiagram(frame, img, mark, box); });
+    img.addEventListener('error', showFallback);
+    window.addEventListener('resize', () => layoutDiagram(frame, img, mark, box));
+    // The card is built before the carousel is on the page (size 0): lay out again once it has a size.
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => layoutDiagram(frame, img, mark, box)).observe(frame);
+    else setTimeout(() => layoutDiagram(frame, img, mark, box), 300);
+    frame.addEventListener('click', () => { if (full) window.open(diagramSrc(full), '_blank', 'noopener'); });
+    if (!d.ref) { if (d.image) img.src = diagramSrc(d.image); else showFallback(); return; }
+    // The picture first, the marker after: marker requests wait in a small
+    // queue (2 at a time) so they never hold up the diagram images themselves.
+    const askMarker = () => diagramQueue(() => fetch(`${BASE_URL}/api/part-diagram?t=${encodeURIComponent(d.ref)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (!j || !j.image) { if (!d.image) showFallback(); return; }
+        box = j.box || null;
+        full = j.image;
+        const src = diagramSrc(j.image);
+        if (img.getAttribute('src') !== src) img.src = src; // the unit page's own picture (box coordinates match it)
+        else layoutDiagram(frame, img, mark, box);
+      })
+      .catch(() => { if (!d.image) showFallback(); }));
+    if (d.image) {
+      let asked = false;
+      const go = () => { if (!asked) { asked = true; askMarker(); } };
+      img.addEventListener('load', go, { once: true });
+      img.addEventListener('error', go, { once: true });
+      img.src = diagramSrc(d.image);
+    } else askMarker();
+  }
+  // At most 2 marker requests at a time (the server queues Laximo anyway).
+  const diagramJobs = [];
+  let diagramRunning = 0;
+  function diagramQueue(job) {
+    diagramJobs.push(job);
+    const pump = () => {
+      while (diagramRunning < 2 && diagramJobs.length) {
+        const next = diagramJobs.shift();
+        diagramRunning++;
+        Promise.resolve().then(next).catch(() => {}).finally(() => { diagramRunning--; pump(); });
+      }
+    };
+    pump();
+  }
+
   // ─── MISSING CARD PHOTOS (owner, 26.10) ─────────────────────────────────────
   // Items from the new suppliers come WITHOUT a photo in the price-list export
   // (wipers, fuel filter, ATF...), but the site's product page shows one (from
@@ -1925,12 +2028,20 @@
       card.className = 'pc-product-card';
 
       // ── Stock label: car parts use unit count, not m² ──
-      const stockLabel = (stockNum > 0)
-        ? `В наличии: ${stockNum} шт.`
-        : '<span style="color:#c00">Под заказ</span>';
+      const isDiagram = !!(p.diagram && typeof p.diagram === 'object');
+      // Diagram card: the site search for the number (all offers, prices, delivery).
+      if (isDiagram && !p.url) p.url = `${SITE_URL}/search?pcode=${encodeURIComponent(String(p.article || '').toUpperCase().replace(/[^A-Z0-9]/g, ''))}`;
+      const stockLabel = isDiagram
+        ? (p.inStock ? '<span style="color:#1a8f3c">В наличии</span>'
+          : Number(p.days) > 0 ? `Срок ~${Number(p.days)} дн.`
+          : p.priceFrom ? '' : '<span style="color:#7a8591">Цена и срок — уточнит менеджер</span>')
+        : (stockNum > 0)
+          ? `В наличии: ${stockNum} шт.`
+          : '<span style="color:#c00">Под заказ</span>';
 
       card.innerHTML = `
-        ${p.picture
+        ${isDiagram ? diagramCardHtml(p.diagram)
+          : p.picture
           ? `<img class="pc-product-img" src="${escHtml(p.picture)}" alt="${escHtml(p.article)}" loading="lazy" onerror="this.style.display='none'">`
           : `<div class="pc-product-img-ph">🔩</div>`
         }
@@ -1939,7 +2050,7 @@
           <div class="pc-product-name">${escHtml(p.name || '')}</div>
           <div class="pc-product-meta">${escHtml(p.brand || '')}${p.category ? ' · ' + escHtml(p.category) : ''}</div>
           ${p.compatibility ? `<div class="pc-product-meta">Подходит: ${escHtml(p.compatibility)}</div>` : ''}
-          <div class="pc-product-price">${priceNum > 0 ? priceNum.toLocaleString('ru-RU') + ' ₽' : ''}</div>
+          <div class="pc-product-price">${priceNum > 0 ? (isDiagram && p.priceFrom ? 'от ' : '') + priceNum.toLocaleString('ru-RU') + ' ₽' : ''}</div>
           <div class="pc-product-stock">${stockLabel}</div>
           ${p.best_for ? `<div class="pc-product-bestfor">${escHtml(p.best_for)}</div>` : ''}
         </div>
@@ -1947,8 +2058,9 @@
       `;
       const link = card.querySelector('.pc-product-link');
       if (link) link.addEventListener('click', () => logEvent('product_open', cardInfo(p), true));
-      if (!p.picture && p.url) needImage.push({ p, ph: card.querySelector('.pc-product-img-ph') });
+      if (!p.picture && p.url && !isDiagram) needImage.push({ p, ph: card.querySelector('.pc-product-img-ph') });
       track.appendChild(card);
+      if (isDiagram) initDiagramCard(card, p.diagram);
     });
 
     wrap.appendChild(track);
