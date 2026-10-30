@@ -952,6 +952,20 @@ const PART_FILTER_MAX_ROWS = 80;
 const PART_FILTER_TIMEOUT_MS = Number(process.env.PART_FILTER_TIMEOUT_MS || 30000);
 const CLARIFY_LEAD = 'Уточните, какая именно деталь нужна';
 const CLARIFY_ALL = 'Все варианты';
+const AXLE_LEAD = 'Для какой оси подобрать';
+const AXLE_BOTH = 'Передние и задние';
+/** «тормозные колодки», «накладки», «тормозные диски» -> «тормозные колодки и диски» (for the axle question). */
+function axleQuestionParts(keywords) {
+  let kws = [...new Set((keywords || []).map(k => String(k).toLowerCase().replace(/(^|\s)(передн|задн)\S*/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean))];
+  if (kws.some(k => /колодк/.test(k))) kws = kws.filter(k => !/^накладк/.test(k)); // «накладки» is the catalog synonym of pads
+  if (!kws.length) return 'детали';
+  const first = kws.map(k => k.split(' ')[0]);
+  if (kws.length > 1 && kws.every(k => k.includes(' ')) && first.every(w => w === first[0])) {
+    const rest = kws.map(k => k.split(' ').slice(1).join(' '));
+    return `${first[0]} ${rest.slice(0, -1).join(', ')} и ${rest[rest.length - 1]}`;
+  }
+  return kws.length > 1 ? `${kws.slice(0, -1).join(', ')} и ${kws[kws.length - 1]}` : kws[0];
+}
 /** Distinct part names, ignoring side markers (Л/П, левый/правый) -- a left/right pair is one part. */
 function distinctPartNames(parts) {
   return new Set(parts.map(p => ` ${String(p.name || '').toLowerCase()} `
@@ -966,10 +980,30 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
   const lastUser = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').slice(-3).map(m => m.content.slice(0, 300)).join(' | ');
   const noteText = p => Object.entries(p.notes || {}).filter(([k]) => k !== 'Количество').map(([k, v]) => `${k}: ${v}`).join('; ').slice(0, 160);
   const list = rows.map((p, i) => `${i + 1}. ${p.name || ''}${p.axle ? ' [' + p.axle + ']' : ''}${p.unit ? ' — узел: ' + p.unit : ''}${noteText(p) ? ' — ' + noteText(p) : ''}`).join('\n');
+  // Axle first (owner 30.10, «Тормозные колодки и диски» on a 530i E60): when the
+  // found parts exist for both axles and the customer didn't say which, ask
+  // «Передние / Задние» -- pads and discs are bought per axle, so one click gets
+  // both parts for that axle. Before, the AI split the buttons by part type
+  // (передние диски / задние диски / передние колодки ...) and only one part
+  // could be chosen. Fixed rule, no AI call; the axle comes from the BMW number.
+  const axleSaid = /(^|[^а-яё])(передн|задн|перед|зад)/i.test(`${asked} | ${lastUser}`);
+  const hasFront = rows.some(p => p.axle === 'передняя ось');
+  const hasRear = rows.some(p => p.axle === 'задняя ось');
+  if (opts.allowAsk && !axleSaid && hasFront && hasRear) {
+    const idx = pred => rows.map((p, i) => (pred(p) ? i + 1 : 0)).filter(Boolean);
+    const options = [
+      { label: 'Передние', rows: idx(p => p.axle !== 'задняя ось') },
+      { label: 'Задние', rows: idx(p => p.axle !== 'передняя ось') },
+    ];
+    const question = `${AXLE_LEAD} ${axleQuestionParts(extracted.partKeywords)}`;
+    console.log(`[laximo] axle question "${asked}": front ${options[0].rows.length}, rear ${options[1].rows.length} row(s)`);
+    const extra = { searchFailed: parts.searchFailed, searched: parts.searched, broad: parts.broad, droppedByGroup: parts.droppedByGroup };
+    return Object.assign(rows.slice(), extra, { clarify: { question, options, lead: AXLE_LEAD, allLabel: AXLE_BOTH } });
+  }
   const askRule = opts.allowAsk
     ? `\n\nЕсли запрос клиента ОБЩИЙ (например просто «глушитель», «датчик», «ремень», «колодки») и подходящие строки -- это РАЗНЫЕ детали или разные места установки (передняя/задняя ось, средний/задний глушитель, впуск/выпуск), которые клиент не уточнил, -- НЕ выбирай за него, а верни вопрос:\n{"ask":{"question":"короткий вопрос","options":[{"label":"короткое понятное название варианта, до 40 символов","rows":[номера строк]}]}}\n2-6 вариантов, только из этого списка. Левую и правую стороны одной детали НЕ разделяй (это один вариант). Крепёж и мелочи (кронштейн, хомут, болт, прокладка) отдельным вариантом не выноси, если клиент спрашивает про саму деталь.`
     : '';
-  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Для клиента «амортизаторная стойка», «стойка» и «амортизатор» -- одно и то же: на многих BMW спереди стоит «Амортизационная стойка», а сзади -- «Амортизатор»; поэтому на «задние амортизаторные стойки» оставляй задние амортизаторы (Зд), на «передние амортизаторы» -- передние стойки (Пд). «Дополнительный амортизатор» (отбойник) -- не амортизатор. Пометка [передняя ось] / [задняя ось] у строки определена по номеру BMW и точна: по ней оставляй передние или задние детали; если клиент не сказал, какая ось, а в списке есть обе -- это повод спросить «Передние / Задние» (без вариантов вроде «Другой вариант»). Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» или «${VARIANT_UNKNOWN}» -- оставь все подходящие по смыслу строки. Если клиент выбрал комплектацию (например «D Steering (S217A)» или «Без этих опций (обычная)») -- оставь исполнение с этим примечанием (для «Без этих опций» -- без такого примечания). Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${opts.allowSearchAgain ? ' Если в списке НЕТ запрошенной детали, но в оригинальном каталоге BMW она может называться иначе (например клиент просит «задние амортизаторные стойки», а в списке только передняя «Амортизационная стойка» -- сзади на многих BMW стоит «Амортизатор»), добавь в ответ "searchAgain": [1-3 других названия для поиска в каталоге -- одно-два слова, единственное число, именительный падеж], например {"keep":[],"searchAgain":["амортизатор"]}.' : ''}${askRule}\n\nТолько JSON, без пояснений.`;
+  const prompt = `Клиент ищет: ${asked}\nСообщения клиента: ${lastUser}\n\nСписок деталей из оригинального каталога его автомобиля. Поиск шёл по короткому слову, поэтому там бывают ЧУЖИЕ детали с тем же словом в названии (например «Натяжной ремень» в узле «Верхний контейнер для багажа» -- это ремень бокса, а не ремень двигателя; «Глушитель шума всасывания» -- это впуск, а не выхлоп). Для клиента «амортизаторная стойка», «стойка» и «амортизатор» -- одно и то же: на многих BMW спереди стоит «Амортизационная стойка», а сзади -- «Амортизатор»; поэтому на «задние амортизаторные стойки» оставляй задние амортизаторы (Зд), на «передние амортизаторы» -- передние стойки (Пд). «Дополнительный амортизатор» (отбойник) -- не амортизатор. Пометка [передняя ось] / [задняя ось] у строки определена по номеру BMW и точна: по ней оставляй передние или задние детали; если клиент не сказал, какая ось, а в списке есть обе -- это повод спросить «Передние / Задние» (без вариантов вроде «Другой вариант»). Формат строки: номер. название — узел (раздел каталога), если известен:\n${list}\n\nЕсли клиент уточнил, какая деталь нужна (например «задний глушитель», «передние колодки», или нажал кнопку с названием варианта), верни {"keep":[номера строк]} -- только ТОЧНО запрошенные детали. Левую и правую сторону одной детали -- оставляй обе. Если клиент написал «${CLARIFY_ALL}» или «${VARIANT_UNKNOWN}» -- оставь все подходящие по смыслу строки. Если клиент выбрал ось («Передние», «Задние» или «${AXLE_BOTH}») -- оставь ВСЕ запрошенные детали этой оси (например и колодки, и диски), для «${AXLE_BOTH}» -- обеих осей. Если клиент выбрал комплектацию (например «D Steering (S217A)» или «Без этих опций (обычная)») -- оставь исполнение с этим примечанием (для «Без этих опций» -- без такого примечания). Если сомневаешься -- НЕ включай. Если подходящих нет -- {"keep":[]}.${opts.allowSearchAgain ? ' Если в списке НЕТ запрошенной детали, но в оригинальном каталоге BMW она может называться иначе (например клиент просит «задние амортизаторные стойки», а в списке только передняя «Амортизационная стойка» -- сзади на многих BMW стоит «Амортизатор»), добавь в ответ "searchAgain": [1-3 других названия для поиска в каталоге -- одно-два слова, единственное число, именительный падеж], например {"keep":[],"searchAgain":["амортизатор"]}.' : ''}${askRule}\n\nТолько JSON, без пояснений.`;
   try {
     // Semantic step (telling «стойка» = «амортизатор», boot strap ≠ engine belt...)
     // on LLM_MODEL with a budget that leaves room for thinking. 30.10: single
@@ -1093,7 +1127,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     if (plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2 || (lastAssistantText.includes(VARIANT_LEAD) && sameNameVersions(result.parts)))) {
       const before = result.parts.length;
       const lastAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant');
-      const allowAsk = !String((lastAssistant && lastAssistant.content) || '').includes(CLARIFY_LEAD); // never two questions in a row
+      const allowAsk = ![CLARIFY_LEAD, AXLE_LEAD].some(l => String((lastAssistant && lastAssistant.content) || '').includes(l)); // never two questions in a row
       result.parts = await aiFilterParts(result.parts, extracted, messages, { allowAsk, allowSearchAgain: true });
       if (result.parts.clarify) result.clarify = result.parts.clarify;
       filteredOut = before - result.parts.length;
@@ -2519,9 +2553,12 @@ console.log(JSON.stringify(extracted, null, 2));
       const car = v && v.name ? ` для вашего ${v.brand || 'BMW'} ${v.name}` : '';
       // The AI's own question line is not shown (live 28.10: «Какую деталь вам нужна?») -- the fixed lead already asks.
       const isVersion = laximoResult.clarify.lead === VARIANT_LEAD;
+      const isAxle = laximoResult.clarify.lead === AXLE_LEAD;
       const reply = (isVersion
         ? `${VARIANT_LEAD}. ${question}\n\nЕсли не знаете -- нажмите «${VARIANT_UNKNOWN}»: покажу все варианты, а менеджер уточнит по VIN.`
-        : `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов. Выберите ниже:`) +
+        : isAxle
+          ? `${question}${car}? Выберите ниже:`
+          : `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов. Выберите ниже:`) +
         `\n<<<BUTTONS>>>\n${JSON.stringify([...options.map(o => o.label), laximoResult.clarify.allLabel || CLARIFY_ALL])}\n<<<END_BUTTONS>>>`;
       console.log('DIAG laximo-clarify', JSON.stringify({ question, options }));
       Object.entries(headers).forEach(([k, v2]) => res.setHeader(k, v2));
@@ -3305,4 +3342,5 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
+module.exports._aiFilterParts = aiFilterParts; module.exports._axleQuestionParts = axleQuestionParts;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
