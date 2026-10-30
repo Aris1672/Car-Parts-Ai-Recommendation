@@ -1924,7 +1924,7 @@ function mergeDiagramCards(text, extra) {
  * a ₽ price, or talks about the system / missing photos / cards; keeps the rest.
  * Nothing left -> one plain line. Text outside the special blocks only.
  */
-const CARD_TALK_RE = /систем[аеуы]|покаж(ет|ут)\s+(систем|ниже)|без\s+фото|нет\s+(подтвержд\S*\s+)?карточк|карточк\S*\s+(с\s+фото|нет)|в\s+блок|«?открыть\s+деталь»?|кнопк\S*\s+«?открыть|нет\s+в\s+(каталоге|прайс)/i;
+const CARD_TALK_RE = /показан\S*\s+(\S+\s+){0,2}карточк|вместо\s+фото|систем[аеуы]|покаж(ет|ут)\s+(систем|ниже)|без\s+фото|нет\s+(подтвержд\S*\s+)?карточк|карточк\S*\s+(с\s+фото|нет)|в\s+блок|«?открыть\s+деталь»?|кнопк\S*\s+«?открыть|нет\s+в\s+(каталоге|прайс)/i;
 const PART_NO_RE = /(?<![0-9A-Za-z])\d{2}\s?\d{2}\s?\d\s?[0-9A-Z]{3}\s?[0-9A-Z]{3}(?![0-9A-Za-z])/;
 const PART_NO_G = new RegExp(PART_NO_RE.source, 'g');
 function stripNumbers(x) {
