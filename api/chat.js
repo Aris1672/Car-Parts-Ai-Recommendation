@@ -1124,6 +1124,21 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     // silencer): the customer may have to choose -- one clarifying question.
     const lastAssistantText = String((([...(messages || [])].reverse().find(m => m.role === 'assistant')) || {}).content || '');
     const sameNameVersions = parts => { const seen = new Map(); for (const p of parts || []) { const k = fullNameKey(p); seen.set(k, (seen.get(k) || new Set()).add(p.oem)); } return [...seen.values()].some(v => v.size >= 2); };
+    // M Performance kit parts (owner 30.10, 335i F30: rear pads 34216876422 from
+    // «Задний тормоз M Performance - запчасть», discontinued 2017, were offered as
+    // the car's normal rear pads). They are optional upgrades: dropped unless the
+    // customer asks for M Performance; kept if they are all the catalog has.
+    if (result?.parts?.length) {
+      const userText = (messages || []).filter(m => m.role === 'user').map(m => String(m.content || '')).join(' ');
+      const wantsMPerf = /(^|[^a-zа-яё])(m|м)[\s-]*(performance|перформанс)|перформанс/i.test(userText);
+      const isMPerf = p => /m[\s-]*performance/i.test(`${p.unit || ''} ${p.name || ''}`);
+      const mp = wantsMPerf ? [] : result.parts.filter(isMPerf);
+      if (mp.length && mp.length < result.parts.length) {
+        const kept = result.parts.filter(p => !isMPerf(p));
+        result.parts = Object.assign(kept, { searchFailed: result.parts.searchFailed, searched: result.parts.searched, broad: result.parts.broad, droppedByGroup: result.parts.droppedByGroup });
+        console.log(`[laximo] M Performance parts dropped (not asked for): ${mp.map(p => p.oem).join(', ')}`);
+      }
+    }
     if (plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2 || (lastAssistantText.includes(VARIANT_LEAD) && sameNameVersions(result.parts)))) {
       const before = result.parts.length;
       const lastAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant');
@@ -1671,6 +1686,31 @@ function previousExtraction(messages) {
   // Order status / contact questions belong to the old message, not this one.
   out.orderStatusQuestion = false;
   return out;
+}
+
+/** Adds a «снят с производства» line to every card whose number the catalog notes call discontinued. */
+function markDiscontinuedCards(text, catalogParts) {
+  const disc = new Set();
+  for (const p of catalogParts || []) {
+    if (!p || !p.oem) continue;
+    if (Object.entries(p.notes || {}).some(([k, v]) => /не производ|снят с произв|end.of.production/i.test(`${k} ${v}`))) disc.add(laximo.normalizeOem(p.oem));
+  }
+  if (!disc.size) return text;
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = String(text || '').match(re);
+  if (!m) return text;
+  let cards;
+  try { cards = JSON.parse(m[1]); } catch { return text; }
+  if (!Array.isArray(cards)) return text;
+  let marked = 0;
+  for (const c of cards) {
+    if (c && c.article && disc.has(laximo.normalizeOem(c.article)) && !/снят с производства/i.test(c.best_for || '')) {
+      c.best_for = `⚠ Снят с производства по каталогу BMW — менеджер подберёт актуальную замену.${c.best_for ? ' ' + c.best_for : ''}`;
+      marked++;
+    }
+  }
+  if (marked) console.log(`[chat] ${marked} card(s) marked discontinued`);
+  return marked ? text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`) : text;
 }
 
 /** Removes the widget's history placeholders from a reply, with the empty lines they leave. */
@@ -3210,6 +3250,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       console.warn(`[chat] reply hit max_tokens (output ${data.usage?.output_tokens ?? '?'} tokens)`);
     }
     text = repairTruncatedBlocks(text);
+    // A discontinued part never goes out as a plain card (owner 30.10): the card's
+    // line says so whenever the catalog notes for that number say «Не производится».
+    text = markDiscontinuedCards(text, [...(laximoResult?.parts || []), ...(diagram ? [diagram] : []), ...extraDiagrams]);
     // A part number with an "Открыть деталь" button: never open the answer with
     // "нет данных" (owner, 27.10 -- customers stop reading and don't open the
     // button). Safety net for the prompt rule in partLinkNote.
@@ -3342,5 +3385,5 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._axleQuestionParts = axleQuestionParts;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._axleQuestionParts = axleQuestionParts;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
