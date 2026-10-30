@@ -1317,6 +1317,33 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       result.parts = vc.parts;
       if (vc.question) result.clarify = vc.question;
     }
+    // Cross-sell (owner 30.10: «cross-selling is vital»): with new pads the catalog
+    // requires the wear sensor (and pad paste). Added after all filters, only for
+    // the axles whose pads are in the answer and not already a kit with sensor;
+    // settled versions only (no question about a sensor).
+    if (plainPartSearch && result?.parts?.length && !result.clarify && Array.isArray(result.parts.crossSell) && result.parts.crossSell.length) {
+      const isPad = p => !p.crossSell && /колод|наклад/i.test(p.name || '') && !/датчик|стояноч/i.test(`${p.name} ${p.unit || ''}`);
+      const pads = result.parts.filter(isPad);
+      const axles = new Set(pads.filter(p => !p.kitWithSensor).map(p => p.axle || '?'));
+      const carInfo = [...(result.vehicle?.path || []), ...Object.values(result.vehicle?.options || {})].join(' ');
+      const settled = versionCheck(result.parts.crossSell.filter(c => c.crossSell === 'sensor'), result.vehicle?.options?.['Дата выпуска'],
+        { allowAsk: false, european: !/(^|[^А-ЯЁа-яё])(США|Япони|Кита|Коре|Канад)|\b(USA|Japan|China|Korea)\b/i.test(carInfo), known: equipment ? [equipment] : [] }).parts;
+      const have = new Set(result.parts.map(p => laximo.normalizeOem(p.oem)));
+      const add = [];
+      for (const axle of axles) {
+        // one sensor per axle: the first settled one for that axle (or any, if the axle is unknown)
+        const s = settled.find(c => (axle === '?' || !c.axle || c.axle === axle) && !have.has(laximo.normalizeOem(c.oem)) && !add.includes(c));
+        if (s) add.push(s);
+      }
+      if (pads.length) {
+        const paste = result.parts.crossSell.find(c => c.crossSell === 'paste' && !have.has(laximo.normalizeOem(c.oem)));
+        if (paste) add.push(paste);
+      }
+      if (add.length) {
+        result.parts = Object.assign([...result.parts, ...add], partsMeta(result.parts));
+        console.log(`[laximo] cross-sell added: ${add.map(c => `${c.oem} ${c.name}${c.axle ? ' (' + c.axle + ')' : ''}`).join(', ')}`);
+      }
+    }
     console.log('DIAG laximo', JSON.stringify({
       mode,
       vin: vin || null,
@@ -1871,7 +1898,7 @@ function diagramCardFor(p, live, carLabel) {
     url: null, // the widget opens the site search for the number
     picture: null,
     best_for: '',
-    diagram: { image: p.unitImage || null, position, unit: p.unit || null, ...(ref ? { ref } : {}) },
+    diagram: p.unitImage || ref ? { image: p.unitImage || null, position, unit: p.unit || null, ...(ref ? { ref } : {}) } : null, // no diagram (pad paste) -> plain card
   };
 }
 
@@ -1930,7 +1957,7 @@ function sortCardsByAxle(text, catalogParts) {
   const rank = c => {
     const p = c && c.article ? byOem.get(laximo.normalizeOem(c.article)) : null;
     const axle = p && p.axle === 'передняя ось' ? 0 : p && p.axle === 'задняя ось' ? 1 : 2;
-    return axle * 2 + (p && p.alternative ? 1 : 0);
+    return axle * 3 + (p && p.crossSell ? 2 : p && p.alternative ? 1 : 0);
   };
   const sorted = cards.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map(x => x.c);
   return sorted.some((c, i) => c !== cards[i]) ? text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(sorted)}\n<<<END_PRODUCTS>>>`) : text;
@@ -1938,13 +1965,14 @@ function sortCardsByAxle(text, catalogParts) {
 
 /** Alternative accessories and kits with sensor: labelled cards, alternatives after the standard parts. */
 function labelVariantCards(text, catalogParts) {
-  const alt = new Set(), kit = new Set();
+  const alt = new Set(), kit = new Set(), cross = new Map();
   for (const p of catalogParts || []) {
     if (!p || !p.oem) continue;
-    if (p.alternative) alt.add(laximo.normalizeOem(p.oem));
+    if (p.crossSell) cross.set(laximo.normalizeOem(p.oem), p.crossSell);
+    else if (p.alternative) alt.add(laximo.normalizeOem(p.oem));
     else if (p.kitWithSensor) kit.add(laximo.normalizeOem(p.oem));
   }
-  if (!alt.size && !kit.size) return text;
+  if (!alt.size && !kit.size && !cross.size) return text;
   const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
   const m = String(text || '').match(re);
   if (!m) return text;
@@ -1954,7 +1982,8 @@ function labelVariantCards(text, catalogParts) {
   let changed = 0;
   for (const c of cards) {
     const k = c && c.article ? laximo.normalizeOem(c.article) : null;
-    if (k && alt.has(k) && !/^Альтернатива/.test(c.best_for || '')) { c.best_for = `Альтернатива (оригинальная принадлежность BMW).${c.best_for ? ' ' + c.best_for : ''}`; changed++; }
+    if (k && cross.has(k) && !/^Нужн/.test(c.best_for || '')) { c.best_for = cross.get(k) === 'paste' ? 'Нужна при замене колодок — по каталогу BMW.' : 'Нужен при замене колодок — по каталогу BMW.'; changed++; }
+    else if (k && alt.has(k) && !/^Альтернатива/.test(c.best_for || '')) { c.best_for = `Альтернатива (оригинальная принадлежность BMW).${c.best_for ? ' ' + c.best_for : ''}`; changed++; }
     else if (k && kit.has(k) && !/датчик/i.test(c.best_for || '')) { c.best_for = `Комплект с датчиком износа.${c.best_for ? ' ' + c.best_for : ''}`; changed++; }
   }
   const ordered = [...cards.filter(c => !(c && c.article && alt.has(laximo.normalizeOem(c.article)))), ...cards.filter(c => c && c.article && alt.has(laximo.normalizeOem(c.article)))];
@@ -3283,7 +3312,10 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     const diagramCardsMode = process.env.LAXIMO_DIAGRAM_CARDS !== 'false' && laximoUsed && !serviceRequest && !compat && !workshopTopic;
     const MAX_DIAGRAM_CARDS = 8;
     const diagramCardParts = diagramCardsMode
-      ? laximoNotInCatalog.map(x => laximoResult.parts.find(p => laximo.normalizeOem(p.oem) === laximo.normalizeOem(x.oem))).filter(Boolean).slice(0, MAX_DIAGRAM_CARDS)
+      ? (() => { // cross-sell cards (sensor, paste) always get a place, on top of the cap
+          const all = laximoNotInCatalog.map(x => laximoResult.parts.find(p => laximo.normalizeOem(p.oem) === laximo.normalizeOem(x.oem))).filter(Boolean);
+          return [...all.filter(p => !p.crossSell).slice(0, MAX_DIAGRAM_CARDS), ...all.filter(p => p.crossSell).slice(0, 3)];
+        })()
       : [];
     const missingLinkCodes = !diagramCardsMode && laximoUsed && !(compat && compat.verdict === 'fits')
       ? laximoNotInCatalog.map(x => String(x.oem || '').toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean) : [];
@@ -3301,7 +3333,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     const priceBrand = (() => { const b = String(extracted.brand || laximoResult?.vehicle?.brand || 'BMW').trim(); return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b; })();
     let livePrices = {};
     if (priceNumbers.length && abcpPrices.enabled()) {
-      try { livePrices = await abcpPrices.livePrices(priceNumbers, priceBrand, diagramCardsMode ? MAX_DIAGRAM_CARDS : 3); }
+      try { livePrices = await abcpPrices.livePrices(priceNumbers, priceBrand, diagramCardsMode ? MAX_DIAGRAM_CARDS + 3 : 3); }
       catch (err) { console.error('[prices] failed:', err.message); }
     }
     if (Object.keys(livePrices).length) console.log('DIAG live-prices', JSON.stringify(Object.fromEntries(Object.entries(livePrices).map(([n, d]) => [n, d.cheapest
