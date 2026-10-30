@@ -887,10 +887,44 @@ function partDateWindow(p) {
   return from || to ? { from, to } : null;
 }
 /** Equipment condition from the notes, e.g. «D Steering (S217A)», or null. */
-function equipmentCondition(p) {
+// ─── CONDITIONS WE CAN SETTLE OURSELVES (30.10) ──────────────────────────────
+// «Для автомобилей с Экспортное исполнение для Японии (L807A) = да» can't apply
+// to a European (ЕЭК) car, and «… S2NHA = нет» is settled once the customer
+// answered the S2NHA question. Such conditions are decided here instead of
+// being asked (live 30.10: a 335i F30 ЕЭК got a 4th question about Japan).
+const EXPORT_MARKET_RE = /экспортн|исполнени\S*\s+для\s+(?!автомобил)|для\s+(китая|японии|сша|кореи|индии|тайваня|ближнего\s+востока|юар|австралии|бразилии|мексики|канады)|\b(usa|china|japan|korea)\b/i;
+/** One note condition -> [{ name, value: 'да'|'нет'|null }] (alternatives joined by «или»). */
+function conditionAlts(text) {
+  const m = String(text || '').match(/для\s+автомобил\S*\s+(?:с|со)\s+(.+)/i);
+  if (!m) return null;
+  return m[1].split(/\s+или\s+|\s*;\s*/i).map(a => {
+    const v = (a.match(/=\s*(да|нет|yes|no)(?![а-яёa-z])/i) || [])[1];
+    return { name: a.replace(/\s*=\s*(да|нет|yes|no)(?![а-яёa-z]).*$/i, '').replace(/\s+/g, ' ').trim(), value: v ? (/^(да|yes)$/i.test(v) ? 'да' : 'нет') : null };
+  }).filter(a => a.name);
+}
+/** true = condition met, false = not met, null = can't tell. ctx = { european, known:[{label, answer}] } */
+function settleCondition(alts, ctx = {}) {
+  let unknown = false;
+  for (const a of alts) {
+    let t = null;
+    if (ctx.european && EXPORT_MARKET_RE.test(a.name) && a.value) t = a.value === 'нет';
+    const k = (ctx.known || []).find(x => x && x.label && (x.answer === 'да' || x.answer === 'нет') && (a.name.includes(x.label) || x.label.includes(a.name)));
+    if (t === null && k && a.value) t = a.value === k.answer;
+    if (t === true) return true;
+    if (t === null) unknown = true;
+  }
+  return unknown ? null : false;
+}
+/** Conditions of a part that are still open (not settled by settleCondition). */
+function openConditions(p, ctx) {
+  return noteEntries(p).map(([, v]) => conditionAlts(v)).filter(Boolean).filter(alts => settleCondition(alts, ctx) === null);
+}
+
+function equipmentCondition(p, ctx) {
   for (const [, v] of noteEntries(p)) {
     const m = v.match(/для\s+автомобил\S*\s+(?:с|со)\s+(.+)/i);
     if (!m) continue;
+    if (ctx && settleCondition(conditionAlts(v), ctx) !== null) continue; // settled -- not a question any more
     const alts = m[1].split(/\s+или\s+|\s*;\s*/i);
     const first = alts[0];
     const without = /=\s*(нет|no)(?![а-яёa-z])/i.test(first); // (\b does not work next to Cyrillic)
@@ -914,6 +948,14 @@ function versionCheck(parts, vehicleDate, opts = {}) {
     const fits = list.filter(p => { const w = partDateWindow(p); return !w || ((!w.from || car >= w.from) && (!w.to || car < w.to)); });
     if (fits.length && fits.length < list.length) for (const p of list) if (!fits.includes(p)) drop.add(p);
   }
+  // Conditions we can settle (export markets on a ЕЭК car, answered equipment):
+  // drop the versions they exclude -- never a whole group, though.
+  const ctx = { european: !!opts.european, known: opts.known || [] };
+  const dropCond = [];
+  for (const list of groups.values()) {
+    const no = list.filter(p => !drop.has(p) && noteEntries(p).some(([, v]) => { const a = conditionAlts(v); return a && settleCondition(a, ctx) === false; }));
+    if (no.length && no.length < list.filter(p => !drop.has(p)).length) for (const p of no) { drop.add(p); dropCond.push(p.oem); }
+  }
   const kept = parts.filter(p => !drop.has(p));
   let question = null;
   if (opts.allowAsk) {
@@ -923,7 +965,7 @@ function versionCheck(parts, vehicleDate, opts = {}) {
       if (oems.length < 2 || oems.length > 5) continue;
       const labels = new Map();
       for (const p of left) {
-        const label = equipmentCondition(p) || 'Без этих опций (обычная)';
+        const label = equipmentCondition(p, ctx) || 'Без этих опций (обычная)';
         (labels.get(label) || labels.set(label, []).get(label)).push(p.oem);
       }
       if (labels.size < 2 || ![...labels.keys()].some(l => !/^Без этих опций/.test(l))) continue;
@@ -936,7 +978,7 @@ function versionCheck(parts, vehicleDate, opts = {}) {
       break; // one question: the main part (first group in the answer's order)
     }
   }
-  return { parts: Object.assign(kept, partsMeta(parts)), dropped: [...drop].map(p => p.oem), question };
+  return { parts: Object.assign(kept, partsMeta(parts)), dropped: [...drop].map(p => p.oem).filter(o => !dropCond.includes(o)), droppedByCondition: dropCond, question };
 }
 
 // ─── AI FILTER + CLARIFYING QUESTION for catalog results ────────────────────
@@ -1226,7 +1268,11 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     if (plainPartSearch && result?.parts?.length && !result.clarify) {
       // VIN mode: the catalog already hides parts of other equipment (28.10: the Adaptive Drive pump section is empty for
       // a car without it) -- no equipment question then; the date check stays as a safety net.
-      const vc = versionCheck(result.parts, result.vehicle?.options?.['Дата выпуска'], { allowAsk: mode !== 'vin' && !lastAssistantText.includes(VARIANT_LEAD) });
+      // European car (wizard «Рынок» ЕЭК, or the VIN car's options): export-market versions can't fit.
+      const carInfo = [...(result.vehicle?.path || []), ...Object.values(result.vehicle?.options || {})].join(' ');
+      const european = /(^|[^А-ЯЁа-яё])(ЕЭК|ЕЭС|Европ)|\b(ECE|EUR|Europe)\b/i.test(carInfo);
+      const vc = versionCheck(result.parts, result.vehicle?.options?.['Дата выпуска'], { allowAsk: mode !== 'vin' && !lastAssistantText.includes(VARIANT_LEAD), european, known: equipment ? [equipment] : [] });
+      if (vc.droppedByCondition && vc.droppedByCondition.length) console.log(`[laximo] settled conditions (${european ? 'ЕЭК car' : 'market unknown'}${equipment ? `, ${equipment.label} = ${equipment.answer}` : ''}): dropped ${vc.droppedByCondition.join(', ')}`);
       if (vc.dropped.length || vc.question) versionInfo = { droppedByDate: vc.dropped.length ? vc.dropped : undefined, asks: vc.question ? vc.question.options.map(o => o.label) : undefined };
       if (vc.dropped.length) console.log(`[laximo] date check (car ${result.vehicle?.options?.['Дата выпуска']}): dropped ${vc.dropped.join(', ')}`);
       result.parts = vc.parts;
@@ -1800,6 +1846,37 @@ function mergeDiagramCards(text, extra) {
   const all = [...cards, ...extra.filter(c => !have.has(laximo.normalizeOem(c.article)))];
   const block = `<<<PRODUCTS>>>\n${JSON.stringify(all)}\n<<<END_PRODUCTS>>>`;
   return m ? text.replace(re, block) : `${text}\n${block}`;
+}
+
+/**
+ * Card replies (diagram cards): the cards show every number, price and delivery
+ * time, so the reply text keeps only what they don't (owner 30.10, live: DeepSeek
+ * still listed 34218855007 / 34216864899 and wrote «Их карточки ниже покажет
+ * система»). Drops every sentence (or list line) that contains a part number or
+ * a ₽ price, or talks about the system / missing photos / cards; keeps the rest.
+ * Nothing left -> one plain line. Text outside the special blocks only.
+ */
+const CARD_TALK_RE = /систем[аеуы]|покаж(ет|ут)\s+(систем|ниже)|без\s+фото|нет\s+(подтвержд\S*\s+)?карточк|карточк\S*\s+(с\s+фото|нет)|в\s+блок|«?открыть\s+деталь»?|кнопк\S*\s+«?открыть|нет\s+в\s+(каталоге|прайс)/i;
+const PART_NO_RE = /(?<![0-9A-Za-z])\d{2}\s?\d{2}\s?\d\s?[0-9A-Z]{3}\s?[0-9A-Z]{3}(?![0-9A-Za-z])/;
+function cleanCardsText(text, fallback) {
+  const parts = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>)/);
+  let removed = 0;
+  for (let i = 0; i < parts.length; i += 2) {
+    const lines = parts[i].split('\n').map(line => {
+      const sentences = line.split(/(?<=[.!?…])\s+/);
+      const keep = sentences.filter(x => !(PART_NO_RE.test(x) || /\d\s*₽/.test(x) || CARD_TALK_RE.test(x)));
+      removed += sentences.length - keep.length;
+      return keep.join(' ');
+    });
+    parts[i] = lines.filter((l, j) => l.trim() || (j > 0 && lines[j - 1].trim()))
+      .filter(l => !/^\s*[-•*–]?\s*\**[^*]{0,40}:\**\s*$/.test(l)) // headings left without their list
+      .join('\n').replace(/\n{3,}/g, '\n\n');
+  }
+  let out = parts.join('');
+  const prose = out.split(/<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>/).join('').trim();
+  if (!prose) out = `${fallback}\n${out.trim()}`;
+  if (removed) console.log(`[chat] card reply: ${removed} sentence(s) with numbers/prices/system talk removed`);
+  return out.trim();
 }
 
 /** One carousel in a fixed order: front axle, rear axle, the rest; alternatives last within each. */
@@ -3453,7 +3530,13 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     }
     text = markDiscontinuedCards(text, [...(laximoResult?.parts || []), ...(diagram ? [diagram] : []), ...extraDiagrams]);
     text = labelVariantCards(text, laximoResult?.parts || []);
-    if (diagramCardsMode) text = sortCardsByAxle(text, laximoResult?.parts || []);
+    if (diagramCardsMode) {
+      text = sortCardsByAxle(text, laximoResult?.parts || []);
+      if (/<<<PRODUCTS>>>/.test(text)) {
+        const v = laximoResult.vehicle || {};
+        text = cleanCardsText(text, `Подобрал детали по оригинальному каталогу BMW для вашего ${v.brand || 'BMW'} ${v.name || ''} — всё в карточках ниже.`.replace(/\s+/g, ' '));
+      }
+    }
     // A part number with an "Открыть деталь" button: never open the answer with
     // "нет данных" (owner, 27.10 -- customers stop reading and don't open the
     // button). Safety net for the prompt rule in partLinkNote.
@@ -3586,5 +3669,5 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
