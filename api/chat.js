@@ -2715,6 +2715,29 @@ console.log(JSON.stringify(extracted, null, 2));
       vinVehicleForPrompt = JSON.stringify({ matchedBy: 'vin', vin: laximoResult.vin, brand: v.brand, model: v.name, modelCode: v.modelCode, ...v.options });
     }
     const laximoUsed = !!(laximoResult?.parts && laximoResult.parts.length);
+    // Laximo is the ONLY source of what fits the car (owner 30.10). The client's
+    // compatibility table is used in one case only: Laximo can't be reached --
+    // ABCP's browser check paused it (or the hourly budget / circuit breaker that
+    // protect against that block), or it is switched off (LAXIMO_ENABLED=false).
+    // Otherwise (car not identified yet, no parts found, catalog too slow) the
+    // customer is asked for VIN / model, or told to retry -- never offered parts
+    // from the table.
+    const laximoBlockedReason = laximoDownReason || laximoResult?.unavailable
+      || (laximo.breakerOpen('core') ? "circuit breaker 'core' open" : null)
+      || (laximoResult?.searchFailed && !laximoUsed ? 'search interrupted (pause / block)' : null);
+    if (!laximoUsed) {
+      if (laximoBlockedReason) {
+        console.log(`[catalog] Laximo blocked (${laximoBlockedReason}) -- compatibility table used`);
+      } else {
+        const timedOut = laximoOutcome.status === 'blocked' && /тайм-аут/.test(laximoOutcome.reason || '');
+        console.log(`[catalog] compatibility table NOT used (Laximo only): ${timedOut ? 'catalog timeout' : laximoResult?.vehicle ? 'no parts found for the car' : 'car not identified in the catalog yet'}`);
+        vinVehicleForPrompt += timedOut
+          ? ' ВНИМАНИЕ: оригинальный каталог сейчас не ответил вовремя. Детали и артикулы НЕ предлагай: коротко извинись и попроси повторить запрос через минуту (или прислать VIN).'
+          : laximoResult?.vehicle
+            ? ' По оригинальному каталогу для этого автомобиля по запросу ничего не найдено. Детали из других источников НЕ предлагай: попроси уточнить название детали (как она называется или для чего) или предложи менеджера.'
+            : ' Автомобиль клиента по оригинальному каталогу ещё НЕ определён. Детали подбираются ТОЛЬКО по оригинальному каталогу: НЕ предлагай детали, артикулы и цены, а попроси VIN (лучше всего) или марку, модель, кузов и двигатель.';
+      }
+    }
 
     let matchedCompatibilityByVehicle;
     let matchedCatalogByVehicle;
@@ -2760,6 +2783,10 @@ console.log(JSON.stringify(extracted, null, 2));
         }
       }
       matchedCompatibilityByVehicle = remapped;
+    } else if (!laximoBlockedReason) {
+      // Laximo only (see laximoBlockedReason): no parts from the compatibility table.
+      matchedCompatibilityByVehicle = {};
+      matchedCatalogByVehicle = [];
     } else {
 
     // Now that we know the vehicle's series, pull just that series' rows
