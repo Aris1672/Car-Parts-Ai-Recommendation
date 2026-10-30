@@ -1781,6 +1781,7 @@ function diagramCardFor(p, live, carLabel) {
     inStock: !!(c && (c.inStock || Number(c.days) === 0)),
     days: c && Number(c.days) > 0 ? Number(c.days) : null,
     offers: live ? live.count || null : null,
+    slowDelivery: !!(live && live.slowOnly), // offers exist, none within ABCP_MAX_DELIVERY_DAYS
     stock: 0,
     url: null, // the widget opens the site search for the number
     picture: null,
@@ -3187,12 +3188,14 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       try { livePrices = await abcpPrices.livePrices(priceNumbers, priceBrand, diagramCardsMode ? MAX_DIAGRAM_CARDS : 3); }
       catch (err) { console.error('[prices] failed:', err.message); }
     }
-    if (Object.keys(livePrices).length) console.log('DIAG live-prices', JSON.stringify(Object.fromEntries(Object.entries(livePrices).map(([n, d]) => [n, { from: d.cheapest.price, days: d.cheapest.days, offers: d.count }]))));
+    if (Object.keys(livePrices).length) console.log('DIAG live-prices', JSON.stringify(Object.fromEntries(Object.entries(livePrices).map(([n, d]) => [n, d.cheapest
+      ? { from: d.cheapest.price, days: d.cheapest.days, offers: d.count, within: d.fastCount }
+      : { none_within_days: abcpPrices.MAX_DAYS, offers: d.count, fastestDays: d.fastestDays }]))));
     const diagramCardsNote = diagramCardParts.length
       ? `\n\n═══════════════════════════════════════════\nКАРТОЧКИ СО СХЕМОЙ (система добавит САМА):\n═══════════════════════════════════════════\nЭти детали тоже подходят по оригинальному каталогу и ДОСТУПНЫ для заказа — у них просто нет фото в каталоге товаров: ${diagramCardParts.map(p => `${p.oem} — ${p.name || ''}${p.axle ? ' (' + p.axle + ')' : ''}`).join('; ')}. Под ответом система сама покажет их карточками (схема BMW вместо фото, цена и срок поставки) вместе с остальными карточками. Поэтому: НЕ пиши, что их нет в каталоге, нет в наличии или что их закажет только менеджер; НЕ упоминай кнопки «Открыть деталь»; в блок <<<PRODUCTS>>> их НЕ добавляй.\nКРАТКОСТЬ: всё — номера, цены, сроки, наличие — видно в карточках. В тексте НЕ перечисляй номера деталей и цены. Текст ответа — 1–3 коротких предложения: что подобрано и для какого автомобиля, при необходимости одно короткое пояснение (например, что колодки меняют вместе с датчиком износа, или что по VIN подбор точнее).`
       : '';
     const livePriceNote = !diagramCardsMode && Object.keys(livePrices).length
-      ? `\n\n═══════════════════════════════════════════\nАКТУАЛЬНЫЕ ЦЕНЫ (прямо сейчас из поиска на сайте, профиль «Гость (Опт)»; этот раздел ВАЖНЕЕ запрета называть цену для номеров, которых нет в КАТАЛОГЕ ТОВАРОВ):\n═══════════════════════════════════════════\n${JSON.stringify(livePrices)}\nДля каждого номера: cheapest — самое дешёвое предложение (price в ₽, days — срок поставки в днях, 0 = в наличии/сегодня; daysMax — максимальный срок; noReturn — без возврата), count — сколько всего предложений. Назови цену "от <price> ₽" и срок этого предложения ("в наличии" при inStock, иначе "~N дн."). Если noReturn — предупреди, что без возврата. Скажи, что цена актуальна на сейчас, а все предложения (в том числе с более быстрым сроком) — по кнопке «Открыть деталь», где можно выбрать подходящее. НЕ добавляй эти номера в блок <<<PRODUCTS>>>. Для номеров, которых нет в этом разделе, цену НЕ называй.`
+      ? `\n\n═══════════════════════════════════════════\nАКТУАЛЬНЫЕ ЦЕНЫ (прямо сейчас из поиска на сайте, профиль «Гость (Опт)»; этот раздел ВАЖНЕЕ запрета называть цену для номеров, которых нет в КАТАЛОГЕ ТОВАРОВ):\n═══════════════════════════════════════════\n${JSON.stringify(Object.fromEntries(Object.entries(livePrices).filter(([, d]) => d.cheapest)))}\nДля каждого номера: cheapest — самое дешёвое предложение (price в ₽, days — срок поставки в днях, 0 = в наличии/сегодня; daysMax — максимальный срок; noReturn — без возврата), count — сколько всего предложений. Назови цену "от <price> ₽" и срок этого предложения ("в наличии" при inStock, иначе "~N дн."). Если noReturn — предупреди, что без возврата. Скажи, что цена актуальна на сейчас, а все предложения (в том числе с более быстрым сроком) — по кнопке «Открыть деталь», где можно выбрать подходящее. НЕ добавляй эти номера в блок <<<PRODUCTS>>>. Для номеров, которых нет в этом разделе, цену НЕ называй.`
       : '';
     const partLinkNote = partLinkCodes.length
       ? `\n\n═══════════════════════════════════════════\nКНОПКА СТРАНИЦЫ ДЕТАЛИ:\n═══════════════════════════════════════════\nПод твоим ответом автоматически появится кнопка «Открыть деталь ${partLinkCodes.join(', ')}» — она открывает страницу поиска этого номера на сайте, где видны все предложения, цены и сроки поставки (в том числе позиции под заказ, которых нет в КАТАЛОГЕ ТОВАРОВ). Если товара с этим номером нет в КАТАЛОГЕ ТОВАРОВ, НЕ пиши, что по номеру "нет данных", "нет в наличии" или что его "нет в каталоге/на сайте": скажи, что цену и срок поставки можно посмотреть по кнопке ниже и там же оформить заказ${compat ? ' (совместимость — см. раздел ПРОВЕРКА СОВМЕСТИМОСТИ АРТИКУЛА)' : ''}. Саму кнопку и ссылку в тексте НЕ дублируй.\n\nНАЧАЛО ОТВЕТА (владелец, 27.10: клиенты читают только первую фразу и не открывают кнопку, если она начинается с «нет данных»): ПЕРВАЯ фраза ответа — ровно в таком виде: «По номеру ${partLinkCodes[0]} все актуальные предложения можно посмотреть по кнопке «Открыть деталь» ниже.» Номер пиши точно так, как в каталоге и на кнопке: заглавными буквами, без пробелов (${partLinkCodes.join(', ')}), а не как его набрал клиент. Никогда не начинай ответ со слов «нет данных», «нет информации», «не могу», «к сожалению», «у меня нет». Про совместимость пиши ПОСЛЕ этого, позитивно: например «Чтобы проверить, подойдёт ли деталь к вашему автомобилю, пришлите VIN или марку, модель и год».`
@@ -3345,7 +3348,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         return {
           position: p.position, oem: p.oem, name: p.name, qty: p.qty, discontinued,
           ...(feed ? { inFeed: true, price: Number(feed.price) || null, url: feed.url || null, stock: feed.stock } : {}),
-          ...(!feed && lp ? { priceFrom: lp.cheapest.price, days: lp.cheapest.days, inStock: lp.cheapest.inStock, noReturn: lp.cheapest.noReturn, offers: lp.count } : {}),
+          ...(!feed && lp && lp.cheapest ? { priceFrom: lp.cheapest.price, days: lp.cheapest.days, inStock: lp.cheapest.inStock, noReturn: lp.cheapest.noReturn, offers: lp.count } : {}),
         };
       });
       // Per POSITION (owner, 25.10): "discontinued" only when the catalog says

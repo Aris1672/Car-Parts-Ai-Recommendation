@@ -2034,7 +2034,9 @@
       const stockLabel = isDiagram
         ? (p.inStock ? '<span style="color:#1a8f3c">В наличии</span>'
           : Number(p.days) > 0 ? `Срок ~${Number(p.days)} дн.`
-          : p.priceFrom ? '' : '<span style="color:#7a8591">Цена и срок — уточнит менеджер</span>')
+          : p.priceFrom ? ''
+          : p.slowDelivery ? '<span style="color:#7a8591">Срок больше 3 дней — уточнит менеджер</span>'
+          : '<span style="color:#7a8591">Цена и срок — уточнит менеджер</span>')
         : (stockNum > 0)
           ? `В наличии: ${stockNum} шт.`
           : '<span style="color:#c00">Под заказ</span>';
