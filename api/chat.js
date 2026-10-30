@@ -2725,9 +2725,15 @@ console.log(JSON.stringify(extracted, null, 2));
     const laximoBlockedReason = laximoDownReason || laximoResult?.unavailable
       || (laximo.breakerOpen('core') ? "circuit breaker 'core' open" : null)
       || (laximoResult?.searchFailed && !laximoUsed ? 'search interrupted (pause / block)' : null);
+    // Second exception (owner 30.10): «на какие машины подходит 34116864906?» --
+    // a part number with no identified car. Laximo can't search from a number to
+    // cars, the compatibility table can.
+    const articleOnlyQuestion = !laximoUsed && !!extracted.vendorCode && !laximoResult?.vehicle && !laximo.normalizeVin(extracted.vin);
     if (!laximoUsed) {
       if (laximoBlockedReason) {
         console.log(`[catalog] Laximo blocked (${laximoBlockedReason}) -- compatibility table used`);
+      } else if (articleOnlyQuestion) {
+        console.log(`[catalog] part number ${extracted.vendorCode} without an identified car -- compatibility table used for «which cars does it fit»`);
       } else {
         const timedOut = laximoOutcome.status === 'blocked' && /тайм-аут/.test(laximoOutcome.reason || '');
         console.log(`[catalog] compatibility table NOT used (Laximo only): ${timedOut ? 'catalog timeout' : laximoResult?.vehicle ? 'no parts found for the car' : 'car not identified in the catalog yet'}`);
@@ -2783,8 +2789,8 @@ console.log(JSON.stringify(extracted, null, 2));
         }
       }
       matchedCompatibilityByVehicle = remapped;
-    } else if (!laximoBlockedReason) {
-      // Laximo only (see laximoBlockedReason): no parts from the compatibility table.
+    } else if (!laximoBlockedReason && !articleOnlyQuestion) {
+      // Laximo only (see laximoBlockedReason / articleOnlyQuestion): no parts from the compatibility table.
       matchedCompatibilityByVehicle = {};
       matchedCatalogByVehicle = [];
     } else {
