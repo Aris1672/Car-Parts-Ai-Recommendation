@@ -1322,7 +1322,8 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     // the axles whose pads are in the answer and not already a kit with sensor;
     // settled versions only (no question about a sensor).
     if (plainPartSearch && result?.parts?.length && !result.clarify && Array.isArray(result.parts.crossSell) && result.parts.crossSell.length) {
-      const isPad = p => !p.crossSell && /колод|наклад/i.test(p.name || '') && !/датчик|стояноч/i.test(`${p.name} ${p.unit || ''}`);
+      const sensorAxle = c => c.axle || (/(^|[^а-яё])пер/i.test(`${c.unit || ''} ${c.name || ''}`) ? 'передняя ось' : /(^|[^а-яё])(зд|зад)/i.test(`${c.unit || ''} ${c.name || ''}`) ? 'задняя ось' : null);
+    const isPad = p => !p.crossSell && /колод|наклад/i.test(p.name || '') && !/датчик|стояноч/i.test(`${p.name} ${p.unit || ''}`);
       const pads = result.parts.filter(isPad);
       const axles = new Set(pads.filter(p => !p.kitWithSensor).map(p => p.axle || '?'));
       const carInfo = [...(result.vehicle?.path || []), ...Object.values(result.vehicle?.options || {})].join(' ');
@@ -1332,8 +1333,9 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       const add = [];
       for (const axle of axles) {
         // one sensor per axle: the first settled one for that axle (or any, if the axle is unknown)
-        const s = settled.find(c => (axle === '?' || !c.axle || c.axle === axle) && !have.has(laximo.normalizeOem(c.oem)) && !add.includes(c));
-        if (s) add.push(s);
+        const free = settled.filter(c => !have.has(laximo.normalizeOem(c.oem)) && !add.some(x => x.oem === c.oem));
+        const s = free.find(c => sensorAxle(c) === axle) || free.find(c => axle === '?' || !sensorAxle(c));
+        if (s) add.push({ ...s, ...(axle !== '?' ? { axle } : {}) }); // the card sorts with that axle's parts
       }
       if (pads.length) {
         const paste = result.parts.crossSell.find(c => c.crossSell === 'paste' && !have.has(laximo.normalizeOem(c.oem)));
@@ -1924,14 +1926,33 @@ function mergeDiagramCards(text, extra) {
  */
 const CARD_TALK_RE = /систем[аеуы]|покаж(ет|ут)\s+(систем|ниже)|без\s+фото|нет\s+(подтвержд\S*\s+)?карточк|карточк\S*\s+(с\s+фото|нет)|в\s+блок|«?открыть\s+деталь»?|кнопк\S*\s+«?открыть|нет\s+в\s+(каталоге|прайс)/i;
 const PART_NO_RE = /(?<![0-9A-Za-z])\d{2}\s?\d{2}\s?\d\s?[0-9A-Z]{3}\s?[0-9A-Z]{3}(?![0-9A-Za-z])/;
+const PART_NO_G = new RegExp(PART_NO_RE.source, 'g');
+function stripNumbers(x) {
+  return x
+    .replace(/\(?\s*(?:от\s+)?\d[\d\s]*(?:[.,]\d+)?\s*₽\s*(?:,?\s*(?:срок\s*)?~?\s*\d+\s*(?:дн\.?|дней|дня))?\s*\)?/gi, ' ')
+    .replace(new RegExp(`(?:арт\\.?|артикул|№|номер)?\\s*${PART_NO_RE.source}`, 'gi'), ' ')
+    .replace(/\(\s*[,;:—–-]?\s*\)/g, ' ')
+    .replace(/\s+([,.;:!?)])/g, '$1').replace(/([(])\s+/g, '$1')
+    .replace(/[,;]\s*(?=[,;.])/g, '').replace(/\s*[—–-]\s*([,.;]|$)/g, '$1').replace(/:\s*([,.]|$)/g, '$1')
+    .replace(/\s{2,}/g, ' ').trim().replace(/\s*[,;:—–-]+$/, '');
+}
 function cleanCardsText(text, fallback) {
   const parts = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>)/);
   let removed = 0;
   for (let i = 0; i < parts.length; i += 2) {
     const lines = parts[i].split('\n').map(line => {
       const sentences = line.split(/(?<=[.!?…])\s+/);
-      const keep = sentences.filter(x => !(PART_NO_RE.test(x) || /\d\s*₽/.test(x) || CARD_TALK_RE.test(x)));
-      removed += sentences.length - keep.length;
+      // A sentence about the system / cards goes; numbers and prices are cut out of
+      // the others, which stay if real words are left (live 30.10: the whole
+      // «**Задняя ось** — колодки 34218855007 …» line went, so the text named only
+      // the front axle).
+      const keep = [];
+      for (const x of sentences) {
+        if (CARD_TALK_RE.test(x)) { removed++; continue; }
+        if (!(PART_NO_RE.test(x) || /\d\s*₽/.test(x))) { keep.push(x); continue; }
+        const y = stripNumbers(x);
+        if ((y.match(/[А-ЯЁа-яё]{3,}/g) || []).length >= 2) keep.push(y); else removed++;
+      }
       return keep.join(' ');
     });
     parts[i] = lines.filter((l, j) => l.trim() || (j > 0 && lines[j - 1].trim()))
