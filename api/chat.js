@@ -4,15 +4,31 @@
  * Keeps the API key secret on the server side.
  */
 
+// LLM provider (30.10): every AI call uses the Anthropic Messages API format
+// (POST {BASE_URL}/v1/messages, x-api-key header). DeepSeek serves the same
+// format at https://api.deepseek.com/anthropic, so switching provider is env-only:
+//   ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+//   ANTHROPIC_API_KEY=<DeepSeek key>
+//   + the *_MODEL vars below (DeepSeek maps any claude-sonnet/haiku name to its
+//     Flash model, so set them explicitly to get deepseek-v4-pro where needed).
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
-// Direct Russia -> api.anthropic.com access is blocked (same constraint as
-// the AI Senior Auditor project). Routes through the existing Kazakhstan
-// Nginx reverse proxy (audit.assistant24info.ru) by default -- it's a
-// generic passthrough, not tied to any one project, so it's safe to reuse
-// here as-is. Defaults to the real API directly so this still works
-// unchanged in any environment that CAN reach Anthropic directly (e.g. if
-// this is ever run somewhere other than the Russian VPS).
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
+// Model per step (env-overridable). EXTRACT_MODEL and PART_FILTER_MODEL are defined
+// next to their functions below.
+const ANSWER_MODEL    = process.env.ANSWER_MODEL    || 'claude-sonnet-5';           // final customer answer
+const CLARIFY_MODEL   = process.env.CLARIFY_MODEL   || 'claude-sonnet-5';           // "which generation?" question
+const TRANSLATE_MODEL = process.env.TRANSLATE_MODEL || 'claude-sonnet-5';           // English -> Russian part names
+const FALLBACK_MODEL  = process.env.FALLBACK_MODEL  || 'claude-haiku-4-5-20251001'; // used when extract/filter model fails
+// 401/402/403 = key, billing or account problem (e.g. 403 verification_required).
+// Every model on the same account fails the same way, so don't fall back -- log it loudly.
+const isAccountError = status => status === 401 || status === 402 || status === 403;
+async function llmHttpError(model, res) {
+  const body = (await res.text().catch(() => '')).slice(0, 400);
+  const err = new Error(`${model} HTTP ${res.status}${body ? ': ' + body : ''}`);
+  err.status = res.status;
+  if (isAccountError(res.status)) console.error(`[llm] ACCOUNT/KEY PROBLEM -- check ANTHROPIC_API_KEY, balance and account status: ${err.message}`);
+  return err;
+}
 const CATALOG_API        = process.env.CATALOG_API_URL || 'https://abcp-catalog-proxy.vercel.app/api/catalog';
 const SUPABASE_URL         = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -943,7 +959,7 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
         body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: prompt }] }),
         signal: AbortSignal.timeout(ms),
       });
-      if (!res.ok) throw new Error(`${model} HTTP ${res.status}`);
+      if (!res.ok) throw await llmHttpError(model, res);
       const data = await res.json();
       trackUsage(model, data);
       const text = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
@@ -955,8 +971,9 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     try {
       raw = await ask(PART_FILTER_MODEL, { max_tokens: 6000 }, PART_FILTER_TIMEOUT_MS);
     } catch (err) {
-      console.error(`[laximo] AI filter on ${PART_FILTER_MODEL} failed (${err.message}) -- Haiku instead`);
-      raw = await ask('claude-haiku-4-5-20251001', { max_tokens: 500, temperature: 0 }, 7000);
+      if (isAccountError(err.status)) throw err; // same account -> fallback would fail too
+      console.error(`[laximo] AI filter on ${PART_FILTER_MODEL} failed (${err.message}) -- ${FALLBACK_MODEL} instead`);
+      raw = await ask(FALLBACK_MODEL, { max_tokens: 500, temperature: 0 }, 7000);
     }
     let answer = null;
     const obj = raw.match(/\{[\s\S]*\}/);
@@ -1316,13 +1333,14 @@ async function toRussianPartName(name) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-5', max_tokens: 4000, // owner 28.10: Sonnet 5 everywhere (thinks by default, no temperature)
+        model: TRANSLATE_MODEL, max_tokens: 4000, // room for thinking; no temperature (Sonnet 5 rejects it)
         messages: [{ role: 'user', content: `Переведи название автозапчасти на русский так, как оно называется в оригинальном каталоге BMW (ETK), коротко, без пояснений и кавычек. Название: ${name}` }],
       }),
       signal: AbortSignal.timeout(20000),
     });
+    if (!res.ok) throw await llmHttpError(TRANSLATE_MODEL, res);
     const data = await res.json();
-    trackUsage('claude-sonnet-5', data);
+    trackUsage(TRANSLATE_MODEL, data);
     const out = String(((data.content || []).find(b => b.type === 'text') || {}).text || '').split('\n')[0].replace(/["«».]/g, '').trim();
     const ru = /[а-яё]/i.test(out) ? out.slice(0, 80) : null;
     translateCache.set(key, ru);
@@ -1598,7 +1616,7 @@ async function extractVehicleInfo(messages) {
       body: JSON.stringify({ model, ...body, messages: [{ role: 'user', content: EXTRACT_PROMPT + transcript }] }),
       signal: AbortSignal.timeout(ms),
     });
-    if (!res.ok) throw new Error(`${model} HTTP ${res.status}`);
+    if (!res.ok) throw await llmHttpError(model, res);
     const data = await res.json();
     trackUsage(model, data);
     const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
@@ -1611,10 +1629,11 @@ async function extractVehicleInfo(messages) {
   try {
     return await call(EXTRACT_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
   } catch (err) {
-    console.error(`[extract] ${EXTRACT_MODEL} failed (${err.message}) -- Haiku instead`);
+    if (isAccountError(err.status)) return {}; // same account -> fallback would fail too (already logged)
+    console.error(`[extract] ${EXTRACT_MODEL} failed (${err.message}) -- ${FALLBACK_MODEL} instead`);
   }
   try {
-    return await call('claude-haiku-4-5-20251001', { max_tokens: 700, temperature: 0 }, 10000);
+    return await call(FALLBACK_MODEL, { max_tokens: 700, temperature: 0 }, 10000);
   } catch {
     return {}; // safe fallback -- matching below just yields nothing, agent keeps asking clarifying questions
   }
@@ -2234,10 +2253,16 @@ function corsHeaders() {
 const { AsyncLocalStorage } = require('async_hooks');
 const usageStore = new AsyncLocalStorage();
 const DEFAULT_PRICES = { 'claude-sonnet-5': [3, 15], 'claude-haiku-4-5-20251001': [1, 5] };
+// Models without a default (e.g. deepseek-v4-pro) need PRICE_<MODEL>_IN/_OUT in env
+// (e.g. PRICE_DEEPSEEK_V4_PRO_IN). Until then their cost shows as "price not set"
+// instead of a made-up number.
 function priceOf(model) {
   const key = model.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  const d = DEFAULT_PRICES[model] || [3, 15];
-  return [Number(process.env[`PRICE_${key}_IN`] || d[0]), Number(process.env[`PRICE_${key}_OUT`] || d[1])];
+  const d = DEFAULT_PRICES[model] || [null, null];
+  const pin = process.env[`PRICE_${key}_IN`] ?? d[0];
+  const pout = process.env[`PRICE_${key}_OUT`] ?? d[1];
+  if (pin == null || pout == null) return null;
+  return [Number(pin), Number(pout)];
 }
 function trackUsage(model, data) {
   const store = usageStore.getStore();
@@ -2253,8 +2278,9 @@ function logUsage(calls) {
   for (const c of calls) { const m = (by[c.model] ||= { calls: 0, input: 0, output: 0 }); m.calls++; m.input += c.input; m.output += c.output; }
   let usd = 0;
   const parts = Object.entries(by).map(([model, m]) => {
-    const [pin, pout] = priceOf(model);
-    const cost = (m.input * pin + m.output * pout) / 1e6; usd += cost;
+    const price = priceOf(model);
+    if (!price) return `${model} ×${m.calls}: in ${m.input}, out ${m.output} (price not set: PRICE_${model.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_IN/_OUT)`;
+    const cost = (m.input * price[0] + m.output * price[1]) / 1e6; usd += cost;
     return `${model} ×${m.calls}: in ${m.input}, out ${m.output} (~$${cost.toFixed(4)})`;
   });
   console.log(`[cost] message: ${parts.join(' | ')} | total ~$${usd.toFixed(4)} (~${(usd * 100).toFixed(2)} ¢)`);
@@ -2741,7 +2767,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model:       'claude-sonnet-5', // owner 28.10: Sonnet 5 everywhere (no temperature; thinks by default)
+              model:       CLARIFY_MODEL, // no temperature (Sonnet 5 rejects it); room for thinking
               max_tokens:  4000,
               messages:    [{ role: 'user', content: CLARIFY_PROMPT }],
             }),
@@ -2750,7 +2776,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
           if (clarifyRes.ok) {
             const clarifyData = await clarifyRes.json();
-            trackUsage('claude-sonnet-5', clarifyData);
+            trackUsage(CLARIFY_MODEL, clarifyData);
             const clarifyBlock = (clarifyData.content || []).find(b => b.type === 'text');
             const clarifyText = clarifyBlock?.text
               || `Для BMW ${extracted.model} есть несколько поколений с разными деталями. Уточните, пожалуйста, год выпуска или код кузова (${optionsForPrompt.map(g => g.generation).join(', ')}).`;
@@ -3020,8 +3046,8 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:       'claude-sonnet-5', // TEMPORARY: testing whether this is a Haiku capability
-                                         // limit vs a prompt issue. Sonnet 5 REJECTS non-default
+        model:       ANSWER_MODEL,      // env ANSWER_MODEL (default claude-sonnet-5).
+                                         // Sonnet 5 REJECTS non-default
                                          // temperature/top_p/top_k with a 400 error, so temperature
                                          // is intentionally omitted here (was 0.2 for Haiku).
         max_tokens:  16000, // 25.10: 4096 cut a ТО answer off inside <<<PRODUCTS>>> again.
@@ -3044,13 +3070,13 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
     if (!claudeRes.ok) {
       const err = await claudeRes.text();
-      console.error('Claude API error:', err);
+      console.error(`${isAccountError(claudeRes.status) ? '[llm] ACCOUNT/KEY PROBLEM -- check ANTHROPIC_API_KEY, balance and account status. ' : ''}LLM API error (${ANSWER_MODEL}, HTTP ${claudeRes.status}):`, err);
       Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
       return res.status(502).json({ error: 'Upstream API error', detail: err });
     }
 
     const data = await claudeRes.json();
-    trackUsage('claude-sonnet-5', data);
+    trackUsage(ANSWER_MODEL, data);
     // Find the actual text block by TYPE, not by array position. Sonnet 5
     // (and any model with thinking/adaptive-thinking enabled) can return a
     // {type: "thinking", ...} block BEFORE the text block, so content[0]

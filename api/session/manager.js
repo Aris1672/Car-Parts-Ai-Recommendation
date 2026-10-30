@@ -15,9 +15,10 @@
  */
 
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
-// See chat.js for the full rationale -- same Kazakhstan reverse-proxy
-// reuse, since direct Russia -> api.anthropic.com access is blocked.
+// Same provider settings as chat.js (Anthropic-format API; DeepSeek works via
+// ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic).
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
+const MANAGER_MODEL      = process.env.MANAGER_MODEL || 'claude-sonnet-5';
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_KEY;
 
@@ -77,7 +78,7 @@ async function generateSummary(messages) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model:      'claude-sonnet-5', // owner 28.10: Sonnet 5 everywhere (thinks by default; room for it)
+      model:      MANAGER_MODEL, // env MANAGER_MODEL; room for thinking
       max_tokens: 4000,
       messages: [
         { role: 'user', content: SUMMARY_PROMPT + transcript }
@@ -87,6 +88,8 @@ async function generateSummary(messages) {
   });
 
   if (!response.ok) {
+    const body = (await response.text().catch(() => '')).slice(0, 400);
+    console.error(`[manager] summary failed (${MANAGER_MODEL}, HTTP ${response.status}): ${body}`);
     return { raw: 'Summary generation failed.', fields: {} };
   }
 
