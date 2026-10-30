@@ -1597,7 +1597,12 @@ etc.
 Диалог:
 `;
 
-const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 30000);
+// 30.10: DeepSeek queues requests when busy (no rate limit, just slow). Reading a
+// request normally takes 5-11 s, so: first try 15 s; on a timeout (or 429/5xx)
+// one more try with 20 s -- a fresh request often gets through faster.
+const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 15000);
+const EXTRACT_RETRY_TIMEOUT_MS = Number(process.env.EXTRACT_RETRY_TIMEOUT_MS || 20000);
+const retryableLlmError = err => !err.status ? /abort|timeout|fetch failed|ECONNRESET|socket/i.test(`${err.name} ${err.message}`) : (err.status === 429 || err.status >= 500);
 
 // ─── LAST GOOD EXTRACTION PER CONVERSATION (30.10) ──────────────────────────
 // DeepSeek slows down under heavy traffic instead of refusing (live 30.10,
@@ -1655,7 +1660,15 @@ async function extractVehicleInfo(messages) {
   // One model, no fallback model. On failure: the previous message's extraction
   // for this conversation (see previousExtraction), else {}.
   try {
-    const out = await call(LLM_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
+    let out;
+    try {
+      out = await call(LLM_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
+    } catch (err) {
+      if (!retryableLlmError(err)) throw err;
+      console.warn(`[extract] ${LLM_MODEL} first try failed (${err.message}) -- trying once more`);
+      out = await call(LLM_MODEL, { max_tokens: 8000 }, EXTRACT_RETRY_TIMEOUT_MS);
+      console.log('[extract] second try succeeded');
+    }
     rememberExtraction(messages, out);
     return out;
   } catch (err) {
@@ -3278,4 +3291,4 @@ module.exports.partDateWindow = partDateWindow;
 module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
-module.exports._extraction = { rememberExtraction, previousExtraction };
+module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
