@@ -321,7 +321,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ═══════════════════════════════════════════
 ДАННЫЕ О СОВМЕСТИМОСТИ (артикул → автомобили, если есть):
 ═══════════════════════════════════════════
-Записи с полем "source": "laximo" взяты из оригинального каталога производителя (марка — в поле "brand"). Если "matchedBy": "vin" — подобрано по VIN клиента, совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Если "matchedBy": "model" — подобрано по модели БЕЗ VIN (модель уже уточнена, НЕ переспрашивай её): эти детали подходят для этой модели по каталогу производителя, но если на одну деталь найдено несколько номеров, они могут отличаться по дате выпуска или комплектации — перечисли их как варианты и предложи прислать VIN, чтобы выбрать точный; если номер один — можно уверенно предлагать, коротко упомянув, что по VIN подбор ещё точнее. Поле "axle" ("передняя ось" / "задняя ось") определено по номеру BMW (31… передний мост, 33… задний мост, тормоза 34 1x… передние, 34 2x… задние) и ТОЧНО: называй ось клиенту по нему, НЕ пиши, что каталог не различает передние и задние, и НЕ отправляй к менеджеру или за VIN ради оси. Обрати внимание на поле "notes": если там есть условие комплектации (например, "Для автомобилей с D Steering (S217A) = да"): при "matchedBy": "vin" каталог уже отфильтровал детали по VIN (детали для другой комплектации он не показывает -- проверено 28.10), значит у машины клиента ЭТА комплектация есть -- скажи уверенно, что по VIN подходит именно это исполнение (например «исполнение для автомобилей с D Steering — по вашему VIN подходит»), и НЕ отправляй к менеджеру проверять опцию; при "matchedBy": "model" -- упомяни условие клиенту и предложи прислать VIN. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали.
+Записи с полем "source": "laximo" взяты из оригинального каталога производителя (марка — в поле "brand"). Если "matchedBy": "vin" — подобрано по VIN клиента, совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Если "matchedBy": "model" — подобрано по модели БЕЗ VIN (модель уже уточнена, НЕ переспрашивай её): эти детали подходят для этой модели по каталогу производителя, но если на одну деталь найдено несколько номеров, они могут отличаться по дате выпуска или комплектации — перечисли их как варианты и предложи прислать VIN, чтобы выбрать точный; если номер один — можно уверенно предлагать, коротко упомянув, что по VIN подбор ещё точнее. Поле "axle" ("передняя ось" / "задняя ось") определено по номеру BMW (31… передний мост, 33… задний мост, тормоза 34 1x… передние, 34 2x… задние) и ТОЧНО: называй ось клиенту по нему, НЕ пиши, что каталог не различает передние и задние, и НЕ отправляй к менеджеру или за VIN ради оси. Обрати внимание на поле "notes": если там есть условие комплектации (например, "Для автомобилей с D Steering (S217A) = да"): при "matchedBy": "vin" каталог уже отфильтровал детали по VIN (детали для другой комплектации он не показывает -- проверено 28.10), значит у машины клиента ЭТА комплектация есть -- скажи уверенно, что по VIN подходит именно это исполнение (например «исполнение для автомобилей с D Steering — по вашему VIN подходит»), и НЕ отправляй к менеджеру проверять опцию; при "matchedBy": "model" -- упомяни условие клиенту и предложи прислать VIN. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали. Поле "variant": «альтернатива (оригинальная принадлежность BMW)» — показывай такую деталь ПОСЛЕ основной и называй альтернативой; «комплект с датчиком износа» — так и называй. Поле "condition" (например «Спортивные тормоза M (S2NHA) = нет») — для какой комплектации деталь. Поле "equipmentAnswer" — что клиент ответил про комплектацию: если «клиент не знает» — покажи варианты для обеих комплектаций, коротко объясни разницу и предложи прислать VIN.
 {{COMPATIBILITY}}
 
 ═══════════════════════════════════════════
@@ -953,6 +953,27 @@ const PART_FILTER_TIMEOUT_MS = Number(process.env.PART_FILTER_TIMEOUT_MS || 3000
 const CLARIFY_LEAD = 'Уточните, какая именно деталь нужна';
 const CLARIFY_ALL = 'Все варианты';
 const AXLE_LEAD = 'Для какой оси подобрать';
+// Equipment question (30.10): the catalog's own option that decides between
+// parts, e.g. «Спортивные тормоза M (S2NHA)» -- asked with Есть / Нет / Не знаю.
+const EQUIP_LEAD = 'По оригинальному каталогу BMW подбор зависит от комплектации';
+const EQUIP_UNKNOWN = 'Не знаю';
+/** The customer's latest answer to an equipment question in the history -> { label, answer } | null. */
+function equipmentAnswerFrom(messages) {
+  const msgs = messages || [];
+  let found = null;
+  for (let i = 0; i < msgs.length - 1; i++) {
+    const m = msgs[i];
+    if (m.role !== 'assistant' || !String(m.content || '').includes(EQUIP_LEAD)) continue;
+    const label = (String(m.content).match(/Есть ли у вашего автомобиля «([^»]+)»/) || [])[1];
+    const next = msgs.slice(i + 1).find(x => x.role === 'user');
+    if (!label || !next) continue;
+    const t = String(next.content || '').trim().toLowerCase();
+    const end = '(?=$|[^а-яёa-z])'; // \b does not work after Cyrillic letters in JS
+    const answer = /^не\s*знаю/.test(t) ? 'unknown' : new RegExp(`^(есть|да)${end}`).test(t) ? 'да' : new RegExp(`^нет${end}`).test(t) ? 'нет' : null;
+    if (answer) found = { label, answer };
+  }
+  return found;
+}
 const AXLE_BOTH = 'Передние и задние';
 /** «тормозные колодки», «накладки», «тормозные диски» -> «тормозные колодки и диски» (for the axle question). */
 function axleQuestionParts(keywords) {
@@ -1103,12 +1124,17 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
   // BMW main-group check (lib/laximo.js): fixed rules + the AI's partGroups. Off ({} vs null) for ТО / article checks.
   const partGroups = plainPartSearch ? (extracted.partGroups || {}) : null;
 
+  // The customer's answer to an earlier equipment question (S2NHA ...), if any.
+  const equipment = plainPartSearch ? equipmentAnswerFrom(messages) : null;
+  const searchOpts = equipment ? { equipment } : {};
+  if (equipment) console.log(`[laximo] equipment answer: ${equipment.label} = ${equipment.answer}`);
+
   const started = Date.now();
   let timer;
   try {
     const work = mode === 'vin'
-      ? laximo.findPartsByVin(vin, extracted.partKeywords || [], searchNames, partGroups)
-      : laximo.findPartsByModel(customerText, extracted.partKeywords, extracted.brand, searchNames, partGroups);
+      ? laximo.findPartsByVin(vin, extracted.partKeywords || [], searchNames, partGroups, searchOpts)
+      : laximo.findPartsByModel(customerText, extracted.partKeywords, extracted.brand, searchNames, partGroups, searchOpts);
     const result = await Promise.race([
       work,
       new Promise((_, reject) => {
@@ -1139,7 +1165,18 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
         console.log(`[laximo] M Performance parts dropped (not asked for): ${mp.map(p => p.oem).join(', ')}`);
       }
     }
-    if (plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2 || (lastAssistantText.includes(VARIANT_LEAD) && sameNameVersions(result.parts)))) {
+    // Equipment question first (owner 30.10): the catalog's option decides which
+    // parts fit (S2NHA = M sport brakes -> other discs and pads). Asked once per
+    // option; «Не знаю» shows all variants. Model path only (a VIN is exact).
+    const eqQ = result?.parts?.equipmentQuestion;
+    if (plainPartSearch && eqQ && !result.clarify) {
+      const askedBefore = (messages || []).some(m => m.role === 'assistant' && String(m.content || '').includes(EQUIP_LEAD) && String(m.content).includes(eqQ.label));
+      if (!askedBefore) {
+        result.clarify = { question: eqQ.label, options: [{ label: 'Есть', rows: [] }, { label: 'Нет', rows: [] }], lead: EQUIP_LEAD, allLabel: EQUIP_UNKNOWN };
+        console.log(`[laximo] equipment question: ${eqQ.label}`);
+      }
+    }
+    if (!result?.clarify && plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2 || (lastAssistantText.includes(VARIANT_LEAD) && sameNameVersions(result.parts)))) {
       const before = result.parts.length;
       const lastAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant');
       const allowAsk = ![CLARIFY_LEAD, AXLE_LEAD].some(l => String((lastAssistant && lastAssistant.content) || '').includes(l)); // never two questions in a row
@@ -1156,7 +1193,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
         const names = Object.fromEntries(kws.map(k => [k, again]));
         try {
           const veh = { query: result.vehicleQuery, vin: result.vehicle && result.vehicle.vin, cacheId: result.vehicleCacheId };
-          const more = await laximo.searchPartsForVehicle(veh, kws, names, partGroups);
+          const more = await laximo.searchPartsForVehicle(veh, kws, names, partGroups, searchOpts);
           console.log(`[laximo] search again (${again.join(', ')}): ${more.length} row(s)`);
           if (more.length) {
             const refiltered = await aiFilterParts(more, extracted, messages, { allowAsk, allowSearchAgain: false });
@@ -1713,6 +1750,32 @@ function markDiscontinuedCards(text, catalogParts) {
   return marked ? text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`) : text;
 }
 
+/** Alternative accessories and kits with sensor: labelled cards, alternatives after the standard parts. */
+function labelVariantCards(text, catalogParts) {
+  const alt = new Set(), kit = new Set();
+  for (const p of catalogParts || []) {
+    if (!p || !p.oem) continue;
+    if (p.alternative) alt.add(laximo.normalizeOem(p.oem));
+    else if (p.kitWithSensor) kit.add(laximo.normalizeOem(p.oem));
+  }
+  if (!alt.size && !kit.size) return text;
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = String(text || '').match(re);
+  if (!m) return text;
+  let cards;
+  try { cards = JSON.parse(m[1]); } catch { return text; }
+  if (!Array.isArray(cards)) return text;
+  let changed = 0;
+  for (const c of cards) {
+    const k = c && c.article ? laximo.normalizeOem(c.article) : null;
+    if (k && alt.has(k) && !/^Альтернатива/.test(c.best_for || '')) { c.best_for = `Альтернатива (оригинальная принадлежность BMW).${c.best_for ? ' ' + c.best_for : ''}`; changed++; }
+    else if (k && kit.has(k) && !/датчик/i.test(c.best_for || '')) { c.best_for = `Комплект с датчиком износа.${c.best_for ? ' ' + c.best_for : ''}`; changed++; }
+  }
+  const ordered = [...cards.filter(c => !(c && c.article && alt.has(laximo.normalizeOem(c.article)))), ...cards.filter(c => c && c.article && alt.has(laximo.normalizeOem(c.article)))];
+  const moved = ordered.some((c, i) => c !== cards[i]);
+  if (!changed && !moved) return text;
+  return text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(ordered)}\n<<<END_PRODUCTS>>>`);
+}
 /** Removes the widget's history placeholders from a reply, with the empty lines they leave. */
 function stripHistoryPlaceholders(text) {
   return String(text || '')
@@ -2594,8 +2657,11 @@ console.log(JSON.stringify(extracted, null, 2));
       // The AI's own question line is not shown (live 28.10: «Какую деталь вам нужна?») -- the fixed lead already asks.
       const isVersion = laximoResult.clarify.lead === VARIANT_LEAD;
       const isAxle = laximoResult.clarify.lead === AXLE_LEAD;
+      const isEquip = laximoResult.clarify.lead === EQUIP_LEAD;
       const reply = (isVersion
         ? `${VARIANT_LEAD}. ${question}\n\nЕсли не знаете -- нажмите «${VARIANT_UNKNOWN}»: покажу все варианты, а менеджер уточнит по VIN.`
+        : isEquip
+          ? `${EQUIP_LEAD}${car}. Есть ли у вашего автомобиля «${question}»?\n\nЕсли не знаете — нажмите «${EQUIP_UNKNOWN}»: покажу все варианты, а по VIN подберу точно.`
         : isAxle
           ? `${question}${car}? Выберите ниже:`
           : `${CLARIFY_LEAD}: по оригинальному каталогу${car} есть несколько вариантов. Выберите ниже:`) +
@@ -2669,6 +2735,9 @@ console.log(JSON.stringify(extracted, null, 2));
           productionDate: v.options?.['Дата выпуска'] || null,
           partName:  p.name,
           axle:      p.axle || null, // передняя / задняя ось -- from the BMW number (31/33, 34 1x/2x)
+          variant:   p.alternative ? 'альтернатива (оригинальная принадлежность BMW)' : (p.kitWithSensor ? 'комплект с датчиком износа' : null),
+          condition: p.condition || null, // e.g. «Спортивные тормоза M (S2NHA) = нет» (group search)
+          equipmentAnswer: laximoResult.parts.equipmentAnswer ? `${laximoResult.parts.equipmentAnswer.label}: ${laximoResult.parts.equipmentAnswer.answer === 'unknown' ? 'клиент не знает' : laximoResult.parts.equipmentAnswer.answer}` : null,
           unit:      p.unit,
           position:  p.position,
           qty:       p.qty,
@@ -3253,6 +3322,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // A discontinued part never goes out as a plain card (owner 30.10): the card's
     // line says so whenever the catalog notes for that number say «Не производится».
     text = markDiscontinuedCards(text, [...(laximoResult?.parts || []), ...(diagram ? [diagram] : []), ...extraDiagrams]);
+    text = labelVariantCards(text, laximoResult?.parts || []);
     // A part number with an "Открыть деталь" button: never open the answer with
     // "нет данных" (owner, 27.10 -- customers stop reading and don't open the
     // button). Safety net for the prompt rule in partLinkNote.
@@ -3385,5 +3455,5 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._axleQuestionParts = axleQuestionParts;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
