@@ -1599,6 +1599,39 @@ etc.
 
 const EXTRACT_TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS || 30000);
 
+// ─── LAST GOOD EXTRACTION PER CONVERSATION (30.10) ──────────────────────────
+// DeepSeek slows down under heavy traffic instead of refusing (live 30.10,
+// 11:26-11:31 MSK: request reading timed out 5×). Then the customer's click on a
+// wizard button ("X6 40iX") came back as VEHICLE {} and the car was lost. Now each
+// good extraction is remembered by the conversation it was made for; when reading
+// fails, the previous message's extraction is reused. Nothing is lost: the model
+// path reads every customer message itself (lookupLaximo customerText), so the
+// clicked button still counts. A VIN typed in the new message is picked up too.
+// Key: the last 8 messages the widget sent. For the next request, the same 8 are
+// messages.slice(0, -2).slice(-8) (its previous messages minus our reply and the
+// new customer message). In-memory, 2 h, max 1000 conversations.
+const crypto = require('crypto');
+const lastExtraction = new Map();
+const LAST_EXTRACTION_TTL_MS = 2 * 60 * 60 * 1000;
+const convoKey = msgs => crypto.createHash('sha1').update(JSON.stringify((msgs || []).slice(-8).map(m => [m.role, m.content]))).digest('hex');
+function rememberExtraction(messages, extracted) {
+  if (!extracted || !Object.keys(extracted).length) return;
+  lastExtraction.set(convoKey(messages), { at: Date.now(), data: extracted });
+  if (lastExtraction.size > 1000) lastExtraction.delete(lastExtraction.keys().next().value);
+}
+function previousExtraction(messages) {
+  if (!Array.isArray(messages) || messages.length < 3) return null;
+  const hit = lastExtraction.get(convoKey(messages.slice(0, -2)));
+  if (!hit || Date.now() - hit.at > LAST_EXTRACTION_TTL_MS) return null;
+  const out = JSON.parse(JSON.stringify(hit.data));
+  const last = [...messages].reverse().find(m => m.role === 'user');
+  const vin = last && typeof last.content === 'string' && last.content.toUpperCase().match(/\b[A-HJ-NPR-Z0-9]{17}\b/);
+  if (vin) out.vin = vin[0];
+  // Order status / contact questions belong to the old message, not this one.
+  out.orderStatusQuestion = false;
+  return out;
+}
+
 async function extractVehicleInfo(messages) {
   const transcript = messages
     .map(m => `${m.role === 'user' ? 'Клиент' : 'Ассистент'}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
@@ -1619,11 +1652,20 @@ async function extractVehicleInfo(messages) {
     console.log(`[extract] ${model}: ${Date.now() - started} ms`);
     return out;
   };
-  // One model, no fallback.
+  // One model, no fallback model. On failure: the previous message's extraction
+  // for this conversation (see previousExtraction), else {}.
   try {
-    return await call(LLM_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
+    const out = await call(LLM_MODEL, { max_tokens: 8000 }, EXTRACT_TIMEOUT_MS);
+    rememberExtraction(messages, out);
+    return out;
   } catch (err) {
     if (!isAccountError(err.status)) console.error(`[extract] ${LLM_MODEL} failed: ${err.message}`); // account errors already logged
+    const prev = previousExtraction(messages);
+    if (prev) {
+      console.log(`[extract] reusing the previous message's extraction (${[prev.brand, prev.model].filter(Boolean).join(' ') || 'no car'}${prev.vin ? ', VIN ' + prev.vin : ''})`);
+      rememberExtraction(messages, prev);
+      return prev;
+    }
     return {}; // safe fallback -- matching below just yields nothing, agent keeps asking clarifying questions
   }
 }
@@ -3236,3 +3278,4 @@ module.exports.partDateWindow = partDateWindow;
 module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
+module.exports._extraction = { rememberExtraction, previousExtraction };
