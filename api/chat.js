@@ -267,6 +267,8 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ФОРМАТ ОТВЕТА С ТОВАРАМИ:
 ═══════════════════════════════════════════
 
+В истории диалога прошлые карточки и схемы заменены пометками «[запчасти показаны]» и «[схема показана]» — это служебные пометки, НИКОГДА не пиши их в ответе. Карточки появляются ТОЛЬКО из блока <<<PRODUCTS>>> ниже; если товаров в данных нет — не пиши, что они показаны, и не обещай наличие или оформление на сайте. Название детали пиши по-русски, а не английским названием из каталога.
+
 Когда нужно показать товары — верни их в специальном JSON-блоке ВНУТРИ текста:
 
 Напиши вступительный текст, затем на отдельной строке:
@@ -1637,6 +1639,14 @@ function previousExtraction(messages) {
   return out;
 }
 
+/** Removes the widget's history placeholders from a reply, with the empty lines they leave. */
+function stripHistoryPlaceholders(text) {
+  return String(text || '')
+    .replace(/[ \t]*\[(запчасти|схема|схемы|товары|карточки) показан[аыо]?\][ \t]*/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function extractVehicleInfo(messages) {
   const transcript = messages
     .map(m => `${m.role === 'user' ? 'Клиент' : 'Ассистент'}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
@@ -2824,7 +2834,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
             const clarifyData = await clarifyRes.json();
             trackUsage(LLM_MODEL, clarifyData);
             const clarifyBlock = (clarifyData.content || []).find(b => b.type === 'text');
-            const clarifyText = clarifyBlock?.text
+            const clarifyText = (clarifyBlock?.text && stripHistoryPlaceholders(clarifyBlock.text))
               || `Для BMW ${extracted.model} есть несколько поколений с разными деталями. Уточните, пожалуйста, год выпуска или код кузова (${optionsForPrompt.map(g => g.generation).join(', ')}).`;
 
             const buttonLabels = optionsForPrompt.map(g => g.generation);
@@ -3156,6 +3166,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // Haiku, which never produced thinking blocks so this bug was latent.
     const textBlock = (data.content || []).find(block => block.type === 'text');
     let text = textBlock?.text ?? '';
+    // History placeholders the widget writes for shown cards/diagrams (live 30.10:
+    // DeepSeek copied «[запчасти показаны]» into its reply although no cards came).
+    text = stripHistoryPlaceholders(text);
     if (data.stop_reason === 'max_tokens') {
       console.warn(`[chat] reply hit max_tokens (output ${data.usage?.output_tokens ?? '?'} tokens)`);
     }
@@ -3291,4 +3304,5 @@ module.exports.partDateWindow = partDateWindow;
 module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
+module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
