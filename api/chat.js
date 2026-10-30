@@ -14,31 +14,35 @@
 const LLM_API_KEY  = process.env.LLM_API_KEY;
 const LLM_BASE_URL = process.env.LLM_BASE_URL || 'https://api.deepseek.com/anthropic';
 const LLM_MODEL    = process.env.LLM_MODEL || 'deepseek-v4-pro';
-// Quick JSON steps (request reading, part filter, part-name translation) run with
-// thinking OFF: with thinking, deepseek-v4-pro needed >20 s just to read a request
-// (30.10 logs: "[extract] ... aborted due to timeout" -> VEHICLE {}). The final
-// answer, the clarifying question and the manager summary keep thinking on.
-// LLM_FAST_THINKING=enabled turns thinking back on for the quick steps too.
-let fastThinkingOff = (process.env.LLM_FAST_THINKING || 'disabled').toLowerCase() !== 'enabled';
-async function llmFastFetch(payload, ms) {
+// Thinking (30.10): with thinking on, deepseek-v4-pro needed >20 s just to read a
+// request and up to ~2 min for a ТО answer. Thinking is OFF by default:
+//   LLM_FAST_THINKING=enabled   -> on for the quick JSON steps (request reading,
+//                                  part filter, part-name translation)
+//   LLM_ANSWER_THINKING=enabled -> on for the final answer
+// The clarifying question and the manager summary keep the provider default.
+let thinkingOffSupported = true; // false once the provider rejects thinking:disabled
+const FAST_THINKING_OFF   = (process.env.LLM_FAST_THINKING   || 'disabled').toLowerCase() !== 'enabled';
+const ANSWER_THINKING_OFF = (process.env.LLM_ANSWER_THINKING || 'disabled').toLowerCase() !== 'enabled';
+async function llmFetch(payload, ms, thinkingOff) {
   const send = () => fetch(`${LLM_BASE_URL}/v1/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ ...payload, ...(fastThinkingOff ? { thinking: { type: 'disabled' } } : {}) }),
+    body: JSON.stringify({ ...payload, ...(thinkingOff && thinkingOffSupported ? { thinking: { type: 'disabled' } } : {}) }),
     signal: AbortSignal.timeout(ms),
   });
   let res = await send();
-  if (res.status === 400 && fastThinkingOff) {
+  if (res.status === 400 && thinkingOff && thinkingOffSupported) {
     const body = await res.clone().text().catch(() => '');
     if (/thinking/i.test(body)) {
       // Provider doesn't accept thinking:disabled -- stop sending it and retry once.
       console.warn(`[llm] provider rejected thinking:disabled, sending without it from now on: ${body.slice(0, 200)}`);
-      fastThinkingOff = false;
+      thinkingOffSupported = false;
       res = await send();
     }
   }
   return res;
 }
+const llmFastFetch = (payload, ms) => llmFetch(payload, ms, FAST_THINKING_OFF);
 // 401/402/403 = key, billing or account problem (e.g. 403 verification_required).
 // Every model on the same account fails the same way, so don't fall back -- log it loudly.
 const isAccountError = status => status === 401 || status === 402 || status === 403;
@@ -2273,10 +2277,12 @@ function logUsage(calls) {
 
 async function handler(req, res) {
   const calls = [];
+  const started = Date.now();
   try {
     return await usageStore.run(calls, () => handleChat(req, res));
   } finally {
     logUsage(calls);
+    if (req.method === 'POST') console.log(`[timing] message total: ${Date.now() - started} ms`);
   }
 }
 
@@ -3023,14 +3029,8 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       ? `\nТакже под ответом будут схемы для: ${extraDiagrams.map(d => `${d.oem} — ${d.name || ''} (узел «${d.unitName || ''}», позиция ${d.position || ''}${d.notes && Object.keys(d.notes).length ? `; примечания: ${Object.entries(d.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}` : ''})`).join('; ')}. Если номер снят с производства — скажи об этом одним коротким предложением.`
       : '';
 
-    const claudeRes = await fetch(`${LLM_BASE_URL}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         LLM_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
+    const answerStarted = Date.now();
+    const claudeRes = await llmFetch({
         model:       LLM_MODEL,      // env LLM_MODEL (default deepseek-v4-pro).
                                          // Sonnet 5 REJECTS non-default
                                          // temperature/top_p/top_k with a 400 error, so temperature
@@ -3049,9 +3049,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
                            // rendering cards.
         system:      systemWithData + diagramNote + extraDiagramNote + morePartDiagramsNote + serviceKitNote + workshopNote,
         messages:    messages,
-      }),
-      signal: AbortSignal.timeout(75000),
-    });
+      }, 120000, ANSWER_THINKING_OFF);
 
     if (!claudeRes.ok) {
       const err = await claudeRes.text();
@@ -3062,6 +3060,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
     const data = await claudeRes.json();
     trackUsage(LLM_MODEL, data);
+    console.log(`[answer] ${LLM_MODEL}: ${Date.now() - answerStarted} ms, out ${data.usage?.output_tokens ?? '?'} tokens, thinking ${ANSWER_THINKING_OFF && thinkingOffSupported ? 'off' : 'on'}`);
     // Find the actual text block by TYPE, not by array position. Sonnet 5
     // (and any model with thinking/adaptive-thinking enabled) can return a
     // {type: "thinking", ...} block BEFORE the text block, so content[0]
