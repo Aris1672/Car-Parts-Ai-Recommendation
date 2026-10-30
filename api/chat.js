@@ -657,7 +657,8 @@ function buildKitCards(kitParts, index, kitPrices, diagram, carLabel) {
         ...diagramCardFor({ oem: p.oem, name: p.name, unit: diagram.unitName, unitImage: diagram.image, position: p.position, schema: null }, live, carLabel),
         best_for: note,
       };
-      if (!feed && card.diagram && p.box) card.diagram.box = p.box;
+      const box = p.box || (laximo.normalizeOem(p.oem) === laximo.normalizeOem(diagram.oem) ? diagram.box : null); // older cached units: only the main part's box
+      if (!feed && card.diagram && box) card.diagram.box = box;
       cards.push({ card, last: asNeeded });
     }
   }
