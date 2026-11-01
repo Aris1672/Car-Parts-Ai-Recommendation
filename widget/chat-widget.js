@@ -386,9 +386,19 @@
     .pc-typing-status {
       font-size: 13px; color: #999; opacity: 0;
       transition: opacity 0.3s ease;
-      white-space: nowrap;
+      line-height: 1.35; min-width: 0; overflow-wrap: anywhere;
     }
     .pc-typing-status.pc-visible { opacity: 1; }
+    .pc-typing-elapsed { color: #b5b5b5; margin-left: 4px; white-space: nowrap; }
+    /* Real steps from the server (stream): finished ones above the current line. */
+    .pc-typing-done { padding: 0 16px; }
+    .pc-typing-done:not(:empty) { padding-top: 12px; margin-bottom: -6px; }
+    .pc-typing-step {
+      display: flex; gap: 8px; font-size: 12.5px; line-height: 1.35; color: #8c8c8c;
+      margin-bottom: 4px; overflow-wrap: anywhere; animation: pc-step-in 0.25s ease;
+    }
+    .pc-typing-step::before { content: '✓'; color: #3aa85b; font-weight: 700; flex-shrink: 0; }
+    @keyframes pc-step-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
     /* ── Quick action buttons ── */
     .pc-buttons-wrap { display: flex; flex-wrap: wrap; gap: 7px; padding: 2px 0; max-width: 100%; }
@@ -1636,6 +1646,7 @@
     el.innerHTML = `
       <div class="pc-msg-icon">${botIconHtml()}</div>
       <div class="pc-bubble" style="padding:0;">
+        <div class="pc-typing-done" id="pc-typing-done"></div>
         <div class="pc-typing-wrap">
           <div class="pc-typing"><span></span><span></span><span></span></div>
           <div class="pc-typing-status" id="pc-typing-status"></div>
@@ -1679,10 +1690,109 @@
     return el;
   }
 
+  // ─── Real steps from the server ─────────────────────────────────────────
+  // /api/chat streams what it is actually doing (reading the question, finding
+  // the car, opening catalog sections, checking prices, writing the answer).
+  // The first real step replaces the timed messages above for good; finished
+  // steps stay listed with a ✓ (last few), the current one sits next to the
+  // dots, with its seconds once it takes a while.
+  const STEP_SHOW_DELAY_MS = 1000; // a fast reply shows only the dots
+  const STEP_ELAPSED_FROM_MS = 8000;
+  const STEP_DONE_MAX = 4;
+  let liveSteps = null; // { list: [], current, since, shown, timers }
+
+  function startLiveSteps() {
+    stopLiveSteps();
+    liveSteps = { list: [], current: null, since: 0, shown: false, timers: [] };
+  }
+
+  function stopLiveSteps() {
+    if (liveSteps) liveSteps.timers.forEach(t => clearTimeout(t) || clearInterval(t));
+    liveSteps = null;
+  }
+
+  function renderLiveSteps() {
+    const st = liveSteps;
+    const doneEl = document.getElementById('pc-typing-done');
+    const statusEl = document.getElementById('pc-typing-status');
+    if (!st || !st.shown || !doneEl || !statusEl) return;
+    const done = st.list.slice(-STEP_DONE_MAX);
+    if (doneEl.childElementCount !== done.length || (done.length && doneEl.lastChild.textContent !== done[done.length - 1])) {
+      doneEl.innerHTML = '';
+      done.forEach(t => { const d = document.createElement('div'); d.className = 'pc-typing-step'; d.textContent = t; doneEl.appendChild(d); });
+    }
+    const secs = Math.floor((Date.now() - st.since) / 1000);
+    statusEl.textContent = st.current || '';
+    if (st.current && secs * 1000 >= STEP_ELAPSED_FROM_MS) {
+      const e = document.createElement('span'); e.className = 'pc-typing-elapsed'; e.textContent = `${secs} с`;
+      statusEl.appendChild(e);
+    }
+    statusEl.classList.add('pc-visible');
+    // keep the bubble in view while it grows, unless the visitor scrolled up
+    const c = document.getElementById('pc-messages');
+    if (c && c.scrollHeight - c.scrollTop - c.clientHeight < 120) c.scrollTop = c.scrollHeight;
+  }
+
+  function onLiveStep(text) {
+    const st = liveSteps;
+    if (!st || !text) return;
+    if (!st.started) {
+      // the server streams: the timed placeholder text is not needed any more
+      st.started = true;
+      clearTypingStatusTimers();
+      const statusEl = document.getElementById('pc-typing-status');
+      if (statusEl) { statusEl.classList.remove('pc-visible'); statusEl.textContent = ''; }
+      st.timers.push(setTimeout(() => { if (liveSteps === st) { st.shown = true; renderLiveSteps(); } }, STEP_SHOW_DELAY_MS));
+      st.timers.push(setInterval(() => { if (liveSteps === st) renderLiveSteps(); }, 1000));
+    }
+    if (st.current) st.list.push(st.current.replace(/…$/, ''));
+    st.current = text;
+    st.since = Date.now();
+    renderLiveSteps();
+  }
+
   function removeTypingIndicator() {
     clearTypingStatusTimers();
+    stopLiveSteps();
     const el = document.getElementById('pc-typing');
     if (el) el.remove();
+  }
+
+  // Reads /api/chat's reply: NDJSON with live steps (we ask with stream: true)
+  // or, from a server without streaming, the plain JSON as before.
+  async function readChatReply(res, onStep) {
+    const type = (res.headers && res.headers.get('content-type')) || '';
+    if (!/ndjson/i.test(type)) {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+    let final = null;
+    let buf = '';
+    const handle = line => {
+      if (!line.trim()) return;
+      let o;
+      try { o = JSON.parse(line); } catch (_) { return; }
+      if (o.step) onStep(String(o.step));
+      if (o.done) final = o;
+    };
+    if (res.body && typeof res.body.getReader === 'function' && typeof TextDecoder !== 'undefined') {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n')) >= 0) { handle(buf.slice(0, i)); buf = buf.slice(i + 1); }
+      }
+      buf += dec.decode();
+    } else {
+      buf = await res.text();
+    }
+    buf.split('\n').forEach(handle);
+    if (!final) throw new Error('reply stream ended early');
+    if (final.status >= 400) throw new Error(`HTTP ${final.status}`);
+    return final.body || {};
   }
 
   function addButtonsBubble(buttons) {
@@ -2229,29 +2339,31 @@
 
     const trimmedMessages = messages.slice(-10);
 
+    startLiveSteps();
+    let gotStep = false;
     const fetchWithRetry = async (retries = 1) => {
       try {
         const controller = new AbortController();
         // 150 s: a first lookup of a car by model can take a minute in the
         // catalog, plus the answer (29.10). At 60 s the widget used to give up
-        // and send the whole message again.
+        // and send the whole message again. Covers reading the streamed reply too.
         const timer = setTimeout(() => controller.abort(), 150000);
         try {
           const res = await fetch(AGENT_URL, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ messages: trimmedMessages }),
+            body:    JSON.stringify({ messages: trimmedMessages, stream: true }),
             signal:  controller.signal,
           });
-          clearTimeout(timer);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res;
+          return await readChatReply(res, t => { gotStep = true; onLiveStep(t); });
         } finally {
           clearTimeout(timer);
         }
       } catch (err) {
         // No resend after our own timeout: the server is still working on it.
-        if (retries > 0 && err && err.name !== 'AbortError') {
+        // Nor once the server has reported a step: it got the message.
+        if (retries > 0 && err && err.name !== 'AbortError' && !gotStep) {
           await new Promise(r => setTimeout(r, 1500));
           return fetchWithRetry(retries - 1);
         }
@@ -2260,8 +2372,7 @@
     };
 
     try {
-      const res  = await fetchWithRetry(1);
-      const data = await res.json();
+      const data = await fetchWithRetry(1);
       const raw  = data.reply || '';
 
       removeTypingIndicator();

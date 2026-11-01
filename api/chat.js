@@ -66,6 +66,7 @@ const laximo = require('../lib/laximo');
 const diagramToken = require('../lib/diagramToken');
 const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
+const progress = require('../lib/progress'); // live step lines for the widget (see streamResponse)
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
 const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
 // A car chosen by model (no VIN) that the bot has never looked up needs up to
@@ -1301,6 +1302,9 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
 
   const started = Date.now();
   let timer;
+  progress.step(mode === 'vin'
+    ? 'Ищу автомобиль по VIN в оригинальном каталоге…'
+    : `Ищу ${[extracted.brand, extracted.model].filter(Boolean).join(' ')} в оригинальном каталоге…`);
   try {
     const work = mode === 'vin'
       ? laximo.findPartsByVin(vin, extracted.partKeywords || [], searchNames, partGroups, searchOpts)
@@ -1364,6 +1368,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       const before = result.parts.length;
       const lastAssistant = [...(messages || [])].reverse().find(m => m.role === 'assistant');
       const allowAsk = ![CLARIFY_LEAD, AXLE_LEAD].some(l => String((lastAssistant && lastAssistant.content) || '').includes(l)); // never two questions in a row
+      progress.step(`Нашёл в каталоге позиций: ${result.parts.length} — отбираю нужные`);
       result.parts = await aiFilterParts(result.parts, extracted, messages, { allowAsk, allowSearchAgain: true });
       if (result.parts.clarify) result.clarify = result.parts.clarify;
       filteredOut = before - result.parts.length;
@@ -1377,6 +1382,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
         const names = Object.fromEntries(kws.map(k => [k, again]));
         try {
           const veh = { query: result.vehicleQuery, vin: result.vehicle && result.vehicle.vin, cacheId: result.vehicleCacheId };
+          progress.step(`Не то — ищу ещё раз: ${again.map(a => progress.quote(a, 30)).join(', ')}`);
           const more = await laximo.searchPartsForVehicle(veh, kws, names, partGroups, searchOpts);
           console.log(`[laximo] search again (${again.join(', ')}): ${more.length} row(s)`);
           if (more.length) {
@@ -2806,11 +2812,55 @@ function logUsage(calls) {
   console.log(`[cost] message: ${parts.join(' | ')} | total ~$${usd.toFixed(4)} (~${(usd * 100).toFixed(2)} ¢)`);
 }
 
+// ─── Live progress stream ────────────────────────────────────────────────
+// The widget sends `stream: true`: the reply becomes NDJSON (lib/progress.js)
+// -- {"step": "..."} lines while the work runs, then one
+// {"done": true, "status": N, "body": {...}} line with the usual JSON. Every
+// existing `res.status(N).json(body)` exit is turned into that last line, so
+// no return path needs to know about streaming. Without `stream: true` (old
+// cached widgets, scripts) the response is plain JSON as before.
+function streamResponse(res) {
+  const setHeader = res.setHeader.bind(res);
+  let open = false;
+  let code = 200;
+  const write = obj => {
+    if (res.writableEnded || res.destroyed) return; // a late step from background work
+    if (!open) {
+      open = true;
+      setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      setHeader('Cache-Control', 'no-cache, no-transform');
+      setHeader('X-Accel-Buffering', 'no'); // nginx: pass each line through at once
+      Object.entries(corsHeaders()).forEach(([k, v]) => setHeader(k, v));
+      res.statusCode = 200;
+      res.flushHeaders();
+    }
+    res.write(JSON.stringify(obj) + '\n');
+  };
+  // After the first line the headers are gone; the exits' own setHeader calls are moot.
+  res.setHeader = (k, v) => (open ? res : setHeader(k, v));
+  res.status = c => { code = c; return res; };
+  res.json = body => { write({ done: true, status: code, body }); res.end(); return res; };
+  return { emit: text => write({ step: text }) };
+}
+
+/** «Понял запрос: тормозные колодки — BMW X5 E70» from the extraction (no AI call). */
+function understoodStep(extracted, workshopTopic) {
+  if (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true') return null;
+  if (workshopTopic) return workshopTopic === 'keys' ? 'Понял: вопрос про изготовление ключа' : 'Понял: вопрос про кодирование / прошивку';
+  const car = [extracted.brand, extracted.model, extracted.engineCode].filter(Boolean).join(' ')
+    || (laximo.normalizeVin(extracted.vin) ? `VIN ${laximo.normalizeVin(extracted.vin)}` : '');
+  const parts = Array.isArray(extracted.partKeywords) ? extracted.partKeywords.filter(Boolean).slice(0, 4).join(', ') : '';
+  const what = [parts || (extracted.vendorCode ? `деталь ${extracted.vendorCode}` : ''), car].filter(Boolean).join(' — ');
+  return what ? `Понял запрос: ${what}` : null;
+}
+
 async function handler(req, res) {
   const calls = [];
   const started = Date.now();
+  const stream = req.method === 'POST' && req.body && req.body.stream === true ? streamResponse(res) : null;
   try {
-    return await usageStore.run(calls, () => handleChat(req, res));
+    const work = () => usageStore.run(calls, () => handleChat(req, res));
+    return await (stream ? progress.run(stream.emit, work) : work());
   } finally {
     logUsage(calls);
     if (req.method === 'POST') console.log(`[timing] message total: ${Date.now() - started} ms`);
@@ -2853,6 +2903,7 @@ async function handleChat(req, res) {
     // Deterministic matching layer (see functions above) -- extract vehicle
     // fields cheaply, match them in plain JS, and only send Claude the
     // already-matched result instead of the full dataset.
+    progress.step('Читаю ваш вопрос…');
     const extracted = await extractVehicleInfo(messages);
     sanitizeContactPhone(extracted);
     dropInventedQualifiers(extracted, messages); // «Глушитель» must not become «задний глушитель» (live 28.10)
@@ -2863,6 +2914,7 @@ async function handleChat(req, res) {
       extracted.partKeywords = null;
       extracted.vendorCode = null;
     }
+    progress.step(understoodStep(extracted, workshopTopic));
     console.log("========== VEHICLE ==========");
 console.log(JSON.stringify(extracted, null, 2));
 
@@ -2875,6 +2927,7 @@ console.log(JSON.stringify(extracted, null, 2));
     // Questions about an existing order: answered from ABCP, no catalog work.
     if (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true') {
       const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+      progress.step('Проверяю статус заказа…');
       const reply = await orderStatusReply(extracted, ip);
       Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
       res.setHeader('Content-Type', 'application/json');
@@ -2919,6 +2972,7 @@ console.log(JSON.stringify(extracted, null, 2));
         && (laximo.normalizeVin(extracted.vin) || (extracted.brand && extracted.model))) {
       compat = { code: compatCode, partName: null, source: 'customer' };
       if (!Array.isArray(extracted.partKeywords) || !extracted.partKeywords.length) {
+        progress.step(`Проверяю номер детали ${compatCode}`);
         const info = await abcpPartName(compatCode, extracted.brand || 'BMW');
         if (info) Object.assign(compat, { partName: info.name, partBrand: info.brand, aftermarket: info.aftermarket, source: 'abcp' });
         if (info && info.name && !/[а-яё]/i.test(info.name)) {
@@ -3061,6 +3115,10 @@ console.log(JSON.stringify(extracted, null, 2));
     if (!laximoUsed) {
       if (laximoBlockedReason) {
         console.log(`[catalog] Laximo blocked (${laximoBlockedReason}) -- compatibility table used`);
+        // only when a part / car was asked about (not for «Привет»)
+        if ((extracted.partKeywords || []).length || extracted.vendorCode || laximo.normalizeVin(extracted.vin)) {
+          progress.step('Оригинальный каталог сейчас недоступен — смотрю нашу таблицу совместимости');
+        }
       } else if (articleOnlyQuestion) {
         console.log(`[catalog] part number ${extracted.vendorCode} without an identified car -- compatibility table used for «which cars does it fit»`);
       } else {
@@ -3078,6 +3136,7 @@ console.log(JSON.stringify(extracted, null, 2));
     let matchedCatalogByVehicle;
 
     if (laximoUsed) {
+      progress.step('Проверяю, что есть в нашем магазине');
       const catalogIndex = await lookupCatalog(laximoResult.parts.map(p => p.oem), catalogBrand(extracted, laximoResult));
       const v = laximoResult.vehicle;
       matchedCompatibilityByVehicle = {};
@@ -3323,6 +3382,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 Кратко объясни, что для точного подбора нужно уточнить поколение (код кузова) или год выпуска, и перечисли перечисленные варианты. Не здоровайся (это продолжение диалога). НЕ упоминай товары, цены или артикулы -- их в этом ответе быть не должно.`;
 
         try {
+          progress.step('Формулирую уточняющий вопрос…');
           const clarifyRes = await fetch(`${LLM_BASE_URL}/v1/messages`, {
             method: 'POST',
             headers: {
@@ -3451,6 +3511,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     const priceBrand = (() => { const b = String(extracted.brand || laximoResult?.vehicle?.brand || 'BMW').trim(); return /^(bmw|бмв|mini|мини)$/i.test(b) ? 'BMW' : b; })();
     let livePrices = {};
     if (priceNumbers.length && abcpPrices.enabled()) {
+      progress.step('Узнаю цены и сроки доставки у поставщиков');
       try { livePrices = await abcpPrices.livePrices(priceNumbers, priceBrand, diagramCardsMode ? MAX_DIAGRAM_CARDS + 3 : 3); }
       catch (err) { console.error('[prices] failed:', err.message); }
     }
@@ -3669,6 +3730,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       ? `\nТакже под ответом будут схемы для: ${extraDiagrams.map(d => `${d.oem} — ${d.name || ''} (узел «${d.unitName || ''}», позиция ${d.position || ''}${d.notes && Object.keys(d.notes).length ? `; примечания: ${Object.entries(d.notes).map(([k, v]) => `${k}: ${v}`).join('; ')}` : ''})`).join('; ')}. Если номер снят с производства — скажи об этом одним коротким предложением.`
       : '';
 
+    progress.step('Пишу ответ…');
     const answerStarted = Date.now();
     const claudeRes = await llmFetch({
         model:       LLM_MODEL,      // env LLM_MODEL (default deepseek-v4-pro).
