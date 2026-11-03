@@ -214,6 +214,10 @@ const server = http.createServer((req, res) => {
     a.deepStrictEqual(auto.map(f => f.label), ['Спортивные тормоза M (S2NHA)', 'Спортивный тормоз M, красный глянцевый (S3M2A)']);
     a.deepStrictEqual(auto[0].options.map(o => o.value), ['~A1~T0~C0', '~A0~T0~C0~R0']);
     a.deepStrictEqual(auto[1].options.map(o => o.value), ['~R1~T0~C0', '~R0~T0~C0']);
+    // group-wide: a unit WITHOUT the CKD filter still carries the CKD «нет» found in another unit
+    const g = L.withAutoAnswers([{ label: 'Спортивные тормоза M (S2NHA)', options: [{ text: 'да', value: '~A1' }, { text: 'нет', value: '~A0' }] }],
+      [{ label: 'Монтаж CKD Таиланд (S9C6A)', options: [{ text: 'да', value: '~T1' }, { text: 'нет', value: '~T0' }] }, { label: 'Монтаж CKD Таиланд (S9C6A)', options: [{ text: 'нет', value: '~T9' }] }]);
+    a.deepStrictEqual(g[0].options.map(o => o.value), ['~A1~T0', '~A0~T0']);
     const mq = { query: m.vehicleQuery, cacheId: 'model:test' };
     const d1 = await L.searchPartsForVehicle(mq, ['тормозные диски'], ['диск'], ['34']);
     a.deepStrictEqual(d1.equipmentQuestion && d1.equipmentQuestion.label, 'Спортивные тормоза M (S2NHA)', JSON.stringify(d1.equipmentQuestion));
