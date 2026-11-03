@@ -69,6 +69,20 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 - **Fix (03.11, live test): the agent didn't escalate.** «📞 Связаться с менеджером» (the AI's quick button) and «Хочу уточнить у менеджера сроком доставки» went into the part search, which answered with its own variant / generation questions and returned before the AI could escalate. Now: (1) the widget's «Связаться с менеджером» quick button opens the form directly, without sending a message; (2) `api/chat.js` checks the last message for a request for a person (`asksForPerson()`: менеджер, оператор, со специалистом, сотрудник, живой человек, перезвоните, позвоните мне, свяжитесь со мной…) right after request reading and the order-status check, and answers in code with the manager button plus the form opened (log `[manager] the customer asks for a person -- request form`). Plain «связать», «консультация», «специалист по кодированию» don't count.
 - **Not covered by this change (owner/lawyer):** the site's consent and policy texts, registering with Roskomnadzor as a personal-data operator, and how long requests are kept (nothing is deleted automatically yet).
 
+### 💬 Requests to MAX (03.11) ⏳ waiting for the bot token
+
+- **What:** every request from the widget's form also goes, in full (number, name, phone, email, message, link «Открыть в панели»), to the managers' chat in **MAX**. MAX is a Russian messenger with its data in Russia, so this is allowed under 152-ФЗ. **Telegram is deliberately not used** (servers abroad = cross-border transfer). The push stays as it is, without personal data.
+- **Code:** `lib/maxNotify.js`, called from `api/session/manager.js` in parallel with the push. Best-effort: a MAX error is logged (`[max] …`) and never fails the request, which is already saved. Several chats: comma-separated `MAX_CHAT_ID`.
+- **API** (from the official SDK `@maxhub/max-bot-api`): `POST https://platform-api2.max.ru/messages?chat_id=<id>`, header `Authorization: <token>`, body `{ text, format: "html" }`. The customer's text is HTML-escaped.
+- **Setup (once):**
+  1. Create the bot on MAX for partners (the company's account; MAX requires a verified organisation) and copy its token.
+  2. Add the bot to the managers' group chat in MAX (or have each manager open a private chat with it) and write any message there.
+  3. In Coolify set `MAX_BOT_TOKEN=<token>`, redeploy, open the app's Terminal and run `node scripts/max-chat-id.js`: it checks the token and lists the chats the bot has seen. Set `MAX_CHAT_ID=<number>` (several: `-70…,-71…`) and redeploy.
+  4. `node scripts/max-chat-id.js --test` sends a test request to the chat.
+  - Optional: `MAX_API_URL` (default `https://platform-api2.max.ru`), `PUBLIC_BASE_URL` (default `https://bmwclub77.assistant24info.ru`, for the dashboard link).
+- **If the log says** `[max] … failed (HTTP 0): fetch failed (… certificate …)`: MAX's API may use the Russian Ministry of Digital Development root certificate, which Node doesn't trust by default. Add «Russian Trusted Root CA» (gosuslugi.ru/crt) to the image and set `NODE_EXTRA_CA_CERTS` to its path. HTTP 401 = wrong token; 403/404 = the bot is not in that chat or the chat id is wrong.
+- **Tested** against a mock MAX API: the message format (HTML-escaped), two chats with one failing (the other still gets it, the request is saved), a wrong token, an unreachable API, and the setup script (bot info, chat list, `--test`). **Not tested against the real MAX API**: this session can't reach max.ru.
+
 ### 🕒 Dashboard in Moscow time (03.11)
 
 - `chat_sessions` keeps `date` / `time` in UTC (`api/session/start.js`); the dashboard showed them as is, so the same chat read 06:13 in «Аналитика» and 09:14 in «Заявки». Now every tab shows **Moscow time** (UTC+3, `lib/msk.js`): the sessions table, the chart's days, «Последняя активность», «Подбор», «Заявки», «Нет фото», products.

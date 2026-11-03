@@ -17,8 +17,10 @@
  *     LLM. Saved to manager_requests (lib/managerRequests.js), the session is
  *     marked manager_requested in chat_sessions, and every dashboard
  *     subscriber gets a push WITHOUT personal data in it (push services are
- *     Google/Apple/Mozilla servers abroad). The manager opens the dashboard,
- *     tab «Заявки».
+ *     Google/Apple/Mozilla servers abroad). The full request also goes to the
+ *     managers' MAX chat (lib/maxNotify.js; Russian messenger, data in Russia)
+ *     when MAX_BOT_TOKEN + MAX_CHAT_ID are set. The manager opens the
+ *     dashboard, tab «Заявки».
  *     -> { ok, id } or { ok: false, error }
  *
  * A request without `action` (an old cached widget) is treated like
@@ -31,6 +33,7 @@
 const pii = require('../../lib/pii');
 const managerRequests = require('../../lib/managerRequests');
 const { sendPushToAll } = require('../_lib/push');
+const maxNotify = require('../../lib/maxNotify');
 
 const LLM_API_KEY  = process.env.LLM_API_KEY;
 // Same provider settings as chat.js (DeepSeek V4 Pro, Anthropic-compatible API).
@@ -161,17 +164,18 @@ async function submit(req, res, body) {
   // The Аналитика tab keeps its manager flag and summary (no contacts in it).
   await markSession(sessionId, message ? `Заявка №${id}: ${message}` : `Заявка №${id}`);
 
-  // No personal data in the push: it travels through foreign push services.
-  try {
-    await sendPushToAll({
+  // Push: no personal data in it (it travels through foreign push services).
+  // MAX: the full request -- a Russian messenger, data stays in Russia.
+  // Both best-effort and in parallel; the request is already saved.
+  await Promise.allSettled([
+    sendPushToAll({
       title: '🚨 Новая заявка',
       body: `Заявка №${id} из ИИ-чата — откройте вкладку «Заявки»`,
       url: '/dashboard#requests',
       tag: 'lead-alert',
-    });
-  } catch (e) {
-    console.error('[manager] push error:', e.message);
-  }
+    }).catch(e => console.error('[manager] push error:', e.message)),
+    maxNotify.notifyRequest({ id, name, phone, email: email || null, message: message || null }),
+  ]);
 
   return res.status(200).json({ ok: true, id });
 }
