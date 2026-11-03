@@ -53,9 +53,35 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
   3. Coolify: `MAX_BOT_TOKEN` → redeploy → Terminal `node scripts/max-chat-id.js` → `MAX_CHAT_ID` → redeploy → `node scripts/max-chat-id.js --test`.
   4. Send one real request from the site's form; check the MAX message, the push and «Заявки». On a TLS/certificate error see the note in that section (`NODE_EXTRA_CA_CERTS`).
   - Contract with each client: add the personal-data processing instruction (152-ФЗ art. 6 p. 3) — we store requests and send them through our bot on the client's behalf.
+- **▶️ Development work:** follow the **TASK ORDER** in «🧭 External code review (03.11)» below (security first).
 - **Current phase: observation.** Watch the Laximo quota (1 000 OEM requests/month), the logs (`[chat] reply hit max_tokens`, `[chat] reply cut off inside …`) and the new tab. Open items: see "📝 Open items (25.10)" below.
 
 Read sessions 24 and 24b first for the homepage block, then session 15, then session 14's "Status", then session 13 for the compatibility catalog push process.
+
+### 🧭 External code review (03.11) + TASK ORDER — work through this list top to bottom
+
+An outside review of the app (03.11). Every claim was checked against the code before it went on this list.
+
+**What the review rated as good (keep doing it):** deterministic matching in code, the LLM only for language; operational safety around Laximo (pacing, hourly budget, browser-check pause with probe, breakers, Postgres caches, cost log); the 152-ФЗ work (masking before every LLM call, contact form, MAX instead of Telegram); this README as a session log.
+
+**Findings, checked 03.11:**
+| # | Finding | Checked | Notes |
+|---|---|---|---|
+| R1 | `server.js` serves the whole repo root as static files | ✅ true (`server.js`, `express.static(__dirname)`) | Also the committed secrets from «📝 Open items (25.10)». The review called it minor; it isn't — fix first. |
+| R2 | Normalizers are inconsistent (`normalizeModel`, `extractSeries`, `normalizeOem`, `norm`) | ✅ true, bug reproduced | `extractSeries("x5 e70")` → `x5`, `extractSeries("Х5 E70")` (Cyrillic Х) → `Х5`; the table query is `series = 'X5'`, so both find nothing. The table is only used when Laximo is blocked — exactly when it's needed (e.g. the browser-check pause 03.11 19:04 UTC). |
+| R3 | Tests exist but aren't committed | ✅ true | README names version-test, group-test, clarify-test, strut-test, jsdom checks; `scripts/` has only `test-laximo-parsers.js` and `test-tires.js`; no `npm test`. |
+| R4 | The prompt is too long and contradicts itself | ⚠️ partly | Only 2 «ВАЖНЕЕ» rules. The bigger problem is old material: generic Toyota/Lada steps, oil «Этап 2» never built, long compatibility-table rules now used only while Laximo is down. |
+| R5 | `handleChat` is a god-function + a chain of text fixes (`repairTruncatedBlocks` … `dropNonServiceCards`) because of the in-band `<<<PRODUCTS>>>` protocol | ✅ true | Structured output would fix only the FORMAT fixes. Most fixes are about CONTENT (part numbers in text, discontinued wording, axle order, needless manager button). Real cure: code builds every card, the LLM writes only 1–3 sentences. Route by route, no big rewrite. |
+| R6 | One model, no fallback (session 28) | ✅ true | Any foreign provider raises the same 152-ФЗ question (PII is already masked, so it's simpler than it looks). Candidate: a Russian model (YandexGPT / GigaChat) behind `llmFetch`. |
+
+**TASK ORDER** (status: ⬜ to do · 🔄 in progress · ✅ done · ⏸ waiting for the owner):
+1. ⬜ **Security (R1).** Serve only the files the site needs (`/widget`, `/dashboard`, `/fonts`, the listed images), not the repo root. Remove the secrets from the files. ⏸ Owner: rotate both secrets in Coolify / ABCP after the change. ~1 h.
+2. ⬜ **One normalizer + tests (R2, R3).** `lib/normalize.js`: uppercase, Cyrillic look-alikes → Latin (Х→X, Е→E, М→M, С→C, А→A, В→B, Т→T, О→O, Р→P, К→K, Н→H), spaces; used by `extractSeries`, `normalizeModel`, `normalizeOem`, `norm`. Commit the test suites (`scripts/test-*.js`, no jsdom needed for the server ones), add `"test"` to `package.json`. ~1 h.
+3. ⬜ **Prompt clean-up (R4).** Remove dead sections, then split by route (part search, ТО, order status, services) so each answer gets only its rules. Replay the live cases from this README before/after.
+4. ⬜ **Cards built by code (R5),** one route at a time: plain part search first (cards from Laximo rows + price list), then ТО (already mostly code), then tyres. The LLM writes the text only; drop each text fix that no longer has anything to fix.
+5. ⏸ **Fallback model (R6).** Owner chooses the provider; then a second provider in `llmFetch` with the same masking, used on timeout / 5xx / account errors.
+6. ⏸ **MAX bot setup** — unchanged, waiting for the bot token (see «💬 Requests to MAX (03.11)»).
+7. ⏸ **ABCP browser check came back 03.11 ~19:04 UTC** (Laximo paused 6 h). If it repeats: ask ABCP to renew the exemption for 168.222.202.222.
 
 ### 🔒 Session 30 (Nov 3) — request form instead of contacts in the chat (152-ФЗ) ✅ confirmed live 03.11
 
