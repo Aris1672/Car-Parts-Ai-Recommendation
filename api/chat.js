@@ -139,6 +139,12 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 Когда пользователь называет категорию запчастей — сразу верни до 6 товаров этой категории из каталога.
 Основные категории: двигатель, тормозная система, подвеска и рулевое, фильтры, электрика, кузов, трансмиссия, выхлопная система, охлаждение, расходники.
 
+## ШИНЫ, КОЛЁСНЫЕ ДИСКИ, КОЛЁСА В СБОРЕ (Tyres & Wheels)
+Оригинальные шины BMW (летние и зимние), колёсные диски и колёса в сборе ЕСТЬ в оригинальном каталоге BMW — они подбираются под конкретный автомобиль, как любая запчасть.
+- НИКОГДА не говори, что шин или дисков «нет в каталоге», что они «не представлены», «не продаются» или что их подбирает только менеджер.
+- Если автомобиль ещё не известен — попроси VIN (17 символов из СТС) или модель с кузовом и двигателем (например: «X5 G05 30d») и уточни, летние или зимние нужны (если клиент не сказал). Размер, который назвал клиент (например 235/55 R18), запомни — по нему отберём шины.
+- Если ниже есть раздел «ШИНЫ ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ» — следуй ему.
+
 ## СТАНДАРТНОЕ ТО (Maintenance)
 Если клиент просит «набор на ТО», «техобслуживание», «что менять на ТО», «расходники» — СРАЗУ предложи ПОЛНЫЙ стандартный набор, как в оригинальном каталоге BMW (узел «ТО по регл.Oelservice / Inspektion»). НЕ спрашивай пробег, интервалы и когда что меняли — клиент сам выберет из предложенного то, что ему нужно.
 Стандартный набор ТО (10 позиций каталога):
@@ -1299,7 +1305,9 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
 
   // The customer's answer to an earlier equipment question (S2NHA ...), if any.
   const equipment = plainPartSearch ? equipmentAnswerFrom(messages) : null;
-  const searchOpts = equipment ? { equipment } : {};
+  // customerText: the tyre route reads the asked size («235/55 R18») from it.
+  const userTextAll = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').map(m => m.content).join(' \n ');
+  const searchOpts = { ...(equipment ? { equipment } : {}), customerText: userTextAll };
   if (equipment) console.log(`[laximo] equipment answer: ${equipment.label} = ${equipment.answer}`);
 
   const started = Date.now();
@@ -3135,6 +3143,14 @@ console.log(JSON.stringify(extracted, null, 2));
     } else if (laximoResult?.vehicle) {
       const v = laximoResult.vehicle;
       vinVehicleForPrompt = JSON.stringify({ matchedBy: 'vin', vin: laximoResult.vin, brand: v.brand, model: v.name, modelCode: v.modelCode, ...v.options });
+    }
+    if (laximoResult?.tires) {
+      const t = laximoResult.tires;
+      vinVehicleForPrompt += `\n\nШИНЫ ПО ОРИГИНАЛЬНОМУ КАТАЛОГУ: раздел «${t.category}» (${t.units.join(', ')}).` +
+        (t.catalogSizes.length ? ` Оригинальные размеры для этой машины: ${t.catalogSizes.join(', ')}.` : '') +
+        (t.sizeMissing
+          ? ` Размера ${t.sizeMissing}, который назвал клиент, в оригинальном каталоге для этой машины НЕТ — скажи это одной фразой, назови оригинальные размеры и покажи карточки; предложи менеджера, если нужен именно этот размер (он подскажет, подходит ли он по допускам).`
+          : t.asked.length ? ` Карточки ниже — шины размера ${t.asked.join(', ')}.` : ' Если размеров несколько, а клиент не назвал свой, спроси размер (он на боковине шины или на наклейке в проёме водительской двери).');
     }
     const laximoUsed = !!(laximoResult?.parts && laximoResult.parts.length);
     // Laximo is the ONLY source of what fits the car (owner 30.10). The client's
