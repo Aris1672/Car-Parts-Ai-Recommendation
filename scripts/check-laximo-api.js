@@ -9,6 +9,7 @@
  *                                                    # writing the parsers (one car; use an already counted VIN,
  *                                                    # e.g. X4XZW61140L560928). Short version on screen, full
  *                                                    # answers in /tmp/laximo-dump/*.xml. No secrets printed.
+ *   node scripts/check-laximo-api.js --dump <VIN> --units   # only VIN + pads group + categories + unit calls
  *
  * Needs Coolify env vars (never in the repo or a chat):
  *   LAXIMO_LOGIN   the service login from the Laximo cabinet («Логин»)
@@ -123,10 +124,10 @@ async function dump(vin) {
   const dir = '/tmp/laximo-dump';
   fs.mkdirSync(dir, { recursive: true });
   let n = 0;
-  const run = async (label, request) => {
+  const run = async (label, request, done) => {
     n++;
     const name = request.split(':')[0];
-    const r = await soap(request);
+    const r = done || await soap(request);
     const file = `${dir}/${String(n).padStart(2, '0')}-${name}.xml`;
     fs.writeFileSync(file, r.ok ? r.xml : `ERROR ${r.status}: ${r.error}`);
     console.log(`\n===== [${n}] ${label} -- ${name} ${r.ok ? `OK, ${r.xml.length} chars, ${rowsOf(r.xml).length} rows` : 'FAILED'} (${file})`);
@@ -141,20 +142,37 @@ async function dump(vin) {
   const C = attr(car, 'catalog'), V = attr(car, 'vehicleid'), ssd = attr(car, 'ssd');
   console.log(`\n-> car: ${attr(car, 'brand')} ${attr(car, 'name')}, catalog ${C}, vehicleid ${V}, ssd ${ssd.length} chars`);
 
-  await run('car details', cmd('GetVehicleInfo', { ...L, Catalog: C, VehicleId: V, ssd, Localized: 'true' }));
+  const vi = await run('car details', cmd('GetVehicleInfo', { ...L, Catalog: C, VehicleId: V, ssd, Localized: 'true' }));
+  const viSsd = vi ? attr(rowsOf(vi)[0] || '', 'ssd') : '';
+  const onlyUnits = process.argv.includes('--units');
+  let unitSsd = '', catSsd = '', catId = '';
+  /** Tries each candidate ssd until Laximo stops answering E_INVALIDPARAMETER:SSD; prints which one worked. */
+  const tryRun = async (label, build, cands) => {
+    for (const [name, value] of cands) {
+      if (!value) continue;
+      const r = await soap(build(value));
+      if (!r.ok && /E_INVALIDPARAMETER:SSD/.test(r.error)) { console.log(`   (${label}: ssd of ${name} rejected)`); continue; }
+      return run(`${label} [ssd of ${name}]`, build(value), r);
+    }
+    console.log(`\n===== ${label}: every ssd rejected`);
+    return null;
+  };
 
   // Quick groups ("Поиск по группам"): find the brake pads group.
-  const qg = await run('group tree', cmd('ListQuickGroup', { ...L, Catalog: C, VehicleId: V, ssd }));
+  const qg = onlyUnits ? null : await run('group tree', cmd('ListQuickGroup', { ...L, Catalog: C, VehicleId: V, ssd }));
   const groups = qg ? rowsOf(qg) : [];
-  const pads = groups.find(t => /колодки тормозные дисковые/i.test(attr(t, 'name')) && attr(t, 'link') === 'true')
+  let pads = groups.find(t => /колодки тормозные дисковые/i.test(attr(t, 'name')) && attr(t, 'link') === 'true')
     || groups.find(t => /колодк/i.test(attr(t, 'name')) && attr(t, 'link') === 'true');
   let unitId = '', oem = '';
+  if (onlyUnits) pads = '<row quickgroupid="545" name="Колодки тормозные дисковые" link="true">';
   if (pads) {
     const gid = attr(pads, 'quickgroupid');
     console.log(`\n-> pads group: "${attr(pads, 'name')}" (quickgroupid ${gid})`);
     const qd = await run('parts of the pads group', cmd('ListQuickDetail', { ...L, Catalog: C, VehicleId: V, QuickGroupId: gid, ssd, Localized: 'true', All: '1' }));
     const unit = qd && (qd.match(/<Unit\b[^>]*>/i) || [])[0];
-    if (unit) unitId = attr(unit, 'unitid');
+    if (unit) { unitId = attr(unit, 'unitid'); unitSsd = attr(unit, 'ssd'); }
+    const cat = qd && (qd.match(/<Category\b[^>]*>/i) || [])[0];
+    if (cat) { catSsd = attr(cat, 'ssd'); catId = attr(cat, 'categoryid'); }
     const det = qd && (qd.match(/<Detail\b[^>]*>/i) || [])[0];
     if (det) oem = attr(det, 'oem');
   } else {
@@ -163,18 +181,24 @@ async function dump(vin) {
 
   // Car page categories and units.
   const cats = await run('categories', cmd('ListCategories', { ...L, Catalog: C, VehicleId: V, CategoryId: '-1', ssd }));
-  const firstCat = cats && rowsOf(cats).find(t => attr(t, 'categoryid'));
-  const units = await run('units of the first category', cmd('ListUnits', { ...L, Catalog: C, VehicleId: V, CategoryId: firstCat ? attr(firstCat, 'categoryid') : '-1', ssd, Localized: 'true' }));
-  if (!unitId && units) { const u = rowsOf(units).find(t => attr(t, 'unitid')); if (u) unitId = attr(u, 'unitid'); }
+  const catRow = cats && (rowsOf(cats).find(t => attr(t, 'categoryid') === catId) || rowsOf(cats).find(t => attr(t, 'childrens') === 'false'));
+  const listCatSsd = catRow ? attr(catRow, 'ssd') : '';
+  const useCat = catId || (catRow ? attr(catRow, 'categoryid') : '-1');
+  const vehCands = [['FindVehicleByVIN', ssd], ['GetVehicleInfo', viSsd]];
+  const units = await tryRun(`units of category ${useCat}`, v => cmd('ListUnits', { ...L, Catalog: C, VehicleId: V, CategoryId: useCat, ssd: v, Localized: 'true' }),
+    [['the category (ListCategories)', listCatSsd], ['the category (ListQuickDetail)', catSsd], ...vehCands]);
+  if (units) { const u = rowsOf(units).find(t => attr(t, 'unitid') === unitId) || rowsOf(units).find(t => attr(t, 'unitid')); if (u && !unitId) { unitId = attr(u, 'unitid'); } if (u && attr(u, 'unitid') === unitId) unitSsd = unitSsd || attr(u, 'ssd'); }
 
-  // One unit: parts, diagram map, info (the unit's own ssd is used when the answer gave one).
+  // One unit: parts, diagram map, info.
   if (unitId) {
     console.log(`\n-> unit ${unitId}`);
-    await run('unit info', cmd('GetUnitInfo', { ...L, Catalog: C, UnitId: unitId, ssd, Localized: 'true' }));
-    const parts = await run('unit parts', cmd('ListDetailByUnit', { ...L, Catalog: C, UnitId: unitId, ssd, Localized: 'true', WithLinks: 'true' }));
-    await run('unit diagram map', cmd('ListImageMapByUnit', { Catalog: C, UnitId: unitId, ssd, WithLinks: 'true' }));
+    const uc = [['the unit (ListQuickDetail)', unitSsd], ['the category', listCatSsd || catSsd], ...vehCands];
+    await tryRun('unit info', v => cmd('GetUnitInfo', { ...L, Catalog: C, UnitId: unitId, ssd: v, Localized: 'true' }), uc);
+    const parts = await tryRun('unit parts', v => cmd('ListDetailByUnit', { ...L, Catalog: C, UnitId: unitId, ssd: v, Localized: 'true', WithLinks: 'true' }), uc);
+    await tryRun('unit diagram map', v => cmd('ListImageMapByUnit', { Catalog: C, UnitId: unitId, ssd: v, WithLinks: 'true' }), uc);
     if (!oem && parts) { const d = rowsOf(parts).find(t => attr(t, 'oem')); if (d) oem = attr(d, 'oem'); }
   }
+  if (onlyUnits) { console.log(`\nDump (units) finished: ${n} answers. Copy everything above and send it to the developer.`); return; }
 
   await run('search by name "колодки"', cmd('SearchVehicleDetails', { Catalog: C, VehicleId: V, ssd, Query: 'колодки', Locale: 'ru_RU' }));
   if (oem) await run(`part ${oem} in this car`, cmd('GetOEMPartApplicability', { Catalog: C, OEM: oem, ssd, Locale: 'ru_RU' }));
