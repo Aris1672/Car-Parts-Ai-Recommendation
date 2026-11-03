@@ -5,6 +5,10 @@
  *
  *   node scripts/check-laximo-api.js                 # catalog list only (no car lookups)
  *   node scripts/check-laximo-api.js --vin <VIN>     # + ONE VIN lookup (counts as one car in the quota)
+ *   node scripts/check-laximo-api.js --dump <VIN>    # raw answers of every method the bot will use, for
+ *                                                    # writing the parsers (one car; use an already counted VIN,
+ *                                                    # e.g. X4XZW61140L560928). Short version on screen, full
+ *                                                    # answers in /tmp/laximo-dump/*.xml. No secrets printed.
  *
  * Needs Coolify env vars (never in the repo or a chat):
  *   LAXIMO_LOGIN   the service login from the Laximo cabinet («Логин»)
@@ -103,7 +107,95 @@ function explain(error) {
   return '';
 }
 
+/** Laximo SOAP command line: "Name:Key=Value|Key=Value" (same as Laximo's PHP SDK, no escaping). */
+const cmd = (name, params) => `${name}:` + Object.entries(params).map(([k, v]) => `${k}=${v}`).join('|');
+const attr = (tag, k) => (String(tag).match(new RegExp(`\\b${k}="([^"]*)"`, 'i')) || [])[1] || '';
+const rowsOf = xml => [...String(xml).matchAll(/<row\b[^>]*>/g)].map(m => m[0]);
+
+/** Screen version of an answer: ssd shortened, at most `max` characters. */
+function compact(xml, max = 2500) {
+  const s = String(xml).replace(/\s+/g, ' ').replace(/\bssd="([^"]{12})[^"]*"/g, 'ssd="$1…"');
+  return s.length > max ? s.slice(0, max) + ` … [${s.length - max} more characters in the file]` : s;
+}
+
+async function dump(vin) {
+  const fs = require('fs');
+  const dir = '/tmp/laximo-dump';
+  fs.mkdirSync(dir, { recursive: true });
+  let n = 0;
+  const run = async (label, request) => {
+    n++;
+    const name = request.split(':')[0];
+    const r = await soap(request);
+    const file = `${dir}/${String(n).padStart(2, '0')}-${name}.xml`;
+    fs.writeFileSync(file, r.ok ? r.xml : `ERROR ${r.status}: ${r.error}`);
+    console.log(`\n===== [${n}] ${label} -- ${name} ${r.ok ? `OK, ${r.xml.length} chars, ${rowsOf(r.xml).length} rows` : 'FAILED'} (${file})`);
+    console.log(r.ok ? compact(r.xml) : `${r.error}${explain(r.error) ? ' -> ' + explain(r.error) : ''}`);
+    return r.ok ? r.xml : null;
+  };
+  const L = { Locale: 'ru_RU' };
+
+  const vXml = await run('car by VIN', cmd('FindVehicleByVIN', { ...L, VIN: vin, Localized: 'true' }));
+  const car = vXml && rowsOf(vXml).find(t => attr(t, 'vehicleid'));
+  if (!car) { console.log('\nNo car for this VIN -- the dump stops here.'); return; }
+  const C = attr(car, 'catalog'), V = attr(car, 'vehicleid'), ssd = attr(car, 'ssd');
+  console.log(`\n-> car: ${attr(car, 'brand')} ${attr(car, 'name')}, catalog ${C}, vehicleid ${V}, ssd ${ssd.length} chars`);
+
+  await run('car details', cmd('GetVehicleInfo', { ...L, Catalog: C, VehicleId: V, ssd, Localized: 'true' }));
+
+  // Quick groups ("Поиск по группам"): find the brake pads group.
+  const qg = await run('group tree', cmd('ListQuickGroup', { ...L, Catalog: C, VehicleId: V, ssd }));
+  const groups = qg ? rowsOf(qg) : [];
+  const pads = groups.find(t => /колодки тормозные дисковые/i.test(attr(t, 'name')) && attr(t, 'link') === 'true')
+    || groups.find(t => /колодк/i.test(attr(t, 'name')) && attr(t, 'link') === 'true');
+  let unitId = '', oem = '';
+  if (pads) {
+    const gid = attr(pads, 'quickgroupid');
+    console.log(`\n-> pads group: "${attr(pads, 'name')}" (quickgroupid ${gid})`);
+    const qd = await run('parts of the pads group', cmd('ListQuickDetail', { ...L, Catalog: C, VehicleId: V, QuickGroupId: gid, ssd, Localized: 'true', All: '1' }));
+    const unit = qd && (qd.match(/<Unit\b[^>]*>/i) || [])[0];
+    if (unit) unitId = attr(unit, 'unitid');
+    const det = qd && (qd.match(/<Detail\b[^>]*>/i) || [])[0];
+    if (det) oem = attr(det, 'oem');
+  } else {
+    console.log('\n-> no brake pads group in the tree (names above)');
+  }
+
+  // Car page categories and units.
+  const cats = await run('categories', cmd('ListCategories', { ...L, Catalog: C, VehicleId: V, CategoryId: '-1', ssd }));
+  const firstCat = cats && rowsOf(cats).find(t => attr(t, 'categoryid'));
+  const units = await run('units of the first category', cmd('ListUnits', { ...L, Catalog: C, VehicleId: V, CategoryId: firstCat ? attr(firstCat, 'categoryid') : '-1', ssd, Localized: 'true' }));
+  if (!unitId && units) { const u = rowsOf(units).find(t => attr(t, 'unitid')); if (u) unitId = attr(u, 'unitid'); }
+
+  // One unit: parts, diagram map, info (the unit's own ssd is used when the answer gave one).
+  if (unitId) {
+    console.log(`\n-> unit ${unitId}`);
+    await run('unit info', cmd('GetUnitInfo', { ...L, Catalog: C, UnitId: unitId, ssd, Localized: 'true' }));
+    const parts = await run('unit parts', cmd('ListDetailByUnit', { ...L, Catalog: C, UnitId: unitId, ssd, Localized: 'true', WithLinks: 'true' }));
+    await run('unit diagram map', cmd('ListImageMapByUnit', { Catalog: C, UnitId: unitId, ssd, WithLinks: 'true' }));
+    if (!oem && parts) { const d = rowsOf(parts).find(t => attr(t, 'oem')); if (d) oem = attr(d, 'oem'); }
+  }
+
+  await run('search by name "колодки"', cmd('SearchVehicleDetails', { Catalog: C, VehicleId: V, ssd, Query: 'колодки', Locale: 'ru_RU' }));
+  if (oem) await run(`part ${oem} in this car`, cmd('GetOEMPartApplicability', { Catalog: C, OEM: oem, ssd, Locale: 'ru_RU' }));
+
+  // Model wizard: first two steps (no car is looked up, so no quota).
+  const w1 = await run('wizard, first step', cmd('GetWizard2', { ...L, Catalog: C, ssd: '' }));
+  const opt = w1 && (w1.match(/<row\b[^>]*\bkey="[^"]+"[^>]*>/) || [])[0];
+  if (opt) await run(`wizard, after "${attr(opt, 'value')}"`, cmd('GetWizardNextStep2', { ...L, Catalog: C, ssd: attr(opt, 'key') }));
+
+  console.log(`\nDump finished: ${n} answers. Copy everything above from "===== [1]" and send it to the developer.`);
+  console.log(`If asked for a full answer: cat ${dir}/<file>.xml`);
+}
+
 (async () => {
+  const dumpVin = (() => { const i = process.argv.indexOf('--dump'); return i > 0 ? String(process.argv[i + 1] || '').toUpperCase() : null; })();
+  if (dumpVin) {
+    if (!LOGIN || !KEY) { console.log('Set LAXIMO_LOGIN and LAXIMO_KEY first.'); process.exit(1); }
+    if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(dumpVin)) { console.log(`--dump "${dumpVin}" is not a 17-character VIN`); process.exit(1); }
+    await dump(dumpVin);
+    process.exit(0);
+  }
   console.log('Laximo direct API check');
   console.log(`  service:     ${HOST}`);
   console.log(`  login:       ${LOGIN || '(LAXIMO_LOGIN not set)'}`);
