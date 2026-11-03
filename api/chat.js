@@ -1561,6 +1561,20 @@ function dropNeedlessManagerButton(text, { partFound, lastUserText, compatVerdic
   return String(text).replace(/\n?<<<MANAGER_BUTTON>>>/g, '');
 }
 
+// ─── EXPLICIT REQUEST FOR A PERSON ───────────────────────────────────────────
+// «Связаться с менеджером», «хочу уточнить у менеджера срок», «позовите
+// оператора», «перезвоните мне», «нужен живой человек». Narrower than
+// ASKS_FOR_PERSON_RE above (that one only keeps a button): this one skips the
+// whole part search, so plain «связать» / «консультация» don't count.
+const PERSON_REQUEST_RE = /менеджер|оператор|со\s+специалист|сотрудник|жив\S*\s+(человек|люд)|перезвон|позвоните\s+мне|свяжитесь\s+со?\s+мной|связаться\s+с\s+(вами|человеком|кем)/i;
+function asksForPerson(text) {
+  return PERSON_REQUEST_RE.test(String(text || ''));
+}
+const lastUserMessage = messages => {
+  const m = [...(messages || [])].reverse().find(x => x && x.role === 'user');
+  return m ? (typeof m.content === 'string' ? m.content : '') : '';
+};
+
 // ─── PHONE SANITY CHECK ─────────────────────────────────────────────────────
 // The extraction step once took a BMW part number for the customer's phone
 // ("Подойдёт 13627823945? VIN …" -> contactPhone "13627823945", 23.10), which
@@ -2946,6 +2960,19 @@ console.log(JSON.stringify(extracted, null, 2));
       return res.status(200).json({ reply });
     }
 
+    // The customer asks for a person (manager / operator / call me back):
+    // escalate in code, before any part search. Live 03.11: «Связаться с
+    // менеджером» and «Хочу уточнить у менеджера сроком доставки» went into the
+    // catalog search, which answered with its own variant / generation
+    // questions and returned before the AI could escalate.
+    if (asksForPerson(lastUserMessage(messages))) {
+      console.log('[manager] the customer asks for a person -- request form');
+      const reply = 'Передам ваш вопрос менеджеру. Заполните, пожалуйста, короткую форму — описание вопроса уже подготовлено, укажите имя и телефон или email. Менеджер свяжется с вами в ближайшее время.\n<<<MANAGER_BUTTON>>>\n<<<CONTACT_FORM>>>';
+      Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(200).json({ reply });
+    }
+
     // Part number + car known -> check that number against the car's catalog.
     let compat = null;
     let compatSkipCode = null;
@@ -3940,6 +3967,7 @@ module.exports.distinctPartNames = distinctPartNames;
 module.exports.dropInventedQualifiers = dropInventedQualifiers;
 module.exports.versionCheck = versionCheck;
 module.exports.dropNeedlessManagerButton = dropNeedlessManagerButton;
+module.exports.asksForPerson = asksForPerson;
 module.exports.yearMonth = yearMonth;
 module.exports.partDateWindow = partDateWindow;
 module.exports.equipmentCondition = equipmentCondition;

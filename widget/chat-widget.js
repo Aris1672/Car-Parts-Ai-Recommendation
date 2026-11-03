@@ -1995,6 +1995,11 @@
           doSend(lastUserText);
         } else if (label === CATEGORY_OTHER_BTN) {
           document.getElementById('pc-input').focus();
+        } else if (/связаться с менеджером|оставить заявку/i.test(label)) {
+          // The AI's quick button «📞 Связаться с менеджером»: open the request
+          // form right away -- sent as a message it went into the part search
+          // (live 03.11: answered with a variant question instead).
+          openLeadForm();
         } else {
           doSend(label);
         }
