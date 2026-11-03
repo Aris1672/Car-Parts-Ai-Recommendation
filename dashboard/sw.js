@@ -55,6 +55,8 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
       for (const client of clientsArr) {
         if (client.url.includes('/dashboard') && 'focus' in client) {
+          // «Новая заявка» -> show the «Заявки» tab in the open dashboard
+          if (targetUrl.includes('#requests')) client.postMessage({ type: 'open-tab', tab: 'requests' });
           return client.focus();
         }
       }

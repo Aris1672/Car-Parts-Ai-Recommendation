@@ -1,251 +1,201 @@
 /**
- * api/session/manager.js — Vercel Serverless Function
- * Triggered when: (1) the user explicitly asks for a manager/human,
- * (2) the agent has no compatibility/fitment data for a requested part,
- * or (3) the agent can't find any matching product at all. Also triggered
- * by the widget's "Connect with manager" button.
+ * api/session/manager.js — the customer's request to a manager.
  *
- * 1. Asks Claude to produce a structured lead summary (contact info +
- *    context) from the conversation
- * 2. Creates a real CRM Lead in Bitrix24 (crm.lead.add) — not just a chat
- *    notification — so it's trackable/assignable to a specialist
- * 3. Optionally logs to Supabase if configured (best-effort, non-blocking —
- *    same pattern as start.js/end.js; the escalation still works fully
- *    even if Supabase isn't set up)
+ * Personal data and the law (152-ФЗ): the customer's name, phone and email
+ * must not reach a foreign LLM (DeepSeek), and are stored in Russia only
+ * (self-hosted Supabase on assistant_vps_3). So the flow is split in two:
+ *
+ *   POST { action: 'summary', session_id, messages }
+ *     The widget opens the request form and asks for the «Сообщение» text.
+ *     The chat is MASKED first (lib/pii.js: phones/emails -> «[телефон скрыт]»),
+ *     then the LLM writes 1-3 sentences: car, part, what the customer needs.
+ *     -> { ok, message }   (message may be '' if the LLM failed; the customer
+ *                           can always type it)
+ *
+ *   POST { action: 'submit', session_id, name, phone, email, message, consent }
+ *     The customer pressed «Отправить» in the form. Nothing here goes to the
+ *     LLM. Saved to manager_requests (lib/managerRequests.js), the session is
+ *     marked manager_requested in chat_sessions, and every dashboard
+ *     subscriber gets a push WITHOUT personal data in it (push services are
+ *     Google/Apple/Mozilla servers abroad). The manager opens the dashboard,
+ *     tab «Заявки».
+ *     -> { ok, id } or { ok: false, error }
+ *
+ * A request without `action` (an old cached widget) is treated like
+ * 'summary' + marking the session: no contacts are taken from it.
+ *
+ * Bitrix24 is gone: the client no longer uses it, and the old flow had the
+ * LLM read the customer's phone/email out of the chat.
  */
+
+const pii = require('../../lib/pii');
+const managerRequests = require('../../lib/managerRequests');
+const { sendPushToAll } = require('../_lib/push');
 
 const LLM_API_KEY  = process.env.LLM_API_KEY;
 // Same provider settings as chat.js (DeepSeek V4 Pro, Anthropic-compatible API).
 const LLM_BASE_URL = process.env.LLM_BASE_URL || 'https://api.deepseek.com/anthropic';
 const LLM_MODEL    = process.env.LLM_MODEL || 'deepseek-v4-pro';
-const SUPABASE_URL      = process.env.SUPABASE_URL;
-const SUPABASE_KEY      = process.env.SUPABASE_SERVICE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-// REQUIRED — no hardcoded fallback. The previous version of this file had a
-// real, working webhook URL hardcoded as a "fallback" (leftover from a
-// different client's Bitrix24 account, copied over from the mosaic-tile
-// project this repo was templated from). That's dangerous: if this env var
-// were ever unset, leads would silently go to the WRONG COMPANY's Bitrix24
-// instead of failing loudly. Removed entirely — this must be set in
-// Vercel's environment variables once the client provides their own
-// Bitrix24 webhook (incoming webhook from Настройки → Разработчикам →
-// Другое → Входящий вебхук, with crm scope enabled).
-const BITRIX_WEBHOOK = process.env.BITRIX24_WEBHOOK_URL;
+const POLICY_URL = 'https://bmwclub77.ru/data_protection';
 
-const { sendPushToAll } = require('../_lib/push');
-
-// Ask Claude for a machine-parseable header (PHONE/EMAIL/REASON) followed
-// by a short freeform summary, so we can reliably split contact info out
-// for the CRM lead's structured fields rather than regex-guessing it out
-// of freeform Russian text.
-const SUMMARY_PROMPT = `Ты — ассистент отдела продаж. На основе диалога ниже составь структурированную сводку для менеджера по продаже автозапчастей.
-
-ФОРМАТ ОТВЕТА (строго придерживайся, каждое поле на новой строке):
-PHONE: [телефон клиента, если указан в диалоге, иначе "не указан"]
-EMAIL: [email клиента, если указан в диалоге, иначе "не указан"]
-NAME: [имя клиента, если указано, иначе "не указано"]
-REASON: [одно из: "запрос менеджера" / "нет данных о совместимости" / "товар не найден" / "другое"]
-CAR: [марка, модель, год, если упоминались, иначе "не указано"]
-PART: [какая запчасть/артикул интересует клиента, если упоминалось, иначе "не указано"]
-SUMMARY: [краткое описание ситуации и что нужно клиенту, макс. 3 предложения]
+const SUMMARY_PROMPT = `Ниже диалог клиента с консультантом магазина автозапчастей. Напиши от лица клиента короткое сообщение менеджеру (1–3 предложения, не больше 400 символов): какой автомобиль (марка, модель, кузов, год, двигатель или VIN — что известно), какая деталь или вопрос, что нужно сделать (подобрать, проверить совместимость, уточнить цену/срок и т.п.).
+Пиши просто и по делу, например: «BMW X5 E70 4.8i, 2008. Нужны передние тормозные колодки и датчик износа — подберите, пожалуйста, и сообщите цену и срок».
+НЕ указывай имя, телефон, email, адрес и любые другие контакты клиента. Не упоминай «[телефон скрыт]» / «[email скрыт]». Без приветствий, без кавычек, без пояснений — только текст сообщения.
 
 Диалог:
 `;
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin':  '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
-async function generateSummary(messages) {
-  if (!LLM_API_KEY) {
-    return { raw: 'API key not configured — summary unavailable.', fields: {} };
-  }
+const clip = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
 
-  const transcript = messages
-    .map(m => `${m.role === 'user' ? 'Клиент' : 'ИИ'}: ${m.content}`)
-    .join('\n');
-
-  const response = await fetch(`${LLM_BASE_URL}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type':      'application/json',
-      'x-api-key':         LLM_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model:      LLM_MODEL, // room for thinking
-      max_tokens: 4000,
-      messages: [
-        { role: 'user', content: SUMMARY_PROMPT + transcript }
-      ],
-    }),
-    signal: AbortSignal.timeout(45000),
-  });
-
-  if (!response.ok) {
-    const body = (await response.text().catch(() => '')).slice(0, 400);
-    console.error(`[manager] summary failed (${LLM_MODEL}, HTTP ${response.status}): ${body}`);
-    return { raw: 'Summary generation failed.', fields: {} };
-  }
-
-  const data = await response.json();
-  // Find by TYPE, not array position -- same latent bug as chat.js: a
-  // thinking block (if this model ever gets adaptive thinking enabled)
-  // would occupy position 0 and silently break this with an empty summary.
-  const textBlock = (data.content || []).find(block => block.type === 'text');
-  const raw = textBlock?.text?.trim() ?? 'No summary.';
-
-  // Parse the structured header fields out of Claude's response. Falls
-  // back gracefully to empty values if the format drifts slightly — this
-  // is best-effort extraction, not something that should ever throw.
-  const fields = {};
-  for (const line of raw.split('\n')) {
-    const match = line.match(/^(PHONE|EMAIL|NAME|REASON|CAR|PART|SUMMARY):\s*(.*)$/);
-    if (match) fields[match[1].toLowerCase()] = match[2].trim();
-  }
-
-  return { raw, fields };
-}
-
-async function saveToSupabase(sessionId, raw) {
-  // Best-effort only. If Supabase isn't configured for this project, this
-  // silently does nothing — the escalation/lead-creation flow below does
-  // NOT depend on this succeeding.
-  if (!SUPABASE_URL || !SUPABASE_KEY) return;
-
-  await fetch(
-    `${SUPABASE_URL}/rest/v1/chat_sessions?session_id=eq.${encodeURIComponent(sessionId)}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Content-Type':  'application/json',
-        'apikey':        SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Prefer':        'return=minimal',
-      },
-      body: JSON.stringify({
-        manager_requested: true,
-        summary:           raw,
-      }),
-    }
-  ).catch(e => console.error('Supabase manager update error:', e));
-}
-
-const REASON_LABELS = {
-  'запрос менеджера':              'Запрос на связь с менеджером',
-  'нет данных о совместимости':    'Нет данных о совместимости детали',
-  'товар не найден':               'Товар не найден в каталоге',
-  'другое':                        'Обращение из ИИ-чата',
-};
-
-async function createBitrixLead(sessionId, fields, raw) {
-  if (!BITRIX_WEBHOOK) {
-    console.error('BITRIX24_WEBHOOK_URL not configured — cannot create lead.');
-    return { ok: false, error: 'bitrix_not_configured' };
-  }
-
-  const webhookBase = BITRIX_WEBHOOK.replace(/\/?$/, '/');
-  const reasonLabel = REASON_LABELS[fields.reason] || 'Обращение из ИИ-чата';
-
-  const title = `${reasonLabel}${fields.car && fields.car !== 'не указано' ? ' — ' + fields.car : ''}`;
-
-  const comments = [
-    fields.part && fields.part !== 'не указано' ? `Запчасть: ${fields.part}` : null,
-    fields.car && fields.car !== 'не указано' ? `Автомобиль: ${fields.car}` : null,
-    fields.summary ? `Сводка: ${fields.summary}` : null,
-    `Сессия чата: ${sessionId}`,
-  ].filter(Boolean).join('\n');
-
-  const leadFields = {
-    TITLE: title,
-    NAME: fields.name && fields.name !== 'не указано' ? fields.name : 'Клиент из чата',
-    COMMENTS: comments,
-    SOURCE_ID: 'WEBFORM', // "CRM form" — closest built-in source for a chat-widget lead
-    ...(fields.phone && fields.phone !== 'не указан'
-      ? { PHONE: [{ VALUE: fields.phone, VALUE_TYPE: 'WORK' }] }
-      : {}),
-    ...(fields.email && fields.email !== 'не указан'
-      ? { EMAIL: [{ VALUE: fields.email, VALUE_TYPE: 'WORK' }] }
-      : {}),
-  };
-
-  const url = `${webhookBase}crm.lead.add.json`;
-
+/** 1-3 sentences for the form's «Сообщение» field, from the MASKED chat. */
+async function generateMessage(messages) {
+  if (!LLM_API_KEY || !Array.isArray(messages) || !messages.length) return '';
+  const transcript = pii.redactMessages(messages.slice(-20))
+    .map(m => `${m.role === 'user' ? 'Клиент' : 'Консультант'}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
+    .join('\n')
+    // product/diagram blocks are long JSON the summary doesn't need
+    .replace(/<<<([A-Z_]+)>>>[\s\S]*?<<<END_\1>>>/g, '[карточки]')
+    .slice(-12000);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${LLM_BASE_URL}/v1/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields: leadFields }),
-      signal: AbortSignal.timeout(10000),
+      headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        max_tokens: 600,
+        thinking: { type: 'disabled' },
+        messages: [{ role: 'user', content: SUMMARY_PROMPT + transcript }],
+      }),
+      signal: AbortSignal.timeout(25000),
     });
-    const data = await res.json();
-    if (data.error) {
-      console.error('Bitrix24 lead creation error:', data.error_description || data.error);
-      return { ok: false, error: data.error_description || data.error };
+    if (!res.ok) {
+      const body = (await res.text().catch(() => '')).slice(0, 300);
+      console.error(`[manager] summary failed (${LLM_MODEL}, HTTP ${res.status}): ${body}`);
+      return '';
     }
-    return { ok: true, leadId: data.result };
+    const data = await res.json();
+    const text = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+    // The LLM never saw contacts, but mask once more in case it invented one.
+    return clip(pii.redactText(text).replace(/\[(телефон|email) скрыт\]/g, '').replace(/^["«]|["»]$/g, ''), 1000);
   } catch (err) {
-    console.error('Bitrix24 webhook request failed:', err);
-    return { ok: false, error: err.message };
+    console.error('[manager] summary error:', err.message);
+    return '';
   }
+}
+
+/** chat_sessions: manager flag + the (contact-free) message for the Аналитика tab. */
+async function markSession(sessionId, summary) {
+  if (!SUPABASE_URL || !SUPABASE_KEY || !sessionId) return;
+  await fetch(`${SUPABASE_URL}/rest/v1/chat_sessions?session_id=eq.${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({ manager_requested: true, ...(summary ? { summary } : {}) }),
+  }).catch(e => console.error('[manager] chat_sessions update error:', e.message));
+}
+
+// ─── Validation ─────────────────────────────────────────────────────────────
+const EMAIL_OK = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+function normalizePhone(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (/^[78]\d{10}$/.test(d)) return `+7${d.slice(1)}`;
+  if (/^9\d{9}$/.test(d)) return `+7${d}`;
+  if (d.length >= 10 && d.length <= 15 && /^\s*\+/.test(String(raw))) return `+${d}`;
+  return null;
+}
+
+// A public endpoint: a few requests per IP per 10 minutes is plenty.
+const RATE_WINDOW_MS = 10 * 60 * 1000;
+const RATE_MAX = 5;
+const hits = new Map();
+function rateLimited(ip) {
+  const now = Date.now();
+  const list = (hits.get(ip) || []).filter(t => now - t < RATE_WINDOW_MS);
+  list.push(now);
+  hits.set(ip, list);
+  if (hits.size > 5000) for (const [k, v] of hits) if (!v.some(t => now - t < RATE_WINDOW_MS)) hits.delete(k);
+  return list.length > RATE_MAX;
+}
+
+async function submit(req, res, body) {
+  const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+  const name = clip(body.name, 80);
+  const phoneRaw = clip(body.phone, 40);
+  const email = clip(body.email, 254).toLowerCase();
+  const message = clip(body.message, 2000);
+  const sessionId = clip(body.session_id, 64) || null;
+
+  const phone = phoneRaw ? normalizePhone(phoneRaw) : null;
+  if (!name) return res.status(400).json({ ok: false, error: 'name_required' });
+  if (phoneRaw && !phone) return res.status(400).json({ ok: false, error: 'phone_invalid' });
+  if (email && !EMAIL_OK.test(email)) return res.status(400).json({ ok: false, error: 'email_invalid' });
+  if (!phone && !email) return res.status(400).json({ ok: false, error: 'contact_required' });
+  if (body.consent !== true) return res.status(400).json({ ok: false, error: 'consent_required' });
+  if (rateLimited(ip)) return res.status(429).json({ ok: false, error: 'too_many_requests' });
+
+  let id;
+  try {
+    id = await managerRequests.addRequest({
+      session_id: sessionId, name, phone, email: email || null, message: message || null,
+      consent_policy_url: POLICY_URL, ip, user_agent: clip(req.headers['user-agent'], 300),
+    });
+  } catch (err) {
+    console.error('[manager] request save failed:', err.message);
+    return res.status(500).json({ ok: false, error: 'save_failed' });
+  }
+  console.log(`[manager] request #${id} saved (session ${sessionId || '-'}, by ${phone ? 'phone' : ''}${phone && email ? '+' : ''}${email ? 'email' : ''})`);
+
+  // The Аналитика tab keeps its manager flag and summary (no contacts in it).
+  await markSession(sessionId, message ? `Заявка №${id}: ${message}` : `Заявка №${id}`);
+
+  // No personal data in the push: it travels through foreign push services.
+  try {
+    await sendPushToAll({
+      title: '🚨 Новая заявка',
+      body: `Заявка №${id} из ИИ-чата — откройте вкладку «Заявки»`,
+      url: '/dashboard#requests',
+      tag: 'lead-alert',
+    });
+  } catch (e) {
+    console.error('[manager] push error:', e.message);
+  }
+
+  return res.status(200).json({ ok: true, id });
 }
 
 module.exports = async function handler(req, res) {
-  const headers = corsHeaders();
-  Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
-
+  cors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { session_id, messages } = req.body || {};
+    let body = req.body;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+    body = body || {};
 
-    if (!session_id || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'session_id and messages required' });
-    }
+    if (body.action === 'submit') return await submit(req, res, body);
 
-    const { raw, fields } = await generateSummary(messages);
+    const message = await generateMessage(body.messages);
+    if (body.action === 'summary') return res.status(200).json({ ok: true, message });
 
-    const [leadResult] = await Promise.allSettled([
-      createBitrixLead(session_id, fields, raw),
-      saveToSupabase(session_id, raw),
-    ]);
-
-    const bitrixOutcome = leadResult.status === 'fulfilled' ? leadResult.value : { ok: false, error: 'unexpected_failure' };
-
-    // Awaited deliberately -- on Vercel serverless (unlike a long-running
-    // Node process), the execution environment can be frozen/terminated
-    // the instant res.json() is sent. A genuine "fire and forget" call
-    // here would silently never complete on some fraction of invocations,
-    // with no error ever logged (the process is killed mid-flight, not
-    // failing). Wrapped in try/catch so a push failure still can't fail
-    // the escalation response itself -- same intent as before, just made
-    // to actually run to completion first.
-    const reasonLabel = REASON_LABELS[fields.reason] || 'Обращение из ИИ-чата';
-    try {
-      await sendPushToAll({
-        title: '🚨 Новый лид',
-        body:  `${reasonLabel}${fields.car && fields.car !== 'не указано' ? ' — ' + fields.car : ''}`,
-        url:   '/dashboard',
-        tag:   'lead-alert',
-      });
-    } catch (e) {
-      console.error('sendPushToAll error:', e);
-    }
-
-    return res.status(200).json({
-      ok: bitrixOutcome.ok,
-      leadId: bitrixOutcome.leadId ?? null,
-      error: bitrixOutcome.error ?? null,
-      summary: raw,
-    });
-
+    // Old cached widget: no form, no contacts -- flag the session for the dashboard.
+    await markSession(clip(body.session_id, 64), message);
+    return res.status(200).json({ ok: false, error: 'form_required', message });
   } catch (err) {
     console.error('session/manager error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ ok: false, error: 'internal_error' });
   }
 };

@@ -67,6 +67,7 @@ const diagramToken = require('../lib/diagramToken');
 const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
 const progress = require('../lib/progress'); // live step lines for the widget (see streamResponse)
+const pii = require('../lib/pii'); // phones/emails never go to the LLM (152-ФЗ)
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
 const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
 // A car chosen by model (no VIN) that the bot has never looked up needs up to
@@ -234,12 +235,13 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 
 Порядок действий при эскалации:
 1. Кратко и честно объясни, почему нужен специалист (например: "У меня нет данных о совместимости этой детали с вашим автомобилем" или "Я не нашёл точного совпадения в каталоге").
-2. Предложи пользователю СРАЗУ ДВА равнозначных варианта связи со специалистом, оба варианта в одном ответе, а не по очереди:
-   - Вариант 1: оставить номер телефона или email прямо в чате — специалист свяжется в ближайшее время. Например: "Вы можете оставить номер телефона или email прямо здесь, и специалист свяжется с вами."
-   - Вариант 2: нажать кнопку связи с менеджером ниже, чтобы передать диалог сразу.
-3. Добавь в конец ответа блок <<<MANAGER_BUTTON>>> (см. ниже), чтобы кнопка появилась одновременно с текстовым предложением оставить контакт — оба пути должны быть доступны пользователю сразу, а не последовательно.
+2. Предложи нажать кнопку «Оставить заявку менеджеру» ниже: откроется короткая форма (имя, телефон или email, описание вопроса уже заполнено) — специалист свяжется с клиентом. Например: "Нажмите кнопку ниже и оставьте контакт в форме — специалист свяжется с вами в ближайшее время."
+3. Добавь в конец ответа блок <<<MANAGER_BUTTON>>> (см. ниже), чтобы кнопка появилась вместе с текстом.
 
-Если пользователь в ЛЮБОЙ момент диалога (не обязательно сразу после эскалации) сам называет номер телефона или email текстом — ничего специально делать не нужно: система автоматически обнаружит контакт и запустит передачу менеджеру таким же образом, как и по кнопке. Просто поблагодари пользователя за контакт в ответе (например: "Спасибо! Специалист свяжется с вами в ближайшее время.").
+ПЕРСОНАЛЬНЫЕ ДАННЫЕ (закон 152-ФЗ):
+- НИКОГДА не проси написать телефон, email, имя или адрес прямо в чате — контакты клиент оставляет ТОЛЬКО в форме по кнопке. (Исключение — проверка статуса заказа: там телефон или email нужен системе для проверки заказа.)
+- Телефоны и email клиента скрыты от тебя: в диалоге вместо них стоит «[телефон скрыт]» / «[email скрыт]». Это нормально. Никогда не повторяй и не пересказывай контакты клиента.
+- Если клиент сам написал контакт в чате (ты видишь «[телефон скрыт]» или «[email скрыт]»), система откроет форму заявки. Коротко поблагодари и попроси подтвердить данные и отправить форму (например: "Спасибо! Проверьте, пожалуйста, данные в открывшейся форме и нажмите «Отправить» — специалист свяжется с вами.").
 
 Товары из КАТАЛОГА ТОВАРОВ показываются карточками ПОД твоим текстом. Если пишешь «подходят следующие позиции», не обрывай фразу: скажи, что они в карточках ниже, или коротко перечисли их названия.
 НИКОГДА не говори клиенту, что какой-то детали или номера «нет в нашем каталоге», «нет на сайте», «пока нет в каталоге сайта» — КАТАЛОГ ТОВАРОВ в этих данных содержит только позиции с фото, а на сайте в поиске по номеру продаётся гораздо больше. Вместо этого направляй к кнопке «Открыть деталь» (если она есть) или к менеджеру.
@@ -2036,7 +2038,7 @@ function stripNumbers(x) {
     .replace(/\s{2,}/g, ' ').trim().replace(/\s*[,;:—–-]+$/, '');
 }
 function cleanCardsText(text, fallback) {
-  const parts = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>)/);
+  const parts = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>|<<<CONTACT_FORM>>>)/);
   let removed = 0;
   for (let i = 0; i < parts.length; i += 2) {
     const lines = parts[i].split('\n').map(line => {
@@ -2059,7 +2061,7 @@ function cleanCardsText(text, fallback) {
       .join('\n').replace(/\n{3,}/g, '\n\n');
   }
   let out = parts.join('');
-  const prose = out.split(/<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>/).join('').trim();
+  const prose = out.split(/<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>|<<<CONTACT_FORM>>>/).join('').trim();
   if (!prose) out = `${fallback}\n${out.trim()}`;
   if (removed) console.log(`[chat] card reply: ${removed} sentence(s) with numbers/prices/system talk removed`);
   return out.trim();
@@ -2891,11 +2893,18 @@ async function handleChat(req, res) {
   }
 
   try {
-    const { messages } = req.body;
-    if (!messages || !Array.isArray(messages)) {
+    const rawMessages = req.body.messages;
+    if (!rawMessages || !Array.isArray(rawMessages)) {
       Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
       return res.status(400).json({ error: 'messages array required' });
     }
+    // Personal data stays on our server (152-ФЗ): every phone/email the
+    // customer typed is masked before ANY LLM call -- request reading,
+    // filters, the final answer all work on `messages`. The real values are
+    // read here in code only, for the ABCP order check and to open the
+    // request form (see lib/pii.js).
+    const messages = pii.redactMessages(rawMessages);
+    const typedContacts = pii.latestContacts(rawMessages);
 
     // (The whole price list is no longer downloaded here: products are looked
     // up by part number further down -- see lookupCatalog().)
@@ -2905,6 +2914,9 @@ async function handleChat(req, res) {
     // already-matched result instead of the full dataset.
     progress.step('Читаю ваш вопрос…');
     const extracted = await extractVehicleInfo(messages);
+    // The LLM only saw masks, so contacts come from the code, not from it.
+    extracted.contactPhone = typedContacts.phone;
+    extracted.contactEmail = typedContacts.email;
     sanitizeContactPhone(extracted);
     dropInventedQualifiers(extracted, messages); // «Глушитель» must not become «задний глушитель» (live 28.10)
     // Keys / coding = workshop services: no catalog work at all (see workshopServiceTopic).
@@ -3807,15 +3819,14 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       compatVerdict: compat ? compat.verdict : null,
     });
 
-    // If the customer typed a phone/email instead of clicking the manager
-    // button, tell the widget to trigger the same handoff automatically
-    // (Bitrix lead + Supabase save via api/session/manager.js) -- see
-    // extracted.contactPhone/contactEmail above. The widget guards this
-    // with a per-session flag so it only fires once even if contact info
-    // is repeated in a later message.
-    // (Not when the phone/email was given to verify an order -- see above.)
-    if ((extracted.contactPhone || extracted.contactEmail) && !extracted.orderNumber) {
-      text = `${text}\n<<<AUTO_MANAGER_HANDOFF>>>`;
+    // The customer typed a phone/email into the chat: the LLM saw only a mask.
+    // Open the request form (the widget fills it from the customer's own
+    // message, in the browser) so the contact reaches the manager through our
+    // database only, with the customer's consent. Not when the contact was
+    // given to check an order -- that path is answered above.
+    if (typedContacts.inLast && !extracted.orderNumber) {
+      if (!text.includes('<<<MANAGER_BUTTON>>>')) text = `${text}\n<<<MANAGER_BUTTON>>>`;
+      text = `${text}\n<<<CONTACT_FORM>>>`;
     }
     // ТО kit: every kit position that is in the price list becomes a card
     // (the AI tends to pick only what its keywords matched -- live test

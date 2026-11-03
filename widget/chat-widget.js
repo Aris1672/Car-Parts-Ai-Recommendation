@@ -44,7 +44,10 @@
   const AGENT_URL   = BASE_URL + '/api/chat';
   const SESSION_URL = BASE_URL + '/api/session';
   const MANAGER_PHONE = '+79675557555'; // BMW Club77 line (tel: link on the manager button), changed 23.10.2026 at the client's request
-  const MANAGER_PHONE_LABEL = '+7 (967) 555-7-555'; // shown under the button, written the way the client writes it
+  const MANAGER_PHONE_LABEL = '+7 (967) 555-7-555'; // shown in the request form, written the way the client writes it
+  // Request form (152-ФЗ): contacts go from this form straight to our server
+  // and database in Russia, never to the LLM. Consent link = the site's policy.
+  const PRIVACY_POLICY_URL = 'https://bmwclub77.ru/data_protection';
 
   // BMW Club77 brand colors (BMW's well-known blue palette)
   const BRAND_COLOR      = '#0066b1';
@@ -118,7 +121,7 @@
   const INLINE_M_SEND_LABEL  = 'Подобрать с ИИ';
   const INLINE_PLACEHOLDER       = 'Например: передние колодки на BMW X5 G05 30d';
   const INLINE_PLACEHOLDER_CHAT  = 'Напишите сообщение…';
-  const INLINE_MANAGER_TEXT = 'Менеджер поможет с подбором и заказом. Позвоните по кнопке ниже — или напишите здесь свой телефон, и менеджер перезвонит.';
+  const INLINE_MANAGER_TEXT = 'Менеджер поможет с подбором и заказом. Оставьте заявку по кнопке ниже — менеджер свяжется с вами. Или позвоните: ' + MANAGER_PHONE_LABEL + '.';
   // Phones: the agent goes ABOVE the icon row (.benefits-block), so it's on
   // the first screen; from 768 px up it stays where the placeholder is.
   const INLINE_MOBILE_QUERY = '(max-width: 767px)'; // below this: a card in the column, not full width
@@ -433,6 +436,61 @@
     .pc-manager-btn-label { display: flex; flex-direction: column; }
     .pc-manager-btn-title { font-size: 14px; font-weight: 700; }
     .pc-manager-btn-sub { font-size: 11px; opacity: 0.8; font-weight: 400; }
+
+    /* ── Request form (modal) ── */
+    #pc-lead-overlay {
+      position: fixed; inset: 0; z-index: 1000000;
+      background: rgba(10,14,20,0.55);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px; font-family: var(--pc-font);
+      -webkit-font-smoothing: antialiased;
+      animation: pc-lead-fade 0.18s ease;
+    }
+    #pc-lead-overlay * { box-sizing: border-box; font-family: inherit; }
+    @keyframes pc-lead-fade { from { opacity: 0; } to { opacity: 1; } }
+    .pc-lead {
+      position: relative; width: 100%; max-width: 440px;
+      max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto;
+      background: #fff; color: var(--pc-dark); border-radius: 16px;
+      padding: 22px 20px 18px; box-shadow: 0 18px 60px rgba(0,0,0,0.3);
+      text-align: left;
+    }
+    .pc-lead-close {
+      position: absolute; top: 10px; right: 10px; width: 36px; height: 36px;
+      border: none; background: transparent; border-radius: 50%; cursor: pointer;
+      font-size: 24px; line-height: 1; color: #777;
+    }
+    .pc-lead-close:hover { background: #f1f1f1; color: #111; }
+    .pc-lead h3 { margin: 0 36px 4px 0; font-size: 19px; font-weight: 700; line-height: 1.25; color: var(--pc-dark); }
+    .pc-lead-sub { margin: 0 0 14px; font-size: 13px; color: #666; line-height: 1.4; }
+    .pc-lead-field { display: block; margin-bottom: 11px; }
+    .pc-lead-label { display: block; font-size: 12px; font-weight: 600; color: #444; margin-bottom: 4px; }
+    .pc-lead-label i { font-style: normal; color: var(--pc-red); }
+    .pc-lead input[type=text], .pc-lead input[type=tel], .pc-lead input[type=email], .pc-lead textarea {
+      display: block; width: 100%; padding: 10px 12px; border: 1.5px solid #d6d9de; border-radius: 10px;
+      font-size: 16px; color: #111; background: #fff; outline: none; margin: 0;
+      transition: border-color 0.15s;
+    }
+    .pc-lead textarea { min-height: 92px; resize: vertical; line-height: 1.4; font-size: 15px; }
+    .pc-lead input:focus, .pc-lead textarea:focus { border-color: var(--pc-red); }
+    .pc-lead input.pc-bad { border-color: #d33; }
+    .pc-lead-hint { font-size: 12px; color: #777; margin: -4px 0 11px; }
+    .pc-lead-row { display: flex; gap: 10px; }
+    .pc-lead-row .pc-lead-field { flex: 1; min-width: 0; }
+    @media (max-width: 480px) { .pc-lead-row { flex-direction: column; gap: 0; } }
+    .pc-lead-consent { display: flex; gap: 9px; align-items: flex-start; font-size: 12.5px; color: #444; line-height: 1.4; margin: 4px 0 14px; cursor: pointer; }
+    .pc-lead-consent input { width: 18px; height: 18px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--pc-red); }
+    .pc-lead-consent a { color: var(--pc-red); }
+    .pc-lead-send {
+      width: 100%; padding: 13px 16px; border: none; border-radius: 12px; cursor: pointer;
+      background: var(--pc-red); color: #fff; font-size: 15px; font-weight: 700;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .pc-lead-send:hover:not(:disabled) { background: var(--pc-red-hover); }
+    .pc-lead-send:disabled { opacity: 0.45; cursor: not-allowed; }
+    .pc-lead-error { color: #c62828; font-size: 13px; margin: 0 0 10px; display: none; }
+    .pc-lead-call { margin: 12px 0 0; font-size: 13px; color: #666; text-align: center; }
+    .pc-lead-call a { color: var(--pc-red); font-weight: 600; text-decoration: none; white-space: nowrap; }
 
     /* ── Part page button (customer typed a part number) ── */
     .pc-partlink-wrap { padding: 4px 0; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1011,28 +1069,156 @@
 
   const cardInfo = p => ({ article: p.article, name: p.name, brand: p.brand, price: p.price, url: p.url });
 
-  // ─── SESSION: MANAGER ────────────────────────────────────────────────────────
-  async function triggerManagerHandoff() {
-    if (!sessionId) return;
-    try {
-      const res = await fetch(`${SESSION_URL}/manager`, {
-        method:  'POST',
+  // ─── SESSION: MANAGER (request form) ───────────────────────────────────────
+  // 152-ФЗ: the customer's name / phone / email go from this form straight to
+  // /api/session/manager -> our database in Russia, never to the LLM, and only
+  // with the customer's consent. The «Сообщение» text is prepared by the
+  // server from the chat with every phone/email masked; the customer can edit
+  // it. Opened by the manager button, or by the server (<<<CONTACT_FORM>>>)
+  // when the customer typed a phone/email into the chat -- then that contact
+  // is pre-filled here, in the browser.
+  const LEAD_EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+  function leadPhoneOk(v) {
+    const d = String(v || '').replace(/\D/g, '');
+    return /^[78]\d{10}$/.test(d) || /^9\d{9}$/.test(d) || (/^\s*\+/.test(String(v)) && d.length >= 10 && d.length <= 15);
+  }
+  function contactsInText(t) {
+    t = String(t || '');
+    const email = (t.match(/[A-Za-z0-9А-Яа-яЁё._%+\-]+@[A-Za-z0-9А-Яа-яЁё\-]+(?:\.[A-Za-z0-9А-Яа-яЁё\-]+)*\.[A-Za-zА-Яа-яЁё]{2,}/) || [])[0] || '';
+    const phone = (t.match(/(?:\+7|(?<![\d+])[78])?[\s\-]*\(?9\d{2}\)?[\s\-]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}(?!\d)|\+\d[\d\s\-()]{8,18}\d/) || [])[0] || '';
+    return { phone: phone.trim(), email };
+  }
+
+  function closeLeadForm() {
+    const o = document.getElementById('pc-lead-overlay');
+    if (o) o.remove();
+    document.removeEventListener('keydown', leadKeydown, true);
+  }
+  function leadKeydown(e) { if (e.key === 'Escape') { e.stopPropagation(); closeLeadForm(); } }
+
+  function openLeadForm(prefill) {
+    if (document.getElementById('pc-lead-overlay')) return;
+    prefill = prefill || {};
+    const overlay = document.createElement('div');
+    overlay.id = 'pc-lead-overlay';
+    overlay.innerHTML = `
+      <form class="pc-lead" role="dialog" aria-modal="true" aria-labelledby="pc-lead-title" novalidate>
+        <button type="button" class="pc-lead-close" aria-label="Закрыть">×</button>
+        <h3 id="pc-lead-title">Заявка менеджеру</h3>
+        <p class="pc-lead-sub">Менеджер свяжется с вами в рабочее время.</p>
+        <label class="pc-lead-field">
+          <span class="pc-lead-label">Имя <i>*</i></span>
+          <input type="text" name="name" autocomplete="name" maxlength="80" required>
+        </label>
+        <div class="pc-lead-row">
+          <label class="pc-lead-field">
+            <span class="pc-lead-label">Телефон</span>
+            <input type="tel" name="phone" autocomplete="tel" inputmode="tel" maxlength="40" placeholder="+7 900 000-00-00">
+          </label>
+          <label class="pc-lead-field">
+            <span class="pc-lead-label">Email</span>
+            <input type="email" name="email" autocomplete="email" maxlength="254" placeholder="name@mail.ru">
+          </label>
+        </div>
+        <div class="pc-lead-hint">Укажите телефон или email — как вам удобнее (можно оба).</div>
+        <label class="pc-lead-field">
+          <span class="pc-lead-label">Сообщение</span>
+          <textarea name="message" maxlength="2000" placeholder="Готовлю описание по вашему диалогу…"></textarea>
+        </label>
+        <label class="pc-lead-consent">
+          <input type="checkbox" name="consent">
+          <span>Я даю согласие на обработку моих персональных данных в соответствии с <a href="${PRIVACY_POLICY_URL}" target="_blank" rel="noopener">Политикой обработки персональных данных</a>.</span>
+        </label>
+        <div class="pc-lead-error" role="alert"></div>
+        <button type="submit" class="pc-lead-send" disabled>Отправить</button>
+        <p class="pc-lead-call">Или позвоните: <a href="tel:${MANAGER_PHONE}">${MANAGER_PHONE_LABEL}</a></p>
+      </form>`;
+    document.body.appendChild(overlay);
+
+    const form    = overlay.querySelector('form');
+    const f       = name => form.elements[name];
+    const sendBtn = overlay.querySelector('.pc-lead-send');
+    const errBox  = overlay.querySelector('.pc-lead-error');
+    if (prefill.phone) f('phone').value = prefill.phone;
+    if (prefill.email) f('email').value = prefill.email;
+
+    const validate = () => {
+      const phone = f('phone').value.trim(), email = f('email').value.trim();
+      const phoneOk = !!phone && leadPhoneOk(phone);
+      const emailOk = !!email && LEAD_EMAIL_RE.test(email);
+      f('phone').classList.toggle('pc-bad', !!phone && !phoneOk && document.activeElement !== f('phone'));
+      f('email').classList.toggle('pc-bad', !!email && !emailOk && document.activeElement !== f('email'));
+      const ok = !!f('name').value.trim()
+        && (phoneOk || emailOk) && (!phone || phoneOk) && (!email || emailOk)
+        && f('consent').checked;
+      sendBtn.disabled = !ok;
+      return ok;
+    };
+    form.addEventListener('input', validate);
+    form.addEventListener('change', validate);
+    form.addEventListener('focusout', validate);
+    overlay.addEventListener('mousedown', e => { if (e.target === overlay) closeLeadForm(); });
+    overlay.querySelector('.pc-lead-close').addEventListener('click', closeLeadForm);
+    document.addEventListener('keydown', leadKeydown, true);
+    setTimeout(() => (f('name').value ? f('phone') : f('name')).focus(), 50);
+    validate();
+
+    // «Сообщение»: prepared by the server from the masked chat. Never
+    // overwrites what the customer has already typed.
+    let typedMessage = false;
+    f('message').addEventListener('input', () => { typedMessage = true; });
+    if (messages.length) {
+      fetch(`${SESSION_URL}/manager`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          session_id: sessionId,
-          messages:   messages.slice(-20),
-        }),
+        body: JSON.stringify({ action: 'summary', session_id: sessionId, messages: messages.slice(-20) }),
+      }).then(r => r.json()).then(d => {
+        if (!typedMessage && d && d.message && document.body.contains(form)) f('message').value = d.message;
+      }).catch(() => {}).finally(() => {
+        if (document.body.contains(form)) f('message').placeholder = 'Опишите, что нужно: автомобиль, деталь, вопрос';
       });
-      const data = await res.json().catch(() => ({}));
-      if (data.ok) {
-        addBotBubble('Спасибо! Ваша заявка передана специалисту — он свяжется с вами в ближайшее время.');
-      } else {
-        addBotBubble('Заявка принята. Если срочно — позвоните нам напрямую по кнопке выше.');
-      }
-    } catch (e) {
-      console.warn('Manager handoff error:', e);
-      addBotBubble('Заявка принята. Если срочно — позвоните нам напрямую по кнопке выше.');
+    } else {
+      f('message').placeholder = 'Опишите, что нужно: автомобиль, деталь, вопрос';
     }
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!validate()) return;
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Отправляю…';
+      errBox.style.display = 'none';
+      try {
+        const res = await fetch(`${SESSION_URL}/manager`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action:     'submit',
+            session_id: sessionId,
+            name:       f('name').value.trim(),
+            phone:      f('phone').value.trim(),
+            email:      f('email').value.trim(),
+            message:    f('message').value.trim(),
+            consent:    f('consent').checked === true,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        closeLeadForm();
+        managerAutoTriggered = true; // a request was sent in this chat
+        const thanks = `Спасибо! Заявка №${data.id} передана менеджеру — он свяжется с вами в ближайшее время.`;
+        addBotBubble(thanks);
+        displayLog.push({ type: 'bot', payload: thanks });
+        saveState();
+      } catch (err) {
+        console.warn('Request form error:', err);
+        errBox.textContent = err.message === 'too_many_requests'
+          ? 'Слишком много заявок подряд. Попробуйте позже или позвоните нам.'
+          : 'Не удалось отправить заявку. Попробуйте ещё раз или позвоните нам.';
+        errBox.style.display = 'block';
+        sendBtn.textContent = 'Отправить';
+        validate();
+      }
+    });
   }
 
   // ─── TEASER BUBBLES ──────────────────────────────────────────────────────────
@@ -1824,21 +2010,17 @@
     const wrap = document.createElement('div');
     wrap.className = 'pc-manager-btn-wrap';
 
-    const btn = document.createElement('a');
+    const btn = document.createElement('button');
+    btn.type       = 'button';
     btn.className  = 'pc-manager-btn';
-    btn.href       = `tel:${MANAGER_PHONE}`;
     btn.innerHTML  = `
       ${ICON_PHONE}
       <div class="pc-manager-btn-label">
-        <span class="pc-manager-btn-title">Связаться с менеджером</span>
-        <span class="pc-manager-btn-sub">${MANAGER_PHONE_LABEL}</span>
+        <span class="pc-manager-btn-title">Оставить заявку менеджеру</span>
+        <span class="pc-manager-btn-sub">менеджер свяжется с вами</span>
       </div>
     `;
-
-    btn.addEventListener('click', () => {
-      endSession(true);
-      triggerManagerHandoff();
-    });
+    btn.addEventListener('click', () => openLeadForm());
 
     wrap.appendChild(btn);
     appendMsg(wrap);
@@ -2254,7 +2436,7 @@
     let products  = null;
     let buttons   = null;
     let showManager = false;
-    let autoHandoff = false;
+    let contactForm = false;
     let partLinks = null;
     let diagram = null;
 
@@ -2296,10 +2478,13 @@
       text = text.replace(/<<<MANAGER_BUTTON>>>/g, '').trim();
     }
 
-    if (text.includes('<<<AUTO_MANAGER_HANDOFF>>>')) {
-      autoHandoff = true;
-      text = text.replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '').trim();
+    if (text.includes('<<<CONTACT_FORM>>>')) {
+      contactForm = true;
+      text = text.replace(/<<<CONTACT_FORM>>>/g, '').trim();
     }
+    // Older server: contacts typed in the chat started the handoff by
+    // themselves. Now the request form is the only path.
+    text = text.replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '').trim();
 
     // Removing the blocks above leaves the blank lines that surrounded them
     // (e.g. "...масляный фильтр:\n\n<<<PRODUCTS>>>...\n\nЭтот артикул...").
@@ -2307,7 +2492,7 @@
     // bubble. Collapse any run of blank lines to a single blank line.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
-    return { text, products, buttons, showManager, autoHandoff, partLinks, diagram, diagrams };
+    return { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -2377,7 +2562,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, showManager, autoHandoff, partLinks, diagram, diagrams } = parseBotResponse(raw);
+      const { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -2399,6 +2584,7 @@
           .replace(/<<<DIAGRAM>>>[\s\S]*?<<<END_DIAGRAM>>>/g, '[схема показана]')
           .replace(/<<<MANAGER_BUTTON>>>/g, '')
           .replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '')
+          .replace(/<<<CONTACT_FORM>>>/g, '')
           .trim();
         messages.push({ role: 'assistant', content: cleanedForHistory });
       }
@@ -2440,14 +2626,12 @@
         addManagerButton();
         displayLog.push({ type: 'manager', payload: null });
       }
-      if (autoHandoff && !managerAutoTriggered) {
-        // Customer typed a phone/email instead of clicking the button --
-        // reuse the exact same handoff path (Bitrix lead + Supabase save)
-        // rather than duplicating that logic here. Guarded by
-        // managerAutoTriggered so this only fires once per session even if
-        // contact info is mentioned again later in the conversation.
-        managerAutoTriggered = true;
-        triggerManagerHandoff();
+      if (contactForm) {
+        // The customer typed a phone/email into the chat: the AI saw only a
+        // mask. Open the request form with that contact filled in (taken
+        // here, in the browser, from what they typed).
+        const lastUser = [...messages].reverse().find(m => m.role === 'user');
+        openLeadForm(contactsInText(lastUser && lastUser.content));
       }
       saveState();
 
