@@ -939,7 +939,10 @@ PORT=3000
 
 ---
 
-## NEXT STEP (not started yet) — self-hosted Supabase on `assistant_vps_3`
+## ✅ DONE in session 10 — self-hosted Supabase on `assistant_vps_3`
+
+> **Status (checked 03.11.2026):** this was the plan *before* session 10, kept for history. The migration is **done** — see **"Session 10 — self-hosted Supabase migration"** above: self-hosted Supabase on `assistant_vps_3` (St. Petersburg), all 6 tables moved from Supabase Cloud with row counts verified, Coolify env vars switched for both apps; the leftover compatibility bug was fixed in session 11. The old Vercel account has been deleted (owner, 03.11), so the "keep Vercel as rollback" and GitHub-Actions-to-Vercel points below no longer apply. The Studio password in session 10 is an old one (owner, 03.11).
+
 
 This is the actual 152-FZ data-residency fix — everything above moved compute to Russia, but the database is still Supabase **Cloud** (foreign-hosted) for both apps; `SUPABASE_URL`/`SUPABASE_SERVICE_KEY`/`SUPABASE_DB_URL` all still point there. `assistant_vps_3` (77.222.47.140, 6 vCPU/12GB/80GB) is provisioned and idle, nothing installed on it yet.
 
