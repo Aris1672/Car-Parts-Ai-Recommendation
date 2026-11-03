@@ -1,0 +1,21 @@
+/** Tyre route helpers (lib/laximo.js). Run: node scripts/test-tires.js */
+const L = require('../lib/laximo');
+const a = require('assert');
+a.deepStrictEqual(L.tireRequest('шина'), {kind:'tire',season:null});
+a.deepStrictEqual(L.tireRequest('зимние шины'), {kind:'tire',season:'winter'});
+a.deepStrictEqual(L.tireRequest('летняя резина'), {kind:'tire',season:'summer'});
+a.deepStrictEqual(L.tireRequest('колесные диски'), {kind:'rim',season:null});
+a.deepStrictEqual(L.tireRequest('колеса в сборе'), {kind:'wheel',season:null});
+for (const k of ['тормозные диски','диски','подшипник колеса','колесный болт','датчик давления в шинах','ступица колеса','шина 235/55 r18 тормоз']) a.strictEqual(L.tireRequest(k), null, k);
+a.deepStrictEqual(L.tireSizes('Шина 235/55 R18'), ['235/55 R18']);
+a.deepStrictEqual(L.tireSizes('235/55R18 и 275/40 ZR21, 255 50 19'), ['235/55 R18','275/40 R21','255/50 R19']);
+a.deepStrictEqual(L.tireSizes('11 42 8 507 683 и 34116864906 VIN WBA12345678901234'), []);
+a.deepStrictEqual(L.tireSizes('Pirelli P Zero 275/35 R22 104Y XL *'), ['275/35 R22']);
+const units=[{name:'Зимние шины',href:'a'},{name:'Летние шины',href:'b'},{name:'Колесный диск',href:'c'}];
+a.deepStrictEqual(L.pickTireUnits(units,{kind:'tire',season:null}).map(u=>u.name),['Зимние шины','Летние шины']);
+a.deepStrictEqual(L.pickTireUnits(units,{kind:'tire',season:'summer'}).map(u=>u.name),['Летние шины']);
+a.deepStrictEqual(L.pickTireUnits(units,{kind:'rim',season:null}).map(u=>u.name),['Колесный диск']);
+const rows=[{oem:'1',name:'Шина летняя 275/40 R21'},{oem:'2',name:'Шина 235/55R18 100V'}];
+a.deepStrictEqual(L.filterTireRows(rows,['235/55 R18']).rows.map(r=>r.oem),['2']);
+a.strictEqual(L.filterTireRows(rows,['245/45 R19']).sizeMissing,'245/45 R19');
+console.log('all ok');
