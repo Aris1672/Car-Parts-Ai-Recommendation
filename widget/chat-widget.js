@@ -1348,7 +1348,7 @@
       <div id="pc-chips"></div>
       <div id="pc-chips-m"></div>
       <div id="pc-hero-note">Ответы готовит ИИ. Если нужен человек — <button type="button" id="pc-hero-manager">позвать менеджера</button>.</div>
-      <div class="pc-powered">Разработано: <a href="https://assistant24info.ru/" target="_blank" rel="noopener">ASSISTANT24</a></div>
+      <div class="pc-powered">Разработано: <a href="https://assistant24info.ru/recom.html" target="_blank" rel="noopener">ASSISTANT24</a></div>
     `;
     // Homepage placeholder present -> build the chat into it (inline mode).
     inlineHost = document.getElementById(INLINE_HOST_ID);

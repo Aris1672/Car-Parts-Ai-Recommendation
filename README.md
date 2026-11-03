@@ -75,6 +75,10 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 - **Fix (03.11, live test): the agent didn't escalate.** «📞 Связаться с менеджером» (the AI's quick button) and «Хочу уточнить у менеджера сроком доставки» went into the part search, which answered with its own variant / generation questions and returned before the AI could escalate. Now: (1) the widget's «Связаться с менеджером» quick button opens the form directly, without sending a message; (2) `api/chat.js` checks the last message for a request for a person (`asksForPerson()`: менеджер, оператор, со специалистом, сотрудник, живой человек, перезвоните, позвоните мне, свяжитесь со мной…) right after request reading and the order-status check, and answers in code with the manager button plus the form opened (log `[manager] the customer asks for a person -- request form`). Plain «связать», «консультация», «специалист по кодированию» don't count.
 - **Not covered by this change (owner/lawyer):** the site's consent and policy texts, registering with Roskomnadzor as a personal-data operator, and how long requests are kept (nothing is deleted automatically yet).
 
+### 🔗 «Разработано: ASSISTANT24» link → recom.html (03.11)
+
+- The link now goes to **https://assistant24info.ru/recom.html** (was the site's home page) in both places: the widget (`widget/chat-widget.js`, `.pc-powered`, under the homepage block and the chat) — live with the deploy — and the footer infoblock `abcp-infoblocks/footcopyright.html` (`.bcFoot_dev`), which has to be **pasted into ABCP by hand** (Внешний вид и контент → Инфоблоки → the footer copyright block → HTML).
+
 ### 💬 Requests to MAX (03.11) ⏳ waiting for the bot token
 
 - **What:** every request from the widget's form also goes, in full (number, name, phone, email, message, link «Открыть в панели»), to the managers' chat in **MAX**. MAX is a Russian messenger with its data in Russia, so this is allowed under 152-ФЗ. **Telegram is deliberately not used** (servers abroad = cross-border transfer). The push stays as it is, without personal data.
