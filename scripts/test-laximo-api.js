@@ -115,6 +115,10 @@ const server = http.createServer((req, res) => {
     if (bad) xml = null;
     else if (name === 'ListCatalogs') xml = '<response><ListCatalogs><row brand="BMW" code="BMW202601" name="BMW"/><row brand="MINI" code="MINI202601" name="MINI"/></ListCatalogs></response>'; // shape assumed (REST listCatalogs has brand + code)
     else if (name === 'GetWizard2' && params.ssd) xml = '<response><GetWizard2><row automatic="false" conditionid="2" determined="true" name="Серия" value="X5 E70 LCI" ssd="' + params.ssd + '"/></GetWizard2></response>';
+    else if (name === 'ListQuickDetail' && params.QuickGroupId === '544') xml = params.ssd === '$*MOD_YES$'
+      ? '<response><ListQuickDetail><Category categoryid="1" code="3410" name="Диск" ssd="c"><Unit code="34_1" name="Тормоз M" ssd="$*UNITM$" unitid="9"><Detail codeonimage="01" match="t" name="Тормозной диск" oem="34116875283"/></Unit></Category></ListQuickDetail></response>'
+      : '<response><ListQuickDetail><Category categoryid="1" code="3410" name="Диск" ssd="c"><Unit code="34_1" filter="S2NHA" name="Тормоз" ssd="$*UNITF$" unitid="8"><Detail codeonimage="01" match="t" name="Тормозной диск" oem="34116875283"/><Detail codeonimage="01" match="t" name="Тормозной диск" oem="34108858705"/></Unit></Category></ListQuickDetail></response>';
+    else if (name === 'GetFilterByUnit') xml = '<response><GetFilterByUnit><row name="Спортивные тормоза M (S2NHA)" type="list"><values><row name="да" note="" ssdmodification="$*MOD_YES$"/><row name="нет" note="" ssdmodification="$*MOD_NO$"/></values></row></GetFilterByUnit></response>';
     else if (name === 'FindVehicleByWizard2') xml = fx('FindVehicleByVIN').replace(/FindVehicleByVIN/g, 'FindVehicleByWizard2');
     else if (name === 'ListUnits') xml = fx('ListUnits').replace('Сервисное обслуживание тормозов', 'ТО по регл.Oelservice / Inspektion');
     else if (fs.existsSync(path.join(FIX, `${map[name] || name}.xml`))) xml = fx(map[name] || name);
@@ -196,6 +200,16 @@ const server = http.createServer((req, res) => {
     a.deepStrictEqual(await L.apiCarsThisMonth(), ['BMW202601:2050271679']);
     const m2 = await L.findPartsByModel('BMW X5 E70 колодки', ['колодки'], 'BMW', [], ['34']);
     a.deepStrictEqual(m2.needsChoice, { step: 'Серия', options: ['X5 E70', 'X5 E70 LCI'] });
+
+    // Equipment selector on the model path: unit with filter -> GetFilterByUnit -> the site's question; the answer opens the group with ssdmodification
+    a.deepStrictEqual(A.parseFilter('<response><GetFilterByUnit><row name="X (S1)"><values><row name="да" ssdmodification="$a$"/><row name="нет" ssdmodification="$b$"/></values></row></GetFilterByUnit></response>'),
+      [{ label: 'X (S1)', options: [{ text: 'да', value: '$a$' }, { text: 'нет', value: '$b$' }] }]);
+    const mq = { query: m.vehicleQuery, cacheId: 'model:test' };
+    const d1 = await L.searchPartsForVehicle(mq, ['тормозные диски'], ['диск'], ['34']);
+    a.deepStrictEqual(d1.equipmentQuestion && d1.equipmentQuestion.label, 'Спортивные тормоза M (S2NHA)', JSON.stringify(d1.equipmentQuestion));
+    const d2 = await L.searchPartsForVehicle(mq, ['тормозные диски'], ['диск'], ['34'], { equipment: { label: 'Спортивные тормоза M (S2NHA)', answer: 'да' } });
+    a.deepStrictEqual(d2.map(p => p.oem), ['34116875283'], 'answer "да" -> only the M brake disc');
+    a.ok(calls.some(c => c.name === 'ListQuickDetail' && c.params.ssd === '$*MOD_YES$'), 'group reopened with ssdmodification');
 
     console.log('test-laximo-api: all ok');
   } finally {
