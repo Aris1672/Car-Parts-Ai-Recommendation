@@ -69,6 +69,12 @@ Read sessions 24 and 24b first for the homepage block, then session 15, then ses
 - **Fix (03.11, live test): the agent didn't escalate.** «📞 Связаться с менеджером» (the AI's quick button) and «Хочу уточнить у менеджера сроком доставки» went into the part search, which answered with its own variant / generation questions and returned before the AI could escalate. Now: (1) the widget's «Связаться с менеджером» quick button opens the form directly, without sending a message; (2) `api/chat.js` checks the last message for a request for a person (`asksForPerson()`: менеджер, оператор, со специалистом, сотрудник, живой человек, перезвоните, позвоните мне, свяжитесь со мной…) right after request reading and the order-status check, and answers in code with the manager button plus the form opened (log `[manager] the customer asks for a person -- request form`). Plain «связать», «консультация», «специалист по кодированию» don't count.
 - **Not covered by this change (owner/lawyer):** the site's consent and policy texts, registering with Roskomnadzor as a personal-data operator, and how long requests are kept (nothing is deleted automatically yet).
 
+### 🕒 Dashboard in Moscow time (03.11)
+
+- `chat_sessions` keeps `date` / `time` in UTC (`api/session/start.js`); the dashboard showed them as is, so the same chat read 06:13 in «Аналитика» and 09:14 in «Заявки». Now every tab shows **Moscow time** (UTC+3, `lib/msk.js`): the sessions table, the chart's days, «Последняя активность», «Подбор», «Заявки», «Нет фото», products.
+- The date filter in «Аналитика» now means **Moscow days** (filters on `created_at` from 00:00 MSK). Before, a chat between 00:00 and 03:00 MSK counted on the previous day.
+- Stored data is unchanged; only the display and the filter are converted.
+
 ### ⏳ Session 29 (Nov 1) — the wait bubble shows what the agent is really doing ✅ confirmed live 01.11
 
 - **Before:** while a reply was being prepared, the bubble rotated four fixed lines on a timer («Ищу подходящие запчасти…», «Сверяю по каталогу…», «Почти готово…» — then the same again) and an "up to a minute" line from ~26 s. It knew nothing about the real work, so «Почти готово…» came twice in long waits.

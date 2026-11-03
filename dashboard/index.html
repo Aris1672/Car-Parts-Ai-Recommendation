@@ -1341,6 +1341,18 @@
     return t.slice(0, 5);
   }
 
+  // Everything on the dashboard is in Moscow time (the server converts the
+  // sessions' UTC date/time; timestamps are converted here).
+  const MSK = { timeZone: 'Europe/Moscow' };
+  function mskDay(iso) {   // ISO timestamp -> 'YYYY-MM-DD' in Moscow
+    const d = new Date(iso);
+    return isNaN(d) ? null : d.toLocaleDateString('sv-SE', MSK);
+  }
+  function mskHm(iso) {    // ISO timestamp -> 'HH:MM' in Moscow
+    const d = new Date(iso);
+    return isNaN(d) ? '—' : d.toLocaleTimeString('ru-RU', { ...MSK, hour: '2-digit', minute: '2-digit' });
+  }
+
   function esc(s) {
     if (!s) return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1448,9 +1460,8 @@
 
     // Last activity — format as DD.MM.YYYY HH:MM
     if (stats.lastActivity) {
-      const d = new Date(stats.lastActivity);
-      const date = d.toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' });
-      const time = d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
+      const date = fmtDate(mskDay(stats.lastActivity));
+      const time = mskHm(stats.lastActivity);
       document.getElementById('kpi-last').textContent     = date;
       document.getElementById('kpi-last-sub').textContent = 'в ' + time;
     } else {
@@ -1783,7 +1794,7 @@
         </td>
         <td class="td-dur">${p.price ? esc(p.price) : '<span style="color:var(--text2)">—</span>'}</td>
         <td class="td-dur">${specCount}</td>
-        <td class="td-date">${p.created_at ? fmtDate(p.created_at.split('T')[0]) : '—'}</td>
+        <td class="td-date">${p.created_at ? fmtDate(mskDay(p.created_at)) : '—'}</td>
         <td><button class="reset-btn" style="padding:4px 10px;" onclick="event.stopPropagation(); window.__deleteProduct(${p.id})">🗑</button></td>
       `;
       tr.addEventListener('click', () => {
@@ -1938,7 +1949,7 @@
       btn.disabled = true;
     } else {
       btn.disabled = false;
-      const at = st && st.resumeAt ? new Date(st.resumeAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      const at = st && st.resumeAt ? new Date(st.resumeAt).toLocaleString('ru-RU', { ...MSK, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
       if (st && st.error === 'RATE_LIMITED') html = `⏸ ABCP ограничил число запросов к API — проверка продолжится автоматически ${at}. (Тот же доступ используется для статуса заказов в чате, поэтому проверка идёт медленно.)`;
       else if (st && st.error === 'DAILY_LIMIT') html = `✅ Дневная порция проверена (до ${st.dailyLimit} артикулов в день, самые востребованные — первыми). В очереди: ${st.remaining}. Продолжится автоматически ${at}.`;
       else if (st && st.error === 'NOT_ENABLED') html = '⚠️ Проверка недоступна: ABCP не разрешает этот метод для аккаунта API (ошибка «неизвестная операция» / «доступ запрещён»). Уточните в техподдержке ABCP доступ к методу articles/info.';
@@ -2108,7 +2119,7 @@
         <td><strong>${esc(a.vendor_code)}</strong>${info.descr ? `<div style="font-size:11px;color:var(--text2);font-weight:400;max-width:260px;white-space:normal;">${esc(info.descr)}</div>` : ''}</td>
         <td class="td-dur">${a.request_count}</td>
         <td style="white-space:normal; max-width:360px;">${esc(vehicleText)}</td>
-        <td class="td-date">${a.last_requested_at ? fmtDate(a.last_requested_at.split('T')[0]) : '—'}</td>
+        <td class="td-date">${a.last_requested_at ? fmtDate(mskDay(a.last_requested_at)) : '—'}</td>
         <td>${a.resolved
           ? '<span style="color:var(--green); font-size:12px;">✓ Решено</span>'
           : `<button class="filter-btn" style="padding:4px 10px;" onclick="window.__resolveMissing('${esc(a.vendor_code)}')">✓ Решено</button>`}</td>
@@ -2185,10 +2196,8 @@
   }
 
   function requestDate(r) {
-    const d = new Date(r.created_at);
-    if (isNaN(d)) return '—';
-    const p = n => String(n).padStart(2, '0');
-    return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} <span class="td-time">${p(d.getHours())}:${p(d.getMinutes())}</span>`;
+    if (isNaN(new Date(r.created_at))) return '—';
+    return `${fmtDate(mskDay(r.created_at))} <span class="td-time">${mskHm(r.created_at)}</span>`;
   }
 
   function filterRequests() {
@@ -2308,10 +2317,8 @@
 
   function viewDate(v) {
     if (v.date) return `${fmtDate(v.date)} <span class="td-time">${fmtTime(v.time)}</span>`;
-    const d = new Date(v.started_at);
-    if (isNaN(d)) return '—';
-    const p = n => String(n).padStart(2, '0');
-    return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} <span class="td-time">${p(d.getHours())}:${p(d.getMinutes())}</span>`;
+    if (isNaN(new Date(v.started_at))) return '—';
+    return `${fmtDate(mskDay(v.started_at))} <span class="td-time">${mskHm(v.started_at)}</span>`;
   }
 
   function chip(p) {

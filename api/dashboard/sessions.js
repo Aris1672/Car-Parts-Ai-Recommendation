@@ -4,6 +4,8 @@
  * Passwords: DASHBOARD_ADMIN_PASSWORD, DASHBOARD_CLIENT_PASSWORD (Vercel env vars)
  */
 
+const { sessionMsk, mskDayStartUtc, mskDayEndUtc } = require('../../lib/msk');
+
 const SUPABASE_URL   = process.env.SUPABASE_URL;
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_KEY;
 const ADMIN_PASSWORD = process.env.DASHBOARD_ADMIN_PASSWORD;
@@ -35,8 +37,10 @@ module.exports = async function handler(req, res) {
   try {
     // ── Build query ───────────────────────────────────────────
     let query = `${SUPABASE_URL}/rest/v1/chat_sessions?select=*&order=created_at.desc&limit=1000`;
-    if (date_from) query += `&date=gte.${date_from}`;
-    if (date_to)   query += `&date=lte.${date_to}`;
+    // The filter's days are Moscow days (the table's date/time are UTC).
+    const DAY = /^\d{4}-\d{2}-\d{2}$/;
+    if (DAY.test(date_from || '')) query += `&created_at=gte.${encodeURIComponent(mskDayStartUtc(date_from))}`;
+    if (DAY.test(date_to || ''))   query += `&created_at=lt.${encodeURIComponent(mskDayEndUtc(date_to))}`;
 
     const response = await fetch(query, {
       headers: {
@@ -51,6 +55,9 @@ module.exports = async function handler(req, res) {
     }
 
     let sessions = await response.json();
+
+    // date / time are stored in UTC; the dashboard shows Moscow time.
+    sessions = sessions.map(s => ({ ...s, ...sessionMsk(s.date, s.time, s.created_at) }));
 
     // ── Strip session_id for client role ─────────────────────
     if (role === 'client') {
