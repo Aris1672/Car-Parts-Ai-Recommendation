@@ -41,7 +41,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## ▶️ RESUME HERE (state at the end of 03.11.2026) — read this block first
 
-**Where we are:** everything below is on `main` and deployed (owner redeploys in Coolify by hand). Done 03.11: tyres/rims/wheels from the catalogue (confirmed live), external code review + TASK ORDER, task 1 (repo root no longer served, old secrets removed), task 2 (one normaliser `lib/normalize.js` + `npm test`, confirmed live), Laximo direct API **access confirmed from our server** (`scripts/check-laximo-api.js`).
+**Where we are:** everything below is on `main` and deployed (owner redeploys in Coolify by hand). Done 03.11: tyres/rims/wheels from the catalogue (confirmed live), external code review + TASK ORDER, task 1 (repo root no longer served, old secrets removed), task 2 (one normaliser `lib/normalize.js` + `npm test`, confirmed live), Laximo direct API **access confirmed from our server** (`scripts/check-laximo-api.js`), **VIN search too**: `--vin X4XZW61140L560928` → `BMW X5 40dX (catalog BMW202601, vehicleid 2050271679)` (one car from the quota). Use this VIN for the `--dump` run (already counted, so no new car).
 
 **Situation now:** ABCP's browser check blocks our server again (IP still 168.222.202.222 → the exemption lapsed; seen 19:04 and 21:24 UTC). While blocked, the bot is paused 6 h at a time and answers from the compatibility table (no VIN, no diagrams, no tyres, no ТО kit). The fix is the next task, not ABCP.
 
