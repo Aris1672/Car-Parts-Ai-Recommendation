@@ -444,7 +444,7 @@ async function fetchCompatibilityBySeries(series) {
     return cached.data;
   }
 
-  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false, connectionTimeoutMillis: 5000 });
   try {
     await client.connect();
     // = any(): still the series index; covers how the table spells it ("X5", "i3").
@@ -783,7 +783,7 @@ async function fetchCompatibilityByVendorCode(vendorCode) {
     return cached.vehicles;
   }
 
-  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false, connectionTimeoutMillis: 5000 });
   try {
     await client.connect();
     const result = await client.query('select vehicle from compatibility where vendor_code = $1', [vendorCode]);
@@ -908,7 +908,7 @@ async function lookupCatalog(codes, preferBrand) {
   }
   if (!ask.length) return out;
 
-  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false });
+  const client = new Client({ connectionString: SUPABASE_DB_URL, ssl: false, connectionTimeoutMillis: 5000 });
   try {
     await client.connect();
     const { rows } = await client.query(
