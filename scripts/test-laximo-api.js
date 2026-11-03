@@ -115,7 +115,7 @@ const server = http.createServer((req, res) => {
     if (bad) xml = null;
     else if (name === 'ListCatalogs') xml = '<response><ListCatalogs><row brand="BMW" code="BMW202601" name="BMW"/><row brand="MINI" code="MINI202601" name="MINI"/></ListCatalogs></response>'; // shape assumed (REST listCatalogs has brand + code)
     else if (name === 'GetWizard2' && params.ssd) xml = '<response><GetWizard2><row automatic="false" conditionid="2" determined="true" name="Серия" value="X5 E70 LCI" ssd="' + params.ssd + '"/></GetWizard2></response>';
-    else if (name === 'ListQuickDetail' && params.QuickGroupId === '544') xml = params.ssd === '$*MOD_YES$'
+    else if (name === 'ListQuickDetail' && params.QuickGroupId === '544') xml = params.ssd === car.ssd + '$*MOD_YES$'
       ? '<response><ListQuickDetail><Category categoryid="1" code="3410" name="Диск" ssd="c"><Unit code="34_1" name="Тормоз M" ssd="$*UNITM$" unitid="9"><Detail codeonimage="01" match="t" name="Тормозной диск" oem="34116875283"/></Unit></Category></ListQuickDetail></response>'
       : '<response><ListQuickDetail><Category categoryid="1" code="3410" name="Диск" ssd="c"><Unit code="34_1" filter="S2NHA" name="Тормоз" ssd="$*UNITF$" unitid="8"><Detail codeonimage="01" match="t" name="Тормозной диск" oem="34116875283"/><Detail codeonimage="01" match="t" name="Тормозной диск" oem="34108858705"/></Unit></Category></ListQuickDetail></response>';
     else if (name === 'GetFilterByUnit') xml = '<response><GetFilterByUnit><row name="Спортивные тормоза M (S2NHA)" type="list"><values><row name="да" note="" ssdmodification="$*MOD_YES$"/><row name="нет" note="" ssdmodification="$*MOD_NO$"/></values></row></GetFilterByUnit></response>';
@@ -209,7 +209,7 @@ const server = http.createServer((req, res) => {
     a.deepStrictEqual(d1.equipmentQuestion && d1.equipmentQuestion.label, 'Спортивные тормоза M (S2NHA)', JSON.stringify(d1.equipmentQuestion));
     const d2 = await L.searchPartsForVehicle(mq, ['тормозные диски'], ['диск'], ['34'], { equipment: { label: 'Спортивные тормоза M (S2NHA)', answer: 'да' } });
     a.deepStrictEqual(d2.map(p => p.oem), ['34116875283'], 'answer "да" -> only the M brake disc');
-    a.ok(calls.some(c => c.name === 'ListQuickDetail' && c.params.ssd === '$*MOD_YES$'), 'group reopened with ssdmodification');
+    a.ok(calls.some(c => c.name === 'ListQuickDetail' && c.params.ssd === car.ssd + '$*MOD_YES$'), 'group reopened with car ssd + ssdmodification');
 
     console.log('test-laximo-api: all ok');
   } finally {
