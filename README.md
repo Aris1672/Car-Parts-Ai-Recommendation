@@ -75,7 +75,7 @@ An outside review of the app (03.11). Every claim was checked against the code b
 | R6 | One model, no fallback (session 28) | ✅ true | Any foreign provider raises the same 152-ФЗ question (PII is already masked, so it's simpler than it looks). Candidate: a Russian model (YandexGPT / GigaChat) behind `llmFetch`. |
 
 **TASK ORDER** (status: ⬜ to do · 🔄 in progress · ✅ done · ⏸ waiting for the owner):
-1. ⬜ **Security (R1).** Serve only the files the site needs (`/widget`, `/dashboard`, `/fonts`, the listed images), not the repo root. Remove the secrets from the files. ⏸ Owner: rotate both secrets in Coolify / ABCP after the change. ~1 h.
+1. ⬜ **Security (R1).** Serve only the files the site needs (`/widget`, `/dashboard`, `/fonts`, the listed images), not the repo root. ~1 h. *(Secrets: ✅ removed from the files 03.11 — the DB password in the session-note example and `safe and info.txt` with the VAPID keys; the owner confirmed they are all outdated, so no rotation needed. A Bitrix24 webhook remains only in old git history, also outdated.)*
 2. ⬜ **One normalizer + tests (R2, R3).** `lib/normalize.js`: uppercase, Cyrillic look-alikes → Latin (Х→X, Е→E, М→M, С→C, А→A, В→B, Т→T, О→O, Р→P, К→K, Н→H), spaces; used by `extractSeries`, `normalizeModel`, `normalizeOem`, `norm`. Commit the test suites (`scripts/test-*.js`, no jsdom needed for the server ones), add `"test"` to `package.json`. ~1 h.
 3. ⬜ **Prompt clean-up (R4).** Remove dead sections, then split by route (part search, ТО, order status, services) so each answer gets only its rules. Replay the live cases from this README before/after.
 4. ⬜ **Cards built by code (R5),** one route at a time: plain part search first (cards from Laximo rows + price list), then ТО (already mostly code), then tyres. The LLM writes the text only; drop each text fix that no longer has anything to fix.
@@ -386,7 +386,7 @@ An outside review of the app (03.11). Every claim was checked against the code b
 - **Dashboard:** show `placement` (homepage block vs bubble) in the "Подбор" tab.
 - **Security (found 25.10, not fixed yet — details were given to the owner in the chat, deliberately not written here because this README may itself be publicly downloadable):**
   - `server.js` serves the whole repo root as static files (`express.static(__dirname)`), so source files and this README are probably downloadable from the live domain. Serve only the needed images instead. Fix this first.
-  - Two secrets are committed in plain text (one in this repo, one in `abcp-catalog-proxy`): rotate both, keep them only in Coolify, delete them from the files.
+  - ✅ 03.11: the secrets committed in this repo (a DB password in a README example, the VAPID keys in `safe and info.txt`) were removed; the owner confirmed they were all outdated. Still check `abcp-catalog-proxy` for its own committed secret.
   - `abcp-catalog-proxy`: `.github/workflows/refresh-catalog.yml` still calls the old Vercel URL every 6 hours although `server.js` refreshes in-process.
   - `api/chat.js` falls back to `https://abcp-catalog-proxy.vercel.app/api/catalog` if `CATALOG_API_URL` is missing.
 
@@ -870,7 +870,7 @@ Investigated "how does the compatibility catalog get updated when I push to GitH
 
 4. **`env.local` (the project's local-only env file) was missing `SUPABASE_DB_URL` entirely** — only had `ABCP_EXPORT_URL`. Added the missing line, pointing at the self-hosted instance:
    ```
-   SUPABASE_DB_URL=postgresql://postgres.your-tenant-id:h7QXHfD40buenTZ9kdptHr45WJWcTAX@77.222.47.140:6543/postgres
+   SUPABASE_DB_URL=postgresql://postgres.your-tenant-id:<password>@77.222.47.140:6543/postgres
    ```
 
 5. **Plain `node scripts/...` does NOT read `env.local` automatically** — the script has no `dotenv`-style auto-loader. Node's built-in `--env-file` flag (Node 20.6+) is required:
