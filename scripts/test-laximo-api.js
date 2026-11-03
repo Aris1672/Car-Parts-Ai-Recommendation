@@ -204,6 +204,16 @@ const server = http.createServer((req, res) => {
     // Equipment selector on the model path: unit with filter -> GetFilterByUnit -> the site's question; the answer opens the group with ssdmodification
     a.deepStrictEqual(A.parseFilter('<response><GetFilterByUnit><row name="X (S1)"><values><row name="да" ssdmodification="$a$"/><row name="нет" ssdmodification="$b$"/></values></row></GetFilterByUnit></response>'),
       [{ label: 'X (S1)', options: [{ text: 'да', value: '$a$' }, { text: 'нет', value: '$b$' }] }]);
+    // Auto answers (live 04.11): China / CKD Thailand never asked, their «нет» appended; S2NHA «нет» also carries red-M «нет»
+    const auto = L.withAutoAnswers([
+      { label: 'Спортивные тормоза M (S2NHA)', options: [{ text: 'да', value: '~A1' }, { text: 'нет', value: '~A0' }] },
+      { label: 'Спортивный тормоз M, красный глянцевый (S3M2A)', options: [{ text: 'да', value: '~R1' }, { text: 'нет', value: '~R0' }] },
+      { label: 'Монтаж CKD Таиланд (S9C6A)', options: [{ text: 'да', value: '~T1' }, { text: 'нет', value: '~T0' }] },
+      { label: 'Исполнение для Китая (L8AAA)', options: [{ text: 'да', value: '~C1' }, { text: 'нет', value: '~C0' }] },
+    ]);
+    a.deepStrictEqual(auto.map(f => f.label), ['Спортивные тормоза M (S2NHA)', 'Спортивный тормоз M, красный глянцевый (S3M2A)']);
+    a.deepStrictEqual(auto[0].options.map(o => o.value), ['~A1~T0~C0', '~A0~T0~C0~R0']);
+    a.deepStrictEqual(auto[1].options.map(o => o.value), ['~R1~T0~C0', '~R0~T0~C0']);
     const mq = { query: m.vehicleQuery, cacheId: 'model:test' };
     const d1 = await L.searchPartsForVehicle(mq, ['тормозные диски'], ['диск'], ['34']);
     a.deepStrictEqual(d1.equipmentQuestion && d1.equipmentQuestion.label, 'Спортивные тормоза M (S2NHA)', JSON.stringify(d1.equipmentQuestion));
