@@ -142,11 +142,19 @@ app.get('/dashboard', (req, res) => {
 app.use('/dashboard', express.static(path.join(__dirname, 'dashboard')));
 app.use('/widget', express.static(path.join(__dirname, 'widget')));
 
-// Root-level static files (logos, chat-bg.jpg, favicon-style assets, etc.)
-app.use(express.static(__dirname, {
-  index: false, // don't auto-serve an index.html at root unless explicitly requested
-  dotfiles: 'ignore',
-}));
+// Images and fonts outside /widget and /dashboard (chat-bg.jpg, agent-avatar.jpg,
+// AI_Agent.png, the dashboard icons, /fonts, marketing banners) -- and nothing
+// else. Until 03.11 this served the whole repo root, so README.md, the source
+// code and any text file were downloadable from the live domain (external
+// review R1). Everything that isn't an image or a font now gets a 404.
+const PUBLIC_ASSET_RE = /\.(png|jpe?g|gif|webp|svg|ico|woff2?)$/i;
+const rootAssets = express.static(__dirname, { index: false, dotfiles: 'ignore', fallthrough: true });
+app.use((req, res, next) => {
+  if ((req.method === 'GET' || req.method === 'HEAD') && PUBLIC_ASSET_RE.test(req.path) && !/^\/node_modules\//i.test(req.path)) {
+    return rootAssets(req, res, next);
+  }
+  next();
+});
 
 // ─── Health check (useful for Coolify's health checks / uptime monitoring) ──
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok' }));
