@@ -235,6 +235,14 @@ const server = http.createServer((req, res) => {
     a.deepStrictEqual(L.narrowUnits(bp, ['АКБ'], 'АКБ BMW X5 G05').units.map(u => u.name), ['Оригинальная АКБ BMW']);
     a.strictEqual(L.narrowUnits(bp, ['АКБ'], 'АКБ 48 В на X5').units.length, 4, 'asked for 48 V -> all kept');
     a.strictEqual(L.narrowUnits(bp, ['тормозные колодки'], '').units.length, 4, 'other parts untouched');
+    // Generic group match on the real X5 E70 group tree (coverage run 04.11)
+    const gt = require('./fixtures/laximo-api/group-tree-bmw-x5-e70.json');
+    const gm = kw => { const n = L.findGroupFor(kw, gt); return n ? n.gid : null; };
+    for (const [kw, gid] of [['рулевой наконечник', '522'], ['рулевая тяга', '520'], ['прокладка поддона', '27'], ['цепь ГРМ', '79'], ['пыльник ШРУСа', '447'],
+      ['маслоохладитель', '128'], ['задний редуктор', '456'], ['подкрылок', '820'], ['лампа фары', '626'], ['фара', '623'], ['крыло', '935'], ['колёсный болт', '515'],
+      ['натяжной ролик', '195'], ['тормозной шланг', '564'], ['масло АКПП', '437'], ['стекло зеркала', '13485'], ['свечи зажигания', null], ['тормозные колодки', '545']]) {
+      a.strictEqual(gm(kw), gid, `group for «${kw}»`);
+    }
     console.log('test-laximo-api: all ok');
   } finally {
     server.close();
