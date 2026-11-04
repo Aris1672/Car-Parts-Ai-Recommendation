@@ -5,6 +5,7 @@
  *
  *   node scripts/check-abcp-catalog.js            # 195/60 R15 winter (as on the site 04.11)
  *   node scripts/check-abcp-catalog.js 225/45R18 summer
+ *   node scripts/check-abcp-catalog.js --probe    # which operation names exist at all (cp/catalog/* gave «Unknown operation» 04.11)
  *
  * The exact parameter names of cp/catalog/info and cp/catalog/search are not
  * confirmed yet, so the script tries the likely spellings one by one and
@@ -19,8 +20,10 @@ const path = require('path');
 const abcp = require('../lib/abcpOrders');
 
 const OUT = '/tmp/abcp-catalog';
-const sizeArg = process.argv[2] || '195/60R15';
-const seasonArg = (process.argv[3] || 'winter').toLowerCase();
+const PROBE = process.argv.includes('--probe');
+const args = process.argv.slice(2).filter(a => a !== '--probe');
+const sizeArg = args[0] || '195/60R15';
+const seasonArg = (args[1] || 'winter').toLowerCase();
 const m = sizeArg.match(/(\d{3})\D+(\d{2})\D*R?\s*(\d{2})/i);
 if (!m) { console.error('size like 195/60R15'); process.exit(1); }
 const [, width, height, diameter] = m;
@@ -50,6 +53,14 @@ async function tryCall(label, op, params) {
   fs.mkdirSync(OUT, { recursive: true });
   console.log(`Tyres ${width}/${height} R${diameter}, season ${seasons.join(' + ')}`);
 
+  if (PROBE) {
+    // «Unknown operation» = no such name; any other error (missing parameter…) = the name exists.
+    const names = ['catalog/info', 'catalog/search', 'cp/catalogs', 'catalogs', 'cp/goodsCatalog', 'goodsCatalog/search',
+      'cp/goods_catalog', 'goods_catalog/search', 'catalog/tires', 'cp/catalog/tires', 'tires/search', 'cp/tires'];
+    for (const op of names) await tryCall('probe-' + op.replace(/\//g, '_'), op, { goodsGroup: 'tires' });
+    console.log(`\nDone. Lines without «unknown operation» are the interesting ones.`);
+    return;
+  }
   // 1. catalog description / list of catalogs
   await tryCall('info-plain', 'cp/catalog/info', {});
   await tryCall('info-goodsGroup', 'cp/catalog/info', { goodsGroup: 'tires' });
