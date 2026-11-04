@@ -248,6 +248,11 @@ const server = http.createServer((req, res) => {
     const gx = kw => { const n = L.findGroupFor(kw, xm); return n ? n.gid : null; };
     a.notStrictEqual(gx('колодки стояночного тормоза'), '545', 'handbrake shoes must not open the disc pads');
     a.notStrictEqual(gx('генератор'), '251', 'alternator must not open the pulse generator (sensors)');
+    // «530xi» = 530iX (live 04.11: ALPINA buttons were offered)
+    a.strictEqual(L.norm('BMW 530xi').trim(), 'bmw 530ix');
+    a.strictEqual(L.norm('530i xDrive').trim(), '530ix');
+    const w = L.pickWizardOption({ options: [{ key: '1', value: 'BMW ALPINA B5' }, { key: '2', value: 'BMW ALPINA D5s B57R' }, { key: '3', value: '530iX' }, { key: '4', value: '530iX B46D' }, { key: '5', value: '530i' }] }, L.norm('свеча BMW 530xi'));
+    a.ok(!JSON.stringify(w).includes('ALPINA'), JSON.stringify(w));
     console.log('test-laximo-api: all ok');
   } finally {
     server.close();
