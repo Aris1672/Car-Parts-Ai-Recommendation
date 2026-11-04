@@ -966,7 +966,16 @@
     <!-- «Диалоги» (04.11): ADMIN ONLY -- every message, the bot's reply and the catalog trace; ✓/✗ review -->
     <div id="tab-dialogs" class="tab-panel" style="display:none;">
       <style>
-        .dg-conv{background:#fff;border:1px solid #e3e8ef;border-radius:10px;margin:0 0 12px;}
+        .dg-conv{background:#fff;border:1px solid #e3e8ef;border-radius:10px;margin:0 0 12px;color:#111827;}
+        .dg-conv *{color:inherit;}
+        .dg-head b{color:#111827 !important;} .dg-meta{color:#4b5563 !important;}
+        .dg-user{color:#0b2a5b !important;} .dg-bot{color:#111827 !important;}
+        .dg-chip{color:#1f2937 !important;background:#fff;} .dg-und{color:#374151 !important;} .dg-cards{color:#1f2937 !important;}
+        .dg-flag{color:#b42318 !important;} .dg-flag.ok{color:#067647 !important;}
+        .dg-rev input{color:#111827 !important;background:#fff;}
+        .dg-rev button{color:#111827 !important;} .dg-rev button.on-ok,.dg-rev button.on-bad{color:#fff !important;}
+        .dg-trace{color:#e2e8f0 !important;}
+        .dg-conv summary{color:#4b5563 !important;cursor:pointer;}
         .dg-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;cursor:pointer;}
         .dg-head b{font-size:14px;} .dg-meta{color:#6b7280;font-size:12px;}
         .dg-flag{background:#fdecec;color:#b42318;border-radius:10px;padding:1px 8px;font-size:11px;}
