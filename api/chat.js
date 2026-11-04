@@ -2172,6 +2172,25 @@ async function extractVehicleInfo(messages) {
       out = await call(LLM_MODEL, { max_tokens: 8000 }, EXTRACT_RETRY_TIMEOUT_MS);
       console.log('[extract] second try succeeded');
     }
+    // A button answer to our own question («Нет», «Есть», «Передние», «X5 40iX»…)
+    // often comes back without the part (live 04.11: «Нет» to the equipment
+    // question for a battery -> partKeywords null -> no search, «код двигателя?»).
+    // Then the part of the previous message is kept.
+    if (out && !(out.partKeywords && out.partKeywords.length)) {
+      const lastA = String((([...(messages || [])].reverse().find(m => m.role === 'assistant')) || {}).content || '');
+      if ([EQUIP_LEAD, CLARIFY_LEAD, AXLE_LEAD, VARIANT_LEAD].some(l => lastA.includes(l))) {
+        const prev = previousExtraction(messages);
+        if (prev && prev.partKeywords && prev.partKeywords.length) {
+          out.partKeywords = prev.partKeywords;
+          out.partSearchNames = out.partSearchNames || prev.partSearchNames || null;
+          out.partGroups = out.partGroups || prev.partGroups || null;
+          if (!out.vin && prev.vin) out.vin = prev.vin;
+          if (!out.model && prev.model) out.model = prev.model;
+          if (!out.brand && prev.brand) out.brand = prev.brand;
+          console.log(`[extract] answer to our question -- part kept from the previous message: ${out.partKeywords.join(', ')}`);
+        }
+      }
+    }
     rememberExtraction(messages, out);
     return out;
   } catch (err) {
