@@ -1993,6 +1993,11 @@ function markDiscontinuedCards(text, catalogParts) {
   return marked ? text.replace(re, `<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`) : text;
 }
 
+// Tyres, rims, complete wheels (owner 04.11): the diagram is one picture of the
+// part itself, so the card shows it WHOLE instead of zooming in on position 1.
+const WHOLE_DIAGRAM_RE = /шин|покрышк|колес|колёс|кол\.\s*с|л\/с\s*диск|диск[иа]?\s+колес|lm\s*rad|\brad\b|tyre|tire|wheel/i;
+const wholeDiagram = p => WHOLE_DIAGRAM_RE.test(`${p.unit || ''} ${p.name || ''}`) && !/тормоз|подшипник|ступиц|датчик|болт|гайк|колпач|грузик|рычаг|кожух|арк/i.test(`${p.unit || ''} ${p.name || ''}`);
+
 /** A Laximo part without a price-list card -> product card with its diagram (see DIAGRAM CARDS). */
 function diagramCardFor(p, live, carLabel) {
   const oem = laximo.normalizeOem(p.oem);
@@ -2015,7 +2020,7 @@ function diagramCardFor(p, live, carLabel) {
     url: null, // the widget opens the site search for the number
     picture: null,
     best_for: '',
-    diagram: p.unitImage || ref ? { image: p.unitImage || null, position, unit: p.unit || null, ...(ref ? { ref } : {}) } : null, // no diagram (pad paste) -> plain card
+    diagram: p.unitImage || ref ? { image: p.unitImage || null, position, unit: p.unit || null, ...(wholeDiagram(p) ? { whole: true } : {}), ...(ref ? { ref } : {}) } : null, // no diagram (pad paste) -> plain card
   };
 }
 

@@ -2150,11 +2150,11 @@
   // (box) is loaded afterwards from /api/part-diagram, then the picture zooms
   // in on the part and marks it red. Tap -> the full diagram in a new tab.
   function diagramSrc(url) { return url ? `${BASE_URL}/api/laximo-image?u=${encodeURIComponent(url)}` : ''; }
-  function layoutDiagram(frame, img, mark, box) {
+  function layoutDiagram(frame, img, mark, box, whole) {
     const cw = frame.clientWidth, ch = frame.clientHeight, nw = img.naturalWidth, nh = img.naturalHeight;
     if (!cw || !ch || !nw || !nh) return;
     let rx = 0, ry = 0, rw = nw, rh = nh;
-    if (box && box.x != null && box.y != null) {
+    if (!whole && box && box.x != null && box.y != null) { // whole = tyres/wheels: full picture (owner 04.11)
       const bw = box.w || 12, bh = box.h || 16;
       rw = Math.min(nw, Math.max(Math.max(bw, bh) * 9, nw * 0.4));
       rh = rw * ch / cw;
@@ -2193,14 +2193,15 @@
     const frame = card.querySelector('.pc-diag-img');
     if (!frame || !d) return;
     const img = frame.querySelector('img'), mark = frame.querySelector('.pc-diag-mark'), wait = frame.querySelector('.pc-diag-wait');
+    const whole = !!d.whole; // tyres/wheels (server flag): full picture, no zoom
     let box = d.box || null, full = d.image || null; // ТО cards bring their marker with them
     const showFallback = () => { if (!img.naturalWidth) { wait.textContent = '🔩'; wait.style.fontSize = '42px'; } };
-    img.addEventListener('load', () => { wait.style.display = 'none'; layoutDiagram(frame, img, mark, box); });
+    img.addEventListener('load', () => { wait.style.display = 'none'; layoutDiagram(frame, img, mark, box, whole); });
     img.addEventListener('error', showFallback);
-    window.addEventListener('resize', () => layoutDiagram(frame, img, mark, box));
+    window.addEventListener('resize', () => layoutDiagram(frame, img, mark, box, whole));
     // The card is built before the carousel is on the page (size 0): lay out again once it has a size.
-    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => layoutDiagram(frame, img, mark, box)).observe(frame);
-    else setTimeout(() => layoutDiagram(frame, img, mark, box), 300);
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => layoutDiagram(frame, img, mark, box, whole)).observe(frame);
+    else setTimeout(() => layoutDiagram(frame, img, mark, box, whole), 300);
     frame.addEventListener('click', () => { if (full) window.open(diagramSrc(full), '_blank', 'noopener'); });
     if (!d.ref) { if (d.image) img.src = diagramSrc(d.image); else showFallback(); return; }
     // The picture first, the marker after: marker requests wait in a small
@@ -2213,7 +2214,7 @@
         full = j.image;
         const src = diagramSrc(j.image);
         if (img.getAttribute('src') !== src) img.src = src; // the unit page's own picture (box coordinates match it)
-        else layoutDiagram(frame, img, mark, box);
+        else layoutDiagram(frame, img, mark, box, whole);
       })
       .catch(() => { if (!d.image) showFallback(); }));
     if (d.image) {
