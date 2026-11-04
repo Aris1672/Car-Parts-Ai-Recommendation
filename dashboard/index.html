@@ -1013,6 +1013,8 @@
           </select>
           <input type="text" class="table-search" id="dialogs-search" placeholder="🔍  Поиск по тексту, артикулу, машине…" style="max-width:280px;">
           <button class="filter-btn" id="dialogs-refresh">Обновить</button>
+          <button class="filter-btn" id="dialogs-download" title="Скачать показанные диалоги (фильтр и период) файлом JSON">⬇ Скачать</button>
+          <button class="filter-btn" id="dialogs-push" title="Отправить проверенные (✓/✗) диалоги за период в приватный репозиторий — Claude прочитает их">📤 Передать Claude</button>
         </div>
       </div>
       <div class="dg-meta" id="dialogs-count" style="margin:0 0 10px;"></div>
@@ -2302,6 +2304,33 @@
     saveReview(id, rv, note).catch(err => alert('Не сохранилось: ' + err.message));
   });
   document.getElementById('dialogs-refresh').addEventListener('click', loadDialogs);
+  async function dialogsAction(action) {
+    const res = await fetch(DIALOGS_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, action, days: document.getElementById('dialogs-days').value, filter: document.getElementById('dialogs-filter').value }) });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Ошибка');
+    return data;
+  }
+  document.getElementById('dialogs-download').addEventListener('click', async () => {
+    try {
+      const data = await dialogsAction('export');
+      const blob = new Blob([JSON.stringify(data.file, null, 1)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `dialogs_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch (e) { alert('Не скачалось: ' + e.message); }
+  });
+  document.getElementById('dialogs-push').addEventListener('click', async () => {
+    const btn = document.getElementById('dialogs-push');
+    btn.disabled = true; const label = btn.textContent; btn.textContent = 'Отправляю…';
+    try {
+      const d = await dialogsAction('push');
+      alert(`Передано: ${d.conversations} диалог(ов), ✗ ${d.bad}, ✓ ${d.ok}\nФайл: ${d.path}\nНапишите Claude: «посмотри новые ✗ в bot-reviews»`);
+    } catch (e) { alert('Не отправилось: ' + e.message); }
+    finally { btn.disabled = false; btn.textContent = label; }
+  });
   document.getElementById('dialogs-filter').addEventListener('change', loadDialogs);
   document.getElementById('dialogs-days').addEventListener('change', loadDialogs);
   document.getElementById('dialogs-search').addEventListener('input', renderDialogs);
