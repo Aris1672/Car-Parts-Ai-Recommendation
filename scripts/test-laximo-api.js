@@ -253,6 +253,12 @@ const server = http.createServer((req, res) => {
     a.strictEqual(L.norm('530i xDrive').trim(), '530ix');
     const w = L.pickWizardOption({ options: [{ key: '1', value: 'BMW ALPINA B5' }, { key: '2', value: 'BMW ALPINA D5s B57R' }, { key: '3', value: '530iX' }, { key: '4', value: '530iX B46D' }, { key: '5', value: '530i' }] }, L.norm('свеча BMW 530xi'));
     a.ok(!JSON.stringify(w).includes('ALPINA'), JSON.stringify(w));
+    // «BMW 530» on the G30 LCI «Модель» step: the word «BMW» must not pick the ALPINA options (Диалоги ✗ 04.11)
+    const g30 = { name: 'Модель', options: ['BMW ALPINA B5', 'BMW ALPINA D5s B57R', 'BMW ALPINA D5s B57S', '520d', '520dX', '520i', '530d', '530dX', '530e', '530eX', '530i', '530iX', '530iX B46D', '540i', '540iX', 'M550i'].map((v, i) => ({ key: String(i), value: v })) };
+    for (const txt of ['модель: 5 G30 \n Свеча зажигания BMW 530 \n 5\' G30 LCI', 'Свеча зажигания BMW 530xi \n 5\' G30 LCI']) {
+      const r = L.pickWizardOption(g30, L.norm(txt)) || L.partialWizardPick(g30, L.norm(txt));
+      a.ok(r && !JSON.stringify(r).includes('ALPINA'), `${txt}: ${JSON.stringify(r)}`);
+    }
     console.log('test-laximo-api: all ok');
   } finally {
     server.close();
