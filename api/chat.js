@@ -68,6 +68,7 @@ const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
 const progress = require('../lib/progress'); // live step lines for the widget (see streamResponse)
 const pii = require('../lib/pii'); // phones/emails never go to the LLM (152-ФЗ)
+const chatTurns = require('../lib/chatTurns'); // admin «Диалоги»: every message + what the bot did
 const LAXIMO_ENABLED   = process.env.LAXIMO_ENABLED !== 'false';
 const LAXIMO_BUDGET_MS = Number(process.env.LAXIMO_BUDGET_MS || 30000);
 // A car chosen by model (no VIN) that the bot has never looked up needs up to
@@ -2840,16 +2841,54 @@ function understoodStep(extracted, workshopTopic) {
   return what ? `Понял запрос: ${what}` : null;
 }
 
+// ─── Turn record for the admin «Диалоги» tab (lib/chatTurns.js, 04.11) ──────
+// The catalog trace of one message = its own [laximo]/[catalog]/[chat]/[extract]/DIAG
+// log lines: console.log is wrapped once, and lines are collected only inside a
+// running chat message (AsyncLocalStorage), so nothing else changes.
+const turnStore = new AsyncLocalStorage();
+const TRACE_RE = /^(\[(laximo|laximo-api|catalog|chat|extract|prices|manager|abcp|answer)\]|DIAG )/;
+for (const level of ['log', 'warn', 'error']) {
+  const orig = console[level].bind(console);
+  console[level] = (...args) => {
+    orig(...args);
+    const t = turnStore.getStore();
+    if (!t || t.trace.length >= 80) return;
+    const line = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+    if (TRACE_RE.test(line)) t.trace.push(line.slice(0, 1500));
+  };
+}
+function noteTurn(key, value) { const t = turnStore.getStore(); if (t) t[key] = value; }
+
 async function handler(req, res) {
   const calls = [];
   const started = Date.now();
   const stream = req.method === 'POST' && req.body && req.body.stream === true ? streamResponse(res) : null;
+  const turn = { trace: [], status: 200, body: null };
+  if (req.method === 'POST') {
+    // Capture the final reply whatever exit it takes (plain JSON or the stream's last line).
+    const status = res.status.bind(res), json = res.json.bind(res);
+    res.status = c => { turn.status = c; status(c); return res; };
+    res.json = body => { turn.body = body; return json(body); };
+  }
   try {
     const work = () => usageStore.run(calls, () => handleChat(req, res));
-    return await (stream ? progress.run(stream.emit, work) : work());
+    return await turnStore.run(turn, () => (stream ? progress.run(stream.emit, work) : work()));
   } finally {
     logUsage(calls);
-    if (req.method === 'POST') console.log(`[timing] message total: ${Date.now() - started} ms`);
+    if (req.method === 'POST') {
+      console.log(`[timing] message total: ${Date.now() - started} ms`);
+      const msgs = Array.isArray(req.body && req.body.messages) ? req.body.messages : [];
+      const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
+      if (lastUser && turn.body) {
+        chatTurns.record({
+          convId: req.body.conv_id, sessionId: req.body.session_id,
+          userText: pii.redactText(String(lastUser.content || '')),
+          reply: turn.body.reply || '', error: turn.body.error || null,
+          understood: turn.understood || null, trace: turn.trace,
+          status: turn.status, ms: Date.now() - started,
+        }).catch(() => {});
+      }
+    }
   }
 }
 
@@ -2898,6 +2937,11 @@ async function handleChat(req, res) {
     // already-matched result instead of the full dataset.
     progress.step('Читаю ваш вопрос…');
     const extracted = await extractVehicleInfo(messages);
+    noteTurn('understood', {
+      car: [extracted.brand, extracted.model, extracted.engineCode].filter(Boolean).join(' ') || null,
+      vin: extracted.vin || null, parts: extracted.partKeywords || null, number: extracted.vendorCode || null,
+      orderStatus: extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true' || undefined,
+    });
     // The LLM only saw masks, so contacts come from the code, not from it.
     extracted.contactPhone = typedContacts.phone;
     extracted.contactEmail = typedContacts.email;

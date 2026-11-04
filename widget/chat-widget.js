@@ -904,6 +904,10 @@
 
   // Session tracking
   let sessionId           = null;
+  // Conversation id (04.11, admin «Диалоги» tab): sent with every message from the
+  // first one on -- the dashboard session exists only after the first reply.
+  let convId              = null;
+  const newConvId = () => `c_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   let sessionStartPromise = null;
   let sessionStartTime    = null;
   let userMessageCount    = 0;
@@ -950,7 +954,7 @@
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        sessionId, sessionStartTime, userMessageCount, sessionEnded,
+        sessionId, convId, sessionStartTime, userMessageCount, sessionEnded,
         messages, displayLog, managerAutoTriggered, greeted,
         lastActivityAt: Date.now(),
       }));
@@ -1427,6 +1431,7 @@
       sessionEnded     = false; // resuming counts as still-active, even if a
                                  // prior pagehide fired an analytics end-call
       messages         = restored.messages || [];
+      convId           = restored.convId || null;
       displayLog       = restored.displayLog || [];
       managerAutoTriggered = restored.managerAutoTriggered || false;
       greeted          = restored.greeted || false;
@@ -1714,6 +1719,7 @@
     endSession();
     messages         = [];
     sessionId        = null;
+    convId           = null;
     sessionStartTime = null;
     userMessageCount = 0;
     sessionEnded     = false;
@@ -2546,7 +2552,7 @@
           const res = await fetch(AGENT_URL, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ messages: trimmedMessages, stream: true }),
+            body:    JSON.stringify({ messages: trimmedMessages, stream: true, conv_id: convId || (convId = newConvId()), session_id: sessionId || null }),
             signal:  controller.signal,
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);

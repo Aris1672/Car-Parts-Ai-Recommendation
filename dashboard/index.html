@@ -795,6 +795,7 @@
       <button class="tab-btn" id="tab-btn-views" data-tab="views">🛒 Подбор</button>
       <button class="tab-btn" id="tab-btn-missing" data-tab="missing">🖼️ Нет фото</button>
       <button class="tab-btn" id="tab-btn-billing" data-tab="billing">💳 Тариф</button>
+      <button class="tab-btn" id="tab-btn-dialogs" data-tab="dialogs" style="display:none;">🔍 Диалоги</button>
     </div>
 
     <!-- ══ TAB: Analytics (existing view, unchanged) ══ -->
@@ -961,6 +962,53 @@
       </div>
 
     </div><!-- /tab-products -->
+
+    <!-- «Диалоги» (04.11): ADMIN ONLY -- every message, the bot's reply and the catalog trace; ✓/✗ review -->
+    <div id="tab-dialogs" class="tab-panel" style="display:none;">
+      <style>
+        .dg-conv{background:#fff;border:1px solid #e3e8ef;border-radius:10px;margin:0 0 12px;}
+        .dg-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;cursor:pointer;}
+        .dg-head b{font-size:14px;} .dg-meta{color:#6b7280;font-size:12px;}
+        .dg-flag{background:#fdecec;color:#b42318;border-radius:10px;padding:1px 8px;font-size:11px;}
+        .dg-flag.ok{background:#e7f6ec;color:#067647;}
+        .dg-body{display:none;border-top:1px solid #eef1f5;padding:10px 14px;}
+        .dg-conv.open .dg-body{display:block;}
+        .dg-turn{border-left:3px solid #d0d7e2;padding:6px 10px;margin:0 0 12px;}
+        .dg-turn.ok{border-color:#12b76a;} .dg-turn.bad{border-color:#f04438;}
+        .dg-user{background:#eef4ff;border-radius:8px;padding:6px 10px;margin:0 0 6px;white-space:pre-wrap;}
+        .dg-bot{background:#f7f8fa;border-radius:8px;padding:6px 10px;white-space:pre-wrap;}
+        .dg-chips{margin:6px 0;display:flex;flex-wrap:wrap;gap:4px;} .dg-chip{border:1px solid #d0d7e2;border-radius:12px;padding:1px 8px;font-size:12px;}
+        .dg-cards{font-size:12px;color:#344054;margin:4px 0;}
+        .dg-und{font-size:12px;color:#475467;margin:4px 0;}
+        .dg-trace{font:11px/1.45 ui-monospace,Menlo,monospace;background:#0f172a;color:#cbd5e1;border-radius:8px;padding:8px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
+        .dg-rev{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;}
+        .dg-rev button{border:1px solid #d0d7e2;background:#fff;border-radius:6px;padding:3px 10px;cursor:pointer;}
+        .dg-rev button.on-ok{background:#12b76a;color:#fff;border-color:#12b76a;} .dg-rev button.on-bad{background:#f04438;color:#fff;border-color:#f04438;}
+        .dg-rev input{flex:1;min-width:200px;border:1px solid #d0d7e2;border-radius:6px;padding:4px 8px;}
+      </style>
+      <div class="section-header">
+        <div class="section-title">Диалоги (видно только админу)</div>
+        <div class="date-filter">
+          <select class="date-input" id="dialogs-filter" title="Фильтр">
+            <option value="all">Все</option>
+            <option value="problems">С проблемами</option>
+            <option value="unreviewed">Не проверены</option>
+            <option value="bad">✗ Отмечены как ошибка</option>
+            <option value="good">✓ Правильные</option>
+          </select>
+          <select class="date-input" id="dialogs-days" title="Период">
+            <option value="1">Сегодня</option>
+            <option value="7" selected>7 дней</option>
+            <option value="30">30 дней</option>
+            <option value="90">90 дней</option>
+          </select>
+          <input type="text" class="table-search" id="dialogs-search" placeholder="🔍  Поиск по тексту, артикулу, машине…" style="max-width:280px;">
+          <button class="filter-btn" id="dialogs-refresh">Обновить</button>
+        </div>
+      </div>
+      <div class="dg-meta" id="dialogs-count" style="margin:0 0 10px;"></div>
+      <div id="dialogs-list"></div>
+    </div><!-- /tab-dialogs -->
 
     <div id="tab-requests" class="tab-panel" style="display:none;">
 
@@ -1424,6 +1472,7 @@
     // their own products (server-side 'add' action in products.js is no
     // longer admin-only either). Only the billing edit card below stays
     // admin-only.
+    document.getElementById('tab-btn-dialogs').style.display = isAdmin ? '' : 'none'; // «Диалоги»: admin only (server checks too)
     const billingEditCard = document.getElementById('billing-edit-card');
     if (billingEditCard) billingEditCard.style.display = isAdmin ? '' : 'none';
 
@@ -1644,6 +1693,8 @@
       document.getElementById('tab-missing').style.display   = tab === 'missing'   ? 'block' : 'none';
       document.getElementById('tab-views').style.display     = tab === 'views'     ? 'block' : 'none';
       document.getElementById('tab-billing').style.display   = tab === 'billing'   ? 'block' : 'none';
+      document.getElementById('tab-dialogs').style.display   = tab === 'dialogs'   ? 'block' : 'none';
+      if (tab === 'dialogs') loadDialogs();
       if (tab === 'products' && !productsLoaded) {
         productsLoaded = true;
         loadProducts();
@@ -2164,6 +2215,87 @@
   // Name / phone / email are typed by the customer into the widget's form and
   // stored in our own database in Russia (152-ФЗ); the AI never sees them.
   const REQUESTS_API_URL = '/api/dashboard/requests';
+
+  // ── «Диалоги» (admin only) ─────────────────────────────────
+  const DIALOGS_API_URL = '/api/dashboard/conversations';
+  let allDialogs = [];
+  const openDialogs = new Set();
+  async function loadDialogs() {
+    const list = document.getElementById('dialogs-list');
+    if (!allDialogs.length) list.innerHTML = '<div class="state-empty"><div class="spinner"></div></div>';
+    try {
+      const res = await fetch(DIALOGS_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, days: document.getElementById('dialogs-days').value, filter: document.getElementById('dialogs-filter').value }) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Ошибка загрузки');
+      allDialogs = data.conversations || [];
+      renderDialogs();
+    } catch (e) {
+      list.innerHTML = `<div class="pv-none" style="padding:16px;">Ошибка загрузки: ${esc(e.message)}</div>`;
+    }
+  }
+  function dialogText(c) {
+    return c.turns.map(t => [t.user_text, t.reply, JSON.stringify(t.cards || ''), JSON.stringify(t.understood || '')].join(' ')).join(' ').toLowerCase();
+  }
+  function renderDialogs() {
+    const q = document.getElementById('dialogs-search').value.trim().toLowerCase();
+    const items = q ? allDialogs.filter(c => dialogText(c).includes(q)) : allDialogs;
+    document.getElementById('dialogs-count').textContent = `Диалогов: ${items.length} · сообщений: ${items.reduce((n, c) => n + c.turns.length, 0)}`;
+    const list = document.getElementById('dialogs-list');
+    if (!items.length) { list.innerHTML = '<div class="state-empty"><div class="state-empty-icon">💬</div><div class="state-empty-text">Диалогов за период нет (запись началась 04.11).</div></div>'; return; }
+    list.innerHTML = items.map(c => {
+      const first = c.turns[0] || {};
+      const car = (c.turns.map(t => t.understood && t.understood.car).filter(Boolean).pop()) || '';
+      const reviewed = c.turns.filter(t => t.review).length;
+      const flags = c.flags.map(f => `<span class="dg-flag">${esc(f)}</span>`).join(' ') + (reviewed ? ` <span class="dg-flag ok">проверено ${reviewed}/${c.turns.length}</span>` : '');
+      return `<div class="dg-conv${openDialogs.has(c.conv_id) ? ' open' : ''}" data-conv="${esc(c.conv_id)}">
+        <div class="dg-head"><span class="dg-meta">${esc(fmtDate(mskDay(c.started)))} ${esc(mskHm(c.started))}</span>
+          <b>${esc((first.user_text || '').slice(0, 90))}</b><span class="dg-meta">${esc(car)} · ${c.turns.length} сообщ.</span>${flags}</div>
+        <div class="dg-body">${c.turns.map(renderTurn).join('')}
+          <div class="dg-meta">conv ${esc(c.conv_id)}${c.session_id ? ' · session ' + esc(c.session_id) : ''}</div></div>
+      </div>`;
+    }).join('');
+  }
+  function renderTurn(t) {
+    const u = t.understood || {};
+    const und = [u.car && `машина: ${u.car}`, u.vin && `VIN ${u.vin}`, u.parts && `деталь: ${u.parts.join(', ')}`, u.number && `номер ${u.number}`, u.orderStatus && 'статус заказа'].filter(Boolean).join(' · ');
+    const chips = Array.isArray(t.buttons) && t.buttons.length ? `<div class="dg-chips">${t.buttons.map(b => `<span class="dg-chip">${esc(b)}</span>`).join('')}</div>` : '';
+    const cards = Array.isArray(t.cards) && t.cards.length ? `<div class="dg-cards">🧾 ${t.cards.map(k => `<b>${esc(k.article || '')}</b> ${esc(k.name || '')}${k.price ? ' — ' + esc(String(k.price)) + ' ₽' : ''}`).join(' · ')}</div>` : '';
+    const trace = Array.isArray(t.trace) && t.trace.length ? `<details><summary class="dg-meta">Что сделал код (${t.trace.length} строк)</summary><div class="dg-trace">${esc(t.trace.join('\n'))}</div></details>` : '';
+    return `<div class="dg-turn ${t.review || ''}">
+      <div class="dg-meta">${esc(mskHm(t.created_at))}${t.ms ? ' · ' + (t.ms / 1000).toFixed(1) + ' с' : ''}${t.status && t.status !== 200 ? ' · HTTP ' + t.status : ''}</div>
+      <div class="dg-user">👤 ${esc(t.user_text || '')}</div>
+      ${und ? `<div class="dg-und">🧠 Понял: ${esc(und)}</div>` : ''}
+      <div class="dg-bot">🤖 ${esc(t.reply || '')}</div>${chips}${cards}${trace}
+      <div class="dg-rev" data-id="${t.id}">
+        <button data-rv="ok" class="${t.review === 'ok' ? 'on-ok' : ''}">✓ Верно</button>
+        <button data-rv="bad" class="${t.review === 'bad' ? 'on-bad' : ''}">✗ Ошибка</button>
+        <input type="text" placeholder="Что не так / как должно быть…" value="${esc(t.review_note || '')}">
+        <button data-rv="save">Сохранить</button>
+      </div></div>`;
+  }
+  async function saveReview(id, review, note) {
+    const res = await fetch(DIALOGS_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, action: 'review', id, review, note }) });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Ошибка');
+    for (const c of allDialogs) for (const t of c.turns) if (String(t.id) === String(id)) { t.review = review; t.review_note = note; }
+    renderDialogs();
+  }
+  document.getElementById('dialogs-list').addEventListener('click', e => {
+    const head = e.target.closest('.dg-head');
+    if (head) { const conv = head.parentElement; conv.classList.toggle('open'); const id = conv.dataset.conv; conv.classList.contains('open') ? openDialogs.add(id) : openDialogs.delete(id); return; }
+    const btn = e.target.closest('.dg-rev button');
+    if (!btn) return;
+    const box = btn.closest('.dg-rev'), id = box.dataset.id, note = box.querySelector('input').value.trim();
+    const cur = (allDialogs.flatMap(c => c.turns).find(t => String(t.id) === id) || {}).review || null;
+    const rv = btn.dataset.rv === 'save' ? (cur || (note ? 'bad' : null)) : (cur === btn.dataset.rv ? null : btn.dataset.rv);
+    saveReview(id, rv, note).catch(err => alert('Не сохранилось: ' + err.message));
+  });
+  document.getElementById('dialogs-refresh').addEventListener('click', loadDialogs);
+  document.getElementById('dialogs-filter').addEventListener('change', loadDialogs);
+  document.getElementById('dialogs-days').addEventListener('change', loadDialogs);
+  document.getElementById('dialogs-search').addEventListener('input', renderDialogs);
   let allRequests = [];
 
   async function loadRequests() {
