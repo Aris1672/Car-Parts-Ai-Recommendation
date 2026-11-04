@@ -32,10 +32,10 @@ const seasons = seasonArg === 'winter' ? ['winter', 'winter_studded'] : [seasonA
 const short = (s, n = 700) => String(s).replace(/\s+/g, ' ').slice(0, n);
 let n = 0;
 
-async function tryCall(label, op, params) {
+async function tryCall(label, op, params, post = false) {
   n++;
   try {
-    const data = await abcp.apiGet(op, params);
+    const data = post ? await abcp.apiPost(op, params) : await abcp.apiGet(op, params);
     const text = JSON.stringify(data, null, 2);
     fs.writeFileSync(path.join(OUT, `${String(n).padStart(2, '0')}-${label}.json`), text);
     const count = Array.isArray(data) ? data.length : (data && typeof data === 'object' ? Object.keys(data).length : 0);
@@ -61,23 +61,11 @@ async function tryCall(label, op, params) {
     console.log(`\nDone. Lines without «unknown operation» are the interesting ones.`);
     return;
   }
-  // 1. catalog description / list of catalogs
-  await tryCall('info-plain', 'cp/catalog/info', {});
-  await tryCall('info-goodsGroup', 'cp/catalog/info', { goodsGroup: 'tires' });
-  await tryCall('info-goods_group', 'cp/catalog/info', { goods_group: 'tires' });
-  await tryCall('info-catalog', 'cp/catalog/info', { catalog: 'tires' });
-
-  // 2. search with filters, likely spellings
-  const props = { season: seasons, width: [width], height: [height], diameter: [diameter] };
-  const variants = [
-    ['search-goodsGroup-properties', { goodsGroup: 'tires', properties: props }],
-    ['search-goods_group-property', { goods_group: 'tires', property: props }],
-    ['search-goodsGroup-filters', { goodsGroup: 'tires', filters: props }],
-    ['search-catalog-properties', { catalog: 'tires', properties: props }],
-  ];
-  for (const [label, params] of variants) {
-    const data = await tryCall(label, 'cp/catalog/search', params);
-    if (data && (Array.isArray(data) ? data.length : Object.keys(data).length)) break; // first one that returns something is enough
-  }
+  // ABCP docs (admin API, «Каталоги в товарных группах», read 04.11): a SEPARATE PAID SERVICE.
+  // GET /cp/catalog/info?goods_group=tires -> filters; POST /cp/catalog/search
+  // goods_group=tires&properties[width][0]=195... -> { articles:[{brand,number,…}], count }.
+  // «Unknown operation» here = the service is not connected for the shop.
+  await tryCall('info', 'cp/catalog/info', { goods_group: 'tires' });
+  await tryCall('search', 'cp/catalog/search', { goods_group: 'tires', properties: { season: seasons, width: [width], height: [height], diameter: [diameter] }, limit: 20 }, true);
   console.log(`\nDone. Full answers in ${OUT}/ — paste the screen output (or the files) into the chat.`);
 })();
