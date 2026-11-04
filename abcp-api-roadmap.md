@@ -12,7 +12,7 @@ Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Админист
 - [ ] ⭐ **Delivery times by zone** for "сколько ехать в …?" — `/cp/user/shipmentAddressZones` (min. delivery days per zone).
 - [ ] ⭐ **Pickup offices** list/addresses kept in sync with ABCP — `cp/offices`.
 - [ ] ⭐ **Supplier promotions** mentioned when they fit the request — `cp/distributors/notes`.
-- [ ] ⭐ **Oil/fluid selection by catalog filters** (brand, viscosity, approval) — `/cp/catalog/info`, `/cp/catalog/search`, then `/cp/articles/info/batch`.
+- [ ] ⭐ **Oil/fluid selection by catalog filters** (brand, viscosity, approval) — `/cp/catalog/info`, `/cp/catalog/search`, then `/cp/articles/info/batch`. Same paid service as the tyres item.
 
 ### For Михаил (admin dashboard)
 - [x] **"Нет фото" → ABCP catalog check**: background check of every missing article against ABCP's catalog (`cp/articles/info/batch`), with thumbnail, description and an ABCP filter in the tab *(session 18, 23.10.2026; built but **off**: site tariff allows only 10 `articles/info` per day; needs the paid "API Crosses" tariff, 250 000 ₽ + from 38 400 ₽/month)*

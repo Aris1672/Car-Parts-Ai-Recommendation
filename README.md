@@ -39,13 +39,19 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 04.11.2026) — read this block first
+## ▶️ RESUME HERE (state 04.11.2026 evening) — read this block first
 
 **Where we are:** everything below is on `main` and deployed (owner redeploys in Coolify by hand). Done 03.11: tyres/rims/wheels from the catalogue (confirmed live), external code review + TASK ORDER, task 1 (repo root no longer served, old secrets removed), task 2 (one normaliser `lib/normalize.js` + `npm test`, confirmed live), Laximo direct API **access confirmed from our server** (`scripts/check-laximo-api.js`), **VIN search too**: `--vin X4XZW61140L560928` → `BMW X5 40dX (catalog BMW202601, vehicleid 2050271679)` (one car from the quota). Use this VIN for the `--dump` run (already counted, so no new car).
 
 **Situation now:** ABCP's browser check blocks our server again (IP still 168.222.202.222 → the exemption lapsed; seen 19:04 and 21:24 UTC). While blocked, the bot is paused 6 h at a time and answers from the compatibility table (no VIN, no diagrams, no tyres, no ТО kit). The fix is the next task, not ABCP.
 
 **✅ 04.11: Laximo direct API built — switch `LAXIMO_SOURCE=api` in Coolify to use it** (see «🔌 Laximo web service (04.11)» right below). Default stays `site` until the owner has tested.
+
+### 🛞 04.11 (afternoon) — tyre cards, «Популярные категории», ABCP tyre catalog
+- **Tyre / rim / wheel cards show the whole picture** (owner 04.11, ✅ confirmed live): the BMW diagram of a tyre is one picture of the tyre itself, so zooming on position 1 showed only a black strip. `api/chat.js` `wholeDiagram()` sets `diagram.whole` when the unit/name is tyres or wheels («Зимние/Летние шины», «BMW л/с диск…», «BMW кол.с л/с диск», «LM Rad»), not for bearings, hubs, brake discs, RDC sensors, bolts, caps, weights; the widget (`initDiagramCard` / `layoutDiagram(…, whole)`) then shows the full diagram, the red marker stays.
+- **«Популярные категории» → «Популярные категории оригинальных запчастей»** (owner 04.11: original parts only, not BMW-only since Laximo has 60 brands). Changed in `abcp-infoblocks/page_main.html`; **paste by hand** in ABCP (Инфоблоки → page_main → only that `<h2 class="bcMarks_title">` line). The hero stays as it is.
+- **Aftermarket tyres from ABCP's goods catalog («Шины легковые», the site's /tires_catalog) — ⏸ blocked, paid service.** Idea (owner): size + season from the customer, or the car's original sizes from Laximo → ABCP tyre catalog → brand+number list → prices via `search/batch`. ABCP admin API docs (read 04.11): `GET /cp/catalog/info?goods_group=tires` (filters), `POST /cp/catalog/search` (`goods_group`, `properties[width][0]=195`, `properties[season][0]=winter`, `skip`, `limit` → `{articles:[{brand,number,…}], count}`), cards via `POST /cp/articles/info/batch`. Site filter values (getFilters): season `summer|winter|winter_studded|allseason`, width/height/diameter, load_index, speed_index, tire_type `passenger|SUV|commercial`, run_flat, extra_load. «Каталоги в товарных группах через API» is a **separate paid service**: live check 04.11 → `ABCP error 3: Unknown operation` (not connected). Owner asks ABCP sales for the price. Check script: `node scripts/check-abcp-catalog.js [225/45R18 summer]` (read-only; `cp/catalog/info` GET + `cp/catalog/search` POST whitelisted in `lib/abcpOrders.js`). Fallback if too expensive: the site page `tires_catalog?action=search&property[width][]=…` cached per size/season (browser-check risk). The client does NOT want direct links to the ABCP goods catalogs on the site (04.11).
+- **Coolify build 04.11:** `node:18-slim` → `429 Too Many Requests` from Docker Hub (anonymous pull limit). Not a code problem; wait and redeploy, or `docker login` on the server with a free Docker Hub account.
 
 ### 🔌 Laximo web service (04.11) — `LAXIMO_SOURCE=api`
 - **Turn on:** Coolify → env `LAXIMO_SOURCE=api` (+ `LAXIMO_LOGIN` / `LAXIMO_KEY`, already set) → redeploy. **Back to the site pages:** `LAXIMO_SOURCE=site` (or delete it) → redeploy. Nothing else changes.
@@ -680,12 +686,13 @@ Everything the ABCP **admin API** (`cp/…`, docs: ABCP API → Админист
 - [ ] ⭐⭐⭐ **"Оплатить заказ" button** for verified orders with an amount due — `cp/payment/token` (ABCP's own payment link). Small, builds on order status.
 - [x] **Live price & availability** for numbers not in the feed: cheapest offer of the site search, profile "Гость (Опт)" *(session 23, `lib/abcpPrices.js`, 24.10.2026)*
 - [x] **Order timeline**: accepted → ordered from supplier → in transit → ready, with dates, plus the expected delivery date — `cp/orders/statusHistory` *(session 20, 23.10.2026)*
+- [ ] ⭐⭐⭐ **Aftermarket tyres by size + season** — ABCP goods catalog `goods_group=tires` via `/cp/catalog/info` + `/cp/catalog/search` (POST) + `search/batch`. ⏸ paid service «Каталоги в товарных группах через API», not connected (`Unknown operation`, 04.11); see «🛞 04.11 (afternoon)».
 - [ ] ⭐⭐ **Product details for parts without a feed card**: description, photos, properties (viscosity, approvals, sizes) — `cp/articles/info/batch` (POST, read-only, max 100 per call; images at `https://imgcdn.abcp.ru/p/<name>`). Also lets the bot answer oil-approval questions from real data.
 - [ ] ⭐⭐ **Customer's garage**: after the phone check, use the cars (often with VIN) saved on the site — "Вижу у вас BMW X5 G05 — подбираю для неё?" → VIN to Laximo — `cp/users/garage`.
 - [ ] ⭐ **Delivery times by zone** for "сколько ехать в …?" — `/cp/user/shipmentAddressZones` (min. delivery days per zone).
 - [ ] ⭐ **Pickup offices** list/addresses kept in sync with ABCP — `cp/offices`.
 - [ ] ⭐ **Supplier promotions** mentioned when they fit the request — `cp/distributors/notes`.
-- [ ] ⭐ **Oil/fluid selection by catalog filters** (brand, viscosity, approval) — `/cp/catalog/info`, `/cp/catalog/search`, then `/cp/articles/info/batch`.
+- [ ] ⭐ **Oil/fluid selection by catalog filters** (brand, viscosity, approval) — `/cp/catalog/info`, `/cp/catalog/search`, then `/cp/articles/info/batch`. Same paid service as the tyres item.
 
 ### For Михаил (admin dashboard)
 - [x] **"Нет фото" → ABCP catalog check**: background check of every missing article against ABCP's catalog (`cp/articles/info/batch`), with thumbnail, description and an ABCP filter in the tab *(session 18, 23.10.2026; built but **off**: site tariff allows only 10 `articles/info` per day; needs the paid "API Crosses" tariff)*
