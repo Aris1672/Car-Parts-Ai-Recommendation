@@ -373,7 +373,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 // distinct vendor codes, used to pre-filter the downloaded price list, was
 // removed 26.10.2026 with the whole-list download -- see lookupCatalog().)
 const { Client } = require('pg');
-const { extractSeries, normalizeModel, seriesVariants } = require('../lib/normalize');
+const { extractSeries, normalizeModel, seriesVariants, latinizeCodes } = require('../lib/normalize');
 const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
 
 
@@ -1323,8 +1323,19 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
     // The extracted fields get a label so their line never equals an option
     // exactly -- only the customer's own messages count as "answers" (a
     // clicked button); see pickWizardOption() in lib/laximo.js.
+    // A body code the AI added on its own (live 04.11: «Свеча зажигания BMW 530» ->
+    // model «5 E60 530» -> only E60 / E60 LCI offered) is dropped: the customer
+    // must have typed or clicked it. Same for «LCI».
+    const userSaid = latinizeCodes((messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').map(m => m.content).join(' ')).toLowerCase();
+    let modelForWizard = String(extracted.model);
+    for (const code of modelForWizard.match(/\b[efgu]\d{2,3}\b|\blci\b/gi) || []) {
+      if (!new RegExp(`(^|[^a-z0-9])${code.toLowerCase()}([^a-z0-9]|$)`).test(userSaid)) {
+        modelForWizard = modelForWizard.replace(new RegExp(`\\b${code}\\b`, 'i'), ' ').replace(/\s+/g, ' ').trim();
+        console.log(`[catalog] body code "${code}" not written by the customer -- not used for the model search`);
+      }
+    }
     customerText = [
-      `модель: ${extracted.model}`, extracted.engineCode ? `двигатель: ${extracted.engineCode}` : null,
+      `модель: ${modelForWizard}`, extracted.engineCode ? `двигатель: ${extracted.engineCode}` : null,
       extracted.year ? `год: ${extracted.year}` : null,
       ...(messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').map(m => m.content),
     ].filter(Boolean).join(' \n ');
