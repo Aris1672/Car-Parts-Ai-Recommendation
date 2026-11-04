@@ -229,11 +229,12 @@ const server = http.createServer((req, res) => {
     const bp = { units: [
       { name: 'Оригинальная АКБ BMW', filters: [], rows: [{ oem: '61216806755', name: 'Оригинальная акк.батарея BMW AGM' }] },
       { name: 'Дополнительная литий-ионная АКБ 12 В', filters: [], rows: [{ oem: '61215B3F328', name: 'Дополнительная литий-ионная АКБ 12 В' }] },
+      { name: 'Сдвоенная литиевая АКБ 12 В', filters: [], rows: [{ oem: '61215A4AF23', name: 'Сдвоенная литиевая АКБ 12 В' }] },
       { name: 'Аккумуляторная батарея 48 В', filters: [{ label: 'Спортивная ходовая часть M Professional (S2VWA)', options: [] }], rows: [{ oem: '61215A6EC78', name: 'Аккумуляторная батарея 48 В' }] },
     ] };
     a.deepStrictEqual(L.narrowUnits(bp, ['АКБ'], 'АКБ BMW X5 G05').units.map(u => u.name), ['Оригинальная АКБ BMW']);
-    a.strictEqual(L.narrowUnits(bp, ['АКБ'], 'АКБ 48 В на X5').units.length, 3, 'asked for 48 V -> all kept');
-    a.strictEqual(L.narrowUnits(bp, ['тормозные колодки'], '').units.length, 3, 'other parts untouched');
+    a.strictEqual(L.narrowUnits(bp, ['АКБ'], 'АКБ 48 В на X5').units.length, 4, 'asked for 48 V -> all kept');
+    a.strictEqual(L.narrowUnits(bp, ['тормозные колодки'], '').units.length, 4, 'other parts untouched');
     console.log('test-laximo-api: all ok');
   } finally {
     server.close();
