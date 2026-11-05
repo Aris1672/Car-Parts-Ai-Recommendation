@@ -535,6 +535,19 @@ function isServiceRequest(messages, extracted) {
   const kw = (extracted && Array.isArray(extracted.partKeywords) ? extracted.partKeywords : []).join(' ').toLowerCase();
   return /масл[а-яё]* фильтр/.test(kw) && /воздуш[а-яё]* фильтр/.test(kw) && /салон[а-яё]* фильтр/.test(kw);
 }
+// One ТО position named in a follow-up (not a new ТО request) -> its name pattern.
+const KIT_ITEMS = [
+  [/свеч/i, /свеч/i], [/масл\S*\s+фильтр|фильтр\S*\s+масл/i, /масл\S*\s*фильтр|фильтр\S*\s+масл|11\s?42/i],
+  [/воздуш/i, /воздуш/i], [/салон|микрофильтр/i, /салон|микрофильтр/i], [/щ[её]тк|дворник|стеклоочист/i, /щ[её]т|стеклоочист/i],
+  [/тормозн\S*\s+жидк/i, /тормозн\S*\s+жидк|dot\s*4/i], [/антифриз|охлажда/i, /антифриз|охлажда|coolant/i],
+  [/омыват|стекл\S*\s+жидк/i, /омыват|чист\S*\s+для\s+стекол|стекол/i], [/atf|акпп|трансмисс/i, /atf|акпп|трансмисс/i], [/\bchf\b|гур/i, /chf|гур/i],
+];
+function kitItemAsked(text) {
+  const t = String(text || '');
+  if (!t || SERVICE_UNIT_RE.test(t) || /\bнабор|комплект\s+то|всё|все\s+позиц/i.test(t)) return null;
+  const hits = KIT_ITEMS.filter(([ask]) => ask.test(t));
+  return hits.length === 1 ? hits[0][1] : null;
+}
 const SERVICE_UNIT_RE = /(^|[^А-ЯЁа-яё])ТО([^А-ЯЁа-яё]|$)|oelservice|inspektion|техобслуж|обслуживан/i;
 /** Adds the price-list items of a ТО kit to the reply's <<<PRODUCTS>>> block (creates it if needed). */
 const MAX_KIT_CARDS = 12;
@@ -3922,6 +3935,18 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     }
     // ТО kit: every kit position that is in the price list becomes a card
     // (the AI tends to pick only what its keywords matched -- live test
+    // Follow-up about ONE kit position (Диалоги 05.11: «Сколько свечи нужно заказать?»
+    // after the ТО answer -> all 10 ТО cards again): only that position's cards.
+    const kitItem = kitItemAsked(lastUserMessage(messages));
+    if (kitItem) {
+      const fits = c => kitItem.test(`${(c.part && c.part.name) || ''} ${(c.feed && c.feed.name) || ''} ${c.name || ''}`);
+      const kc = (kitCards || []).filter(fits), kf = kitFeed.filter(fits);
+      if (kc.length || kf.length) {
+        console.log(`[chat] ТО follow-up about one position (${kitItem}): ${kc.length || kf.length} card(s) instead of the whole kit`);
+        if (kitCards) kitCards = kc;
+        kitFeed = kf;
+      }
+    }
     // 25.10 showed 3 cards for a ~10-item service set). Max 12 cards.
     if (kitCards && kitCards.length) {
       text = mergeServiceCards(text, kitCards);
@@ -4043,3 +4068,4 @@ module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedC
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
+module.exports.kitItemAsked = kitItemAsked;
