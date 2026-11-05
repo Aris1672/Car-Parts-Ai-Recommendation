@@ -259,6 +259,11 @@ const server = http.createServer((req, res) => {
       const r = L.pickWizardOption(g30, L.norm(txt)) || L.partialWizardPick(g30, L.norm(txt));
       a.ok(r && !JSON.stringify(r).includes('ALPINA'), `${txt}: ${JSON.stringify(r)}`);
     }
+    // «Воздушный фильтр BMW M5» (05.11): generation buttons of the 5 Series that had an M5
+    const ser = { name: 'Серия', options: ["5' E39", "5' E60", "5' F10", "5' F11", "5' F90", "5' F90 LCI", "5' G30", "5' G90", 'M2 F87', '3\' F80'].map((v, i) => ({ key: String(i), value: v })) };
+    a.deepStrictEqual(L.pickWizardOption(ser, L.norm('Воздушный фильтр BMW M5')), { ask: ["5' E39", "5' E60", "5' F10", "5' F90", "5' F90 LCI", "5' G90"] });
+    a.deepStrictEqual(L.pickWizardOption(ser, L.norm('колодки БМВ М5 F90')), { ask: ["5' F90", "5' F90 LCI"] });
+    a.deepStrictEqual(L.pickWizardOption(ser, L.norm('колодки M2')), { ask: ['M2 F87'] });
     console.log('test-laximo-api: all ok');
   } finally {
     server.close();
