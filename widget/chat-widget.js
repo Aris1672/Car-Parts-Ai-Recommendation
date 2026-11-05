@@ -1345,7 +1345,22 @@
     } catch (e) {}
     return { sig, added: [], toast: false };
   }
-  function saveStripState() { try { localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state)); } catch (e) {} }
+  // Merge with what other tabs saved (05.11 live: a product page opened in a 2nd
+  // tab wrote its older list over the newer one -> «✓ 4» became «✓ 3»).
+  function saveStripState() {
+    try {
+      const other = loadStripState(strip.sig);
+      strip.state.added = [...new Set([...(other.added || []), ...strip.state.added])];
+      strip.state.toast = strip.state.toast || other.toast;
+      localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state));
+    } catch (e) {}
+  }
+  function refreshStripState() {
+    if (!strip) return;
+    const other = loadStripState(strip.sig);
+    const merged = [...new Set([...(other.added || []), ...strip.state.added])];
+    if (merged.length !== strip.state.added.length) { strip.state.added = merged; renderStrip(); }
+  }
 
   function initStrip() {
     if (inlineHost) return false;
@@ -1390,6 +1405,8 @@
     sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
     document.addEventListener('click', onSiteCartClick, true);
+    window.addEventListener('storage', e => { if (e.key === STRIP_KEY) refreshStripState(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshStripState(); });
     renderStrip();
 
     if (!strip.state.toast) {
@@ -1446,15 +1463,18 @@
   function onSiteCartClick(e) {
     const t = e.target;
     if (!strip || !t || !t.closest || t.closest('#pc-strip, #pc-s-sheet, #pc-panel')) return;
-    if (!t.closest('tr')) return;
     const btn = t.closest('a, button, input, [onclick], [class*="basket"], [class*="cart"]');
     if (!btn) return;
+    // Product card layout (05.11 live): one «Купить» button, not in a table row.
+    const label = String(btn.textContent || btn.value || '').trim();
+    const buyButton = /^(купить|в\s*корзину|добавить\s+в\s+корзину)$/i.test(label) && !btn.closest('header, nav');
+    if (!buyButton && !t.closest('tr')) return;
     const img = btn.querySelector && btn.querySelector('img, i, svg, span');
     const hay = [btn.className && btn.className.baseVal !== undefined ? btn.className.baseVal : btn.className,
       btn.id, btn.title, btn.getAttribute('href'), btn.getAttribute('onclick'), btn.getAttribute('aria-label'),
       btn.getAttribute('value'), img && (img.getAttribute('src') || img.className && String(img.className.baseVal || img.className) || img.title)]
       .filter(Boolean).join(' ');
-    if (!CART_RE.test(hay)) return;
+    if (!buyButton && !CART_RE.test(hay)) return;
     const cur = strip.items[strip.idx];
     if (!strip.state.added.includes(cur.code)) { strip.state.added.push(cur.code); saveStripState(); }
     renderStrip();
