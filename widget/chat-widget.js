@@ -1295,6 +1295,240 @@
     if (el) el.remove();
   }
 
+  // ─── SELECTION STRIP (05.11) ─────────────────────────────────────────────────
+  // A product page opened from the chat's carousel shows a strip pinned to the
+  // bottom of the screen instead of the round AI button: ‹ previous part ·
+  // «Подбор · 5 из 10 · ✓2 в корзине» · next part › · ☰ the whole list ·
+  // «Спросить ИИ» (opens the chat right here). The selection = the latest
+  // carousel in the conversation (displayLog, restored from localStorage on
+  // every page). Clicks on the site's own cart buttons in the offer table mark
+  // the part «✓ В корзине». Pages that aren't one of the selected parts: the
+  // round button as before. Homepage (inline agent): no strip.
+  const STRIP_KEY = 'pc_strip_v1';
+  let strip = null;   // { items, idx, sig, state }
+
+  function codeKey(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+  function currentSelection() {
+    for (let i = displayLog.length - 1; i >= 0; i--) {
+      const e = displayLog[i];
+      if (e.type === 'products' && Array.isArray(e.payload)) {
+        const items = e.payload.map(p => {
+          let url = safeUrl(p.url);
+          const isDiagram = !!(p.diagram && typeof p.diagram === 'object');
+          if (isDiagram && !url) url = `${SITE_URL}/search?pcode=${encodeURIComponent(codeKey(p.article))}`;
+          return { code: codeKey(p.article), article: p.article || '', name: p.name || '', price: Number(p.price) || 0,
+            priceFrom: !!(isDiagram && p.priceFrom), url };
+        }).filter(x => x.url && x.code.length >= 5);
+        return items.length ? items : null;
+      }
+    }
+    return null;
+  }
+
+  function pageMatches(item) {
+    try {
+      const u = new URL(item.url, location.href);
+      if (u.pathname === location.pathname && u.search === location.search) return true;
+    } catch (e) {}
+    let here = '';
+    try { here = decodeURIComponent(location.pathname + location.search); } catch (e) { here = location.pathname + location.search; }
+    return codeKey(here).includes(item.code);
+  }
+
+  function loadStripState(sig) {
+    try {
+      const s = JSON.parse(localStorage.getItem(STRIP_KEY) || 'null');
+      if (s && s.sig === sig) return s;
+    } catch (e) {}
+    return { sig, added: [], toast: false };
+  }
+  function saveStripState() { try { localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state)); } catch (e) {} }
+
+  function initStrip() {
+    if (inlineHost) return false;
+    const items = currentSelection();
+    if (!items) return false;
+    const idx = items.findIndex(pageMatches);
+    if (idx < 0) return false;
+    const sig = items.map(x => x.code).join(',');
+    strip = { items, idx, sig, state: loadStripState(sig) };
+
+    const style = document.createElement('style');
+    style.textContent = STRIP_STYLES;
+    document.head.appendChild(style);
+    document.documentElement.classList.add('pc-has-strip');
+
+    const bar = document.createElement('div');
+    bar.id = 'pc-strip';
+    bar.setAttribute('role', 'navigation');
+    bar.setAttribute('aria-label', 'Ваш подбор запчастей');
+    bar.innerHTML = `
+      <button type="button" class="pc-s-arrow" id="pc-s-prev" aria-label="Предыдущая деталь">‹</button>
+      <button type="button" class="pc-s-info" id="pc-s-info" aria-label="Весь список">
+        <span class="pc-s-title">Ваш подбор</span>
+        <span class="pc-s-count"></span>
+      </button>
+      <button type="button" class="pc-s-arrow" id="pc-s-next" aria-label="Следующая деталь">›</button>
+      <button type="button" class="pc-s-list" id="pc-s-list" aria-label="Весь список">☰<span class="pc-s-lbl"> Список</span></button>
+      <button type="button" class="pc-s-ask" id="pc-s-ask"><img src="${INLINE_AVATAR_URL}" alt=""><span>Спросить ИИ</span></button>
+      <div class="pc-s-flash" id="pc-s-flash" hidden></div>`;
+    document.body.appendChild(bar);
+
+    const sheet = document.createElement('div');
+    sheet.id = 'pc-s-sheet';
+    sheet.hidden = true;
+    document.body.appendChild(sheet);
+
+    bar.querySelector('#pc-s-prev').addEventListener('click', () => goTo(strip.idx - 1));
+    bar.querySelector('#pc-s-next').addEventListener('click', () => goTo(strip.idx + 1));
+    bar.querySelector('#pc-s-info').addEventListener('click', toggleSheet);
+    bar.querySelector('#pc-s-list').addEventListener('click', toggleSheet);
+    bar.querySelector('#pc-s-ask').addEventListener('click', () => { closeSheet(); open(); });
+    sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+    document.addEventListener('click', onSiteCartClick, true);
+    renderStrip();
+
+    if (!strip.state.toast) {
+      strip.state.toast = true; saveStripState();
+      setTimeout(() => flash(`Ваш подбор здесь — листайте ‹ › или откройте список`, false), 600);
+    }
+    return true;
+  }
+
+  function renderStrip() {
+    const bar = document.getElementById('pc-strip');
+    if (!bar) return;
+    const n = strip.items.length, added = strip.state.added.length;
+    const narrow = window.matchMedia('(max-width: 540px)').matches;
+    bar.querySelector('.pc-s-count').textContent = narrow
+      ? `${strip.idx + 1}/${n}` + (added ? ` · ✓${added}` : '')
+      : `${strip.idx + 1} из ${n}` + (added ? ` · ✓ ${added} в корзине` : '');
+    bar.querySelector('#pc-s-prev').disabled = strip.idx <= 0;
+    bar.querySelector('#pc-s-next').disabled = strip.idx >= n - 1;
+  }
+
+  function goTo(i) {
+    if (!strip || i < 0 || i >= strip.items.length) return;
+    location.href = strip.items[i].url; // same tab: the strip comes with it
+  }
+
+  function toggleSheet() {
+    const sheet = document.getElementById('pc-s-sheet');
+    if (!sheet.hidden) return closeSheet();
+    const added = new Set(strip.state.added);
+    sheet.innerHTML = `<div class="pc-s-panel" role="dialog" aria-label="Ваш подбор">
+      <div class="pc-s-head"><b>Ваш подбор · ${strip.items.length}</b><button type="button" class="pc-s-x" aria-label="Закрыть">✕</button></div>
+      <div class="pc-s-rows">${strip.items.map((x, i) => `
+        <a class="pc-s-row${i === strip.idx ? ' pc-s-cur' : ''}" href="${escHtml(x.url)}" data-i="${i}">
+          <span class="pc-s-mark">${added.has(x.code) ? '✓' : i + 1}</span>
+          <span class="pc-s-name"><span class="pc-s-art">${escHtml(x.article)}</span>${escHtml(x.name)}</span>
+          <span class="pc-s-price">${x.price ? (x.priceFrom ? 'от ' : '') + x.price.toLocaleString('ru-RU') + ' ₽' : ''}</span>
+        </a>`).join('')}</div></div>`;
+    sheet.querySelector('.pc-s-x').addEventListener('click', closeSheet);
+    sheet.hidden = false;
+    requestAnimationFrame(() => sheet.classList.add('pc-open'));
+  }
+  function closeSheet() {
+    const sheet = document.getElementById('pc-s-sheet');
+    if (!sheet || sheet.hidden) return;
+    sheet.classList.remove('pc-open');
+    sheet.hidden = true;
+  }
+
+  // The site's «в корзину» button in the offer table (ABCP: a cart icon per
+  // offer row). Matched loosely by class / title / href / onclick / icon name,
+  // only inside a table row, so the header's «Корзина» link doesn't count.
+  const CART_RE = /basket|cart|korzin|корзин/i;
+  function onSiteCartClick(e) {
+    const t = e.target;
+    if (!strip || !t || !t.closest || t.closest('#pc-strip, #pc-s-sheet, #pc-panel')) return;
+    if (!t.closest('tr')) return;
+    const btn = t.closest('a, button, input, [onclick], [class*="basket"], [class*="cart"]');
+    if (!btn) return;
+    const img = btn.querySelector && btn.querySelector('img, i, svg, span');
+    const hay = [btn.className && btn.className.baseVal !== undefined ? btn.className.baseVal : btn.className,
+      btn.id, btn.title, btn.getAttribute('href'), btn.getAttribute('onclick'), btn.getAttribute('aria-label'),
+      btn.getAttribute('value'), img && (img.getAttribute('src') || img.className && String(img.className.baseVal || img.className) || img.title)]
+      .filter(Boolean).join(' ');
+    if (!CART_RE.test(hay)) return;
+    const cur = strip.items[strip.idx];
+    if (!strip.state.added.includes(cur.code)) { strip.state.added.push(cur.code); saveStripState(); }
+    renderStrip();
+    const next = strip.items.findIndex((x, i) => i > strip.idx && !strip.state.added.includes(x.code));
+    const nextI = next >= 0 ? next : strip.items.findIndex(x => !strip.state.added.includes(x.code));
+    flash(nextI >= 0 ? `✓ Добавлено · Следующая: ${strip.items[nextI].name || strip.items[nextI].article} ›` : '✓ Добавлено · весь подбор в корзине', true, nextI);
+  }
+
+  let flashTimer = 0;
+  function flash(text, ok, nextI) {
+    const f = document.getElementById('pc-s-flash');
+    if (!f) return;
+    f.textContent = text;
+    f.className = 'pc-s-flash' + (ok ? ' pc-ok' : '');
+    f.hidden = false;
+    f.onclick = (ok && nextI >= 0) ? () => goTo(nextI) : () => { f.hidden = true; };
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { f.hidden = true; }, ok ? 6000 : 4000);
+  }
+
+  const STRIP_STYLES = `
+    .pc-has-strip #pc-launcher, .pc-has-strip #pc-teasers { display: none !important; }
+    .pc-has-strip body { padding-bottom: 72px !important; }
+    .pc-chat-open #pc-strip, .pc-chat-open #pc-s-sheet { display: none !important; }
+    #pc-strip, #pc-strip *, #pc-s-sheet, #pc-s-sheet * { box-sizing: border-box; font-family: var(--pc-font, -apple-system, "Segoe UI", Roboto, Arial, sans-serif); }
+    #pc-strip {
+      position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 999997;
+      display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 8px;
+      width: min(680px, calc(100vw - 24px));
+      background: #0f1b2d; color: #fff; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.3);
+    }
+    #pc-strip button { border: 0; background: none; color: inherit; cursor: pointer; font: inherit; -webkit-tap-highlight-color: transparent; }
+    .pc-s-arrow { width: 44px; height: 44px; border-radius: 10px; font-size: 28px !important; line-height: 1; flex-shrink: 0; }
+    .pc-s-arrow:hover:not(:disabled) { background: rgba(255,255,255,.1); }
+    .pc-s-arrow:disabled { opacity: .3; cursor: default !important; }
+    .pc-s-info { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; line-height: 1.2; padding: 4px; }
+    .pc-s-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #9cc9ff; }
+    .pc-s-count { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .pc-s-list { height: 40px; padding: 0 12px; border-radius: 10px; background: rgba(255,255,255,.1) !important; font-size: 15px; white-space: nowrap; }
+    .pc-s-ask { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 4px; border-radius: 10px;
+      background: #0a5cc4 !important; font-weight: 700; font-size: 14px; white-space: nowrap; flex-shrink: 0; }
+    .pc-s-ask img { width: 32px; height: 32px; border-radius: 8px; display: block; }
+    .pc-s-ask:hover { background: #084a9e !important; }
+    .pc-s-flash { position: absolute; left: 0; right: 0; bottom: 64px; padding: 12px 16px; border-radius: 12px;
+      background: #fff; color: #0f1b2d; font-size: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.25); cursor: pointer; text-align: center; }
+    .pc-s-flash.pc-ok { background: #1a8f3c; color: #fff; font-weight: 700; }
+    .pc-s-flash[hidden] { display: none; }
+    #pc-s-sheet { position: fixed; inset: 0; z-index: 999998; background: rgba(0,0,0,.35); display: flex; align-items: flex-end; justify-content: center; }
+    #pc-s-sheet[hidden] { display: none; }
+    .pc-s-panel { width: min(680px, 100vw); max-height: 70vh; margin-bottom: 80px; background: #fff; color: #0f1b2d;
+      border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+    .pc-s-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #e6ebf2; font-size: 16px; }
+    .pc-s-x { border: 0; background: none; font-size: 18px; cursor: pointer; width: 36px; height: 36px; }
+    .pc-s-rows { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .pc-s-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #f0f3f7; color: inherit !important; text-decoration: none !important; }
+    .pc-s-row:hover { background: #f4f8fd; }
+    .pc-s-cur { background: #eaf2fe; }
+    .pc-s-mark { width: 28px; height: 28px; border-radius: 50%; background: #e6ebf2; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+    .pc-s-row .pc-s-mark:not(:empty) { }
+    .pc-s-name { flex: 1; min-width: 0; font-size: 14px; line-height: 1.3; }
+    .pc-s-art { display: block; font-size: 11px; font-weight: 700; color: #0a5cc4; }
+    .pc-s-price { font-weight: 700; font-size: 14px; white-space: nowrap; }
+    @media (max-width: 540px) {
+      #pc-strip { bottom: 0; width: 100vw; border-radius: 14px 14px 0 0; height: calc(56px + env(safe-area-inset-bottom, 0px));
+        padding: 0 4px env(safe-area-inset-bottom, 0px); gap: 2px; }
+      .pc-s-lbl, .pc-s-title { display: none; }
+      .pc-s-count { font-size: 14px; }
+      .pc-s-ask { padding: 0 10px 0 4px; font-size: 13px; }
+      .pc-s-ask img { width: 28px; height: 28px; }
+      .pc-s-list { padding: 0 10px; }
+      .pc-s-flash { left: 8px; right: 8px; }
+      .pc-s-panel { width: 100vw; margin-bottom: 0; border-radius: 16px 16px 0 0; max-height: 80vh; padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
+      #pc-s-sheet { z-index: 999996; }
+    }
+  `;
+
   // ─── BUILD DOM ───────────────────────────────────────────────────────────────
   function init() {
     const style = document.createElement('style');
@@ -1463,6 +1697,7 @@
       setCompact(!displayLog.some(e => e.type === 'user'));
       return; // no launcher, teasers or badge on this page
     }
+    if (initStrip()) return; // selected part's page: the strip replaces the round button and its teasers
     setTimeout(() => { if (!isOpen && teasersAllowed()) { showTeasers(); showBadge(2); } }, 2000);
   }
 
@@ -1684,6 +1919,7 @@
     const backdrop = document.getElementById('pc-backdrop');
     panel.classList.add('pc-open');
     launcher.classList.add('pc-panel-open');
+    document.documentElement.classList.add('pc-chat-open');
     backdrop.style.display = 'block';
     requestAnimationFrame(() => backdrop.classList.add('pc-open'));
     clearBadge();
@@ -1708,6 +1944,7 @@
     isOpen = false;
     document.getElementById('pc-panel').classList.remove('pc-open');
     document.getElementById('pc-launcher').classList.remove('pc-panel-open');
+    document.documentElement.classList.remove('pc-chat-open');
     const backdrop = document.getElementById('pc-backdrop');
     backdrop.classList.remove('pc-open');
     setTimeout(() => { backdrop.style.display = 'none'; }, 300);
