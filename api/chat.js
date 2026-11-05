@@ -332,7 +332,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 ═══════════════════════════════════════════
 ДАННЫЕ О СОВМЕСТИМОСТИ (артикул → автомобили, если есть):
 ═══════════════════════════════════════════
-Записи с полем "source": "laximo" взяты из оригинального каталога производителя (марка — в поле "brand"). Если "matchedBy": "vin" — подобрано по VIN клиента, совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Если "matchedBy": "model" — подобрано по модели БЕЗ VIN (модель уже уточнена, НЕ переспрашивай её): эти детали подходят для этой модели по каталогу производителя, но если на одну деталь найдено несколько номеров, они могут отличаться по дате выпуска или комплектации — перечисли их как варианты и предложи прислать VIN, чтобы выбрать точный; если номер один — можно уверенно предлагать, коротко упомянув, что по VIN подбор ещё точнее. Поле "axle" ("передняя ось" / "задняя ось") определено по номеру BMW (31… передний мост, 33… задний мост, тормоза 34 1x… передние, 34 2x… задние) и ТОЧНО: называй ось клиенту по нему, НЕ пиши, что каталог не различает передние и задние, и НЕ отправляй к менеджеру или за VIN ради оси. Обрати внимание на поле "notes": если там есть условие комплектации (например, "Для автомобилей с D Steering (S217A) = да"): при "matchedBy": "vin" каталог уже отфильтровал детали по VIN (детали для другой комплектации он не показывает -- проверено 28.10), значит у машины клиента ЭТА комплектация есть -- скажи уверенно, что по VIN подходит именно это исполнение (например «исполнение для автомобилей с D Steering — по вашему VIN подходит»), и НЕ отправляй к менеджеру проверять опцию; при "matchedBy": "model" -- упомяни условие клиенту и предложи прислать VIN. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали. Поле "variant": «альтернатива (оригинальная принадлежность BMW)» — показывай такую деталь ПОСЛЕ основной и называй альтернативой; «комплект с датчиком износа» — так и называй. Поле "condition" (например «Спортивные тормоза M (S2NHA) = нет») — для какой комплектации деталь. Поле "equipmentAnswer" — что клиент ответил про комплектацию: если «клиент не знает» — покажи варианты для обеих комплектаций, коротко объясни разницу и предложи прислать VIN.
+Записи с полем "source": "laximo" взяты из оригинального каталога производителя (марка — в поле "brand"). Если "matchedBy": "vin" — подобрано по VIN клиента, совместимость с его машиной ПОДТВЕРЖДЕНА, уточнять двигатель/поколение не нужно. Если "matchedBy": "model" — подобрано по модели БЕЗ VIN (модель уже уточнена, НЕ переспрашивай её): эти детали подходят для этой модели по каталогу производителя, но если на одну деталь найдено несколько номеров, они могут отличаться по дате выпуска или комплектации — перечисли их как варианты и предложи прислать VIN, чтобы выбрать точный; если номер один — можно уверенно предлагать, коротко упомянув, что по VIN подбор ещё точнее. Поле "axle" ("передняя ось" / "задняя ось") определено по номеру BMW (31… передний мост, 33… задний мост, тормоза 34 1x… передние, 34 2x… задние) и ТОЧНО: называй ось клиенту по нему, НЕ пиши, что каталог не различает передние и задние, и НЕ отправляй к менеджеру или за VIN ради оси. Обрати внимание на поле "notes": если там есть условие комплектации (например, "Для автомобилей с D Steering (S217A) = да"): при "matchedBy": "vin" каталог уже отфильтровал детали по VIN (детали для другой комплектации он не показывает -- проверено 28.10), значит у машины клиента ЭТА комплектация есть -- скажи уверенно, что по VIN подходит именно это исполнение (например «исполнение для автомобилей с D Steering — по вашему VIN подходит»), и НЕ отправляй к менеджеру проверять опцию; при "matchedBy": "model" -- упомяни условие клиенту и предложи прислать VIN. Несколько артикулов на одну позицию ("position") — это альтернативы или замены одной детали. НО если у номеров РАЗНЫЕ позиции и в "notes" разные цилиндры / сторона / ряд (например «для цилиндров 1–4» и «для цилиндров 5–8», левый и правый) — это НЕ варианты на выбор, а разные детали, и нужны ОБЕ: так и скажи («два фильтра: для цилиндров 1–4 и 5–8, нужны оба»), НЕ пиши «оба варианта». Поле "variant": «альтернатива (оригинальная принадлежность BMW)» — показывай такую деталь ПОСЛЕ основной и называй альтернативой; «комплект с датчиком износа» — так и называй. Поле "condition" (например «Спортивные тормоза M (S2NHA) = нет») — для какой комплектации деталь. Поле "equipmentAnswer" — что клиент ответил про комплектацию: если «клиент не знает» — покажи варианты для обеих комплектаций, коротко объясни разницу и предложи прислать VIN.
 {{COMPATIBILITY}}
 
 ═══════════════════════════════════════════
@@ -1628,6 +1628,7 @@ const PERSON_REQUEST_RE = /менеджер|оператор|со\s+специа
 function asksForPerson(text) {
   return PERSON_REQUEST_RE.test(String(text || ''));
 }
+const NO_ANSWER_RE = /(нет|никто\s+не|не)\s+(ответ|отвеча|перезвон)|без\s+ответа|игнор/i;
 const lastUserMessage = messages => {
   const m = [...(messages || [])].reverse().find(x => x && x.role === 'user');
   return m ? (typeof m.content === 'string' ? m.content : '') : '';
@@ -2061,7 +2062,7 @@ function diagramCardFor(p, live, carLabel) {
   const oem = laximo.normalizeOem(p.oem);
   const c = live && live.cheapest;
   const position = p.position || (p.code ? String(p.code).replace(/^\D+/, '') : null);
-  const ref = p.schema && p.schema.vid ? diagramToken.sign({ oem, catalog: p.schema.catalog, vid: p.schema.vid, ssd: p.schema.ssd }) : null;
+  const ref = p.schema && p.schema.vid ? diagramToken.sign({ oem, catalog: p.schema.catalog, vid: p.schema.vid, ssd: p.schema.ssd, unit: p.schema.unit }) : null;
   return {
     article: oem,
     name: p.name || 'Деталь BMW',
@@ -2080,6 +2081,24 @@ function diagramCardFor(p, live, carLabel) {
     best_for: '',
     diagram: p.unitImage || ref ? { image: p.unitImage || null, position, unit: p.unit || null, ...(wholeDiagram(p) ? { whole: true } : {}), ...(ref ? { ref } : {}) } : null, // no diagram (pad paste) -> plain card
   };
+}
+
+/**
+ * Several cards with the same name (M5 G90 live 05.11: two «Сменный элемент
+ * фильтра», cylinders 1–4 and 5–8) -> each card's line shows its catalog note,
+ * so the customer sees they are different parts. Pure.
+ */
+function labelSameNameCards(parts, cards) {
+  const count = {};
+  cards.forEach(c => { count[c.name] = (count[c.name] || 0) + 1; });
+  return cards.map((c, i) => {
+    if (count[c.name] < 2 || c.best_for) return c;
+    const notes = Object.entries((parts[i] && parts[i].notes) || {})
+      .filter(([k, v]) => v && !/количеств|^кол|дата|альтернат/i.test(k) && !/альтернат|не производ/i.test(String(v)))
+      .map(([, v]) => String(v).trim());
+    const note = notes.find(v => /цилиндр|лев|прав|сторон|ряд|банк|верх|нижн|передн|задн/i.test(v)) || notes[0];
+    return note ? { ...c, best_for: note.length > 90 ? note.slice(0, 88) + '…' : note } : c;
+  });
 }
 
 /** Adds diagram cards to the reply's PRODUCTS block (creates it if needed); the AI's own cards stay first. */
@@ -2109,6 +2128,7 @@ function stripNumbers(x) {
   return x
     .replace(/\(?\s*(?:от\s+)?\d[\d\s]*(?:[.,]\d+)?\s*₽\s*(?:,?\s*(?:срок\s*)?~?\s*\d+\s*(?:дн\.?|дней|дня))?\s*\)?/gi, ' ')
     .replace(new RegExp(`(?:арт\\.?|артикул|№|номер)?\\s*${PART_NO_RE.source}`, 'gi'), ' ')
+    .replace(/\*\*\s*\*\*/g, ' ')
     .replace(/\(\s*[,;:—–-]?\s*\)/g, ' ')
     .replace(/\s+([,.;:!?)])/g, '$1').replace(/([(])\s+/g, '$1')
     .replace(/[,;]\s*(?=[,;.])/g, '').replace(/\s*[—–-]\s*([,.;]|$)/g, '$1').replace(/:\s*([,.]|$)/g, '$1')
@@ -2979,7 +2999,14 @@ console.log(JSON.stringify(extracted, null, 2));
     if (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true') {
       const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
       progress.step('Проверяю статус заказа…');
-      const reply = await orderStatusReply(extracted, ip);
+      let reply = await orderStatusReply(extracted, ip);
+      // «Писал в телеграм - нет ответа» (Диалоги ✗ 05.11): the reply ended with
+      // «напишите нам в Telegram или MAX» -- exactly what didn't work for them.
+      if (NO_ANSWER_RE.test(lastUserMessage(messages) || '')) {
+        reply = reply.replace(/\n*Если нужны подробности по срокам[^\n]*$/, '') +
+          '\n\nИзвините, что вам не ответили. Оставьте контакты в короткой форме — менеджер свяжется с вами сам.\n<<<MANAGER_BUTTON>>>\n<<<CONTACT_FORM>>>';
+        console.log('[order] the customer got no answer elsewhere -- request form instead of «write to Telegram»');
+      }
       Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
       res.setHeader('Content-Type', 'application/json');
       return res.status(200).json({ reply });
@@ -3858,7 +3885,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     if (diagramCardParts.length) {
       const v = laximoResult.vehicle || {};
       const carLabel = `${v.brand || 'BMW'} ${v.name || ''}${v.options?.['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim();
-      text = mergeDiagramCards(text, diagramCardParts.map(p => diagramCardFor(p, livePrices[laximo.normalizeOem(p.oem)], carLabel)));
+      text = mergeDiagramCards(text, labelSameNameCards(diagramCardParts, diagramCardParts.map(p => diagramCardFor(p, livePrices[laximo.normalizeOem(p.oem)], carLabel))));
       console.log(`[chat] diagram cards: ${diagramCardParts.map(p => p.oem + (livePrices[laximo.normalizeOem(p.oem)] ? ' (price)' : ' (no offers)')).join(', ')}`);
     }
     text = markDiscontinuedCards(text, [...(laximoResult?.parts || []), ...(diagram ? [diagram] : []), ...extraDiagrams]);
@@ -4012,3 +4039,5 @@ module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
 module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
+module.exports.labelSameNameCards = labelSameNameCards;
+module.exports.NO_ANSWER_RE = NO_ANSWER_RE;

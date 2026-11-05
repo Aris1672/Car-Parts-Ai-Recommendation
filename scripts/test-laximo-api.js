@@ -155,7 +155,7 @@ const server = http.createServer((req, res) => {
     a.ok(calls.some(c => c.name === 'ListQuickDetail' && c.params.QuickGroupId === '545'), 'opened group 545');
     a.ok(!calls.some(c => c.name === 'SearchVehicleDetails'), 'group found -> no word search');
     const pad = r.parts.find(p => p.oem === '34116852253');
-    a.deepStrictEqual(pad.schema, { number: '34116852253', catalog: 'BMW202601', vid: '2050271679', ssd: car.ssd });
+    { const { unit, ...sch } = pad.schema; a.deepStrictEqual(sch, { number: '34116852253', catalog: 'BMW202601', vid: '2050271679', ssd: car.ssd }); a.ok(unit, 'schema names the group unit'); }
     a.ok(/^https:\/\/img\.laximo\.ru\//.test(pad.unitImage), 'diagram picture without an extra request');
     a.deepStrictEqual(await L.apiCarsThisMonth(), ['BMW202601:2050271679']);
 
@@ -264,6 +264,10 @@ const server = http.createServer((req, res) => {
     a.deepStrictEqual(L.pickWizardOption(ser, L.norm('Воздушный фильтр BMW M5')), { ask: ["5' E39", "5' E60", "5' F10", "5' F90", "5' F90 LCI", "5' G90"] });
     a.deepStrictEqual(L.pickWizardOption(ser, L.norm('колодки БМВ М5 F90')), { ask: ["5' F90", "5' F90 LCI"] });
     a.deepStrictEqual(L.pickWizardOption(ser, L.norm('колодки M2')), { ask: ['M2 F87'] });
+    // M5 G90 (05.11): a group part's diagram from its own unit, not the ТО service picture
+    const blk = (name, code) => ({ unit: { name, code }, category: { code, name: '' }, rows: [] });
+    a.strictEqual(L.pickSchemaBlock([blk('Oelservice', '02_1'), blk('Глушитель шума всасыв./сменн.эл.фильтра', '13_1')], 'Глушитель шума всасыв./сменн.эл.фильтра').unit.name, 'Глушитель шума всасыв./сменн.эл.фильтра');
+    a.strictEqual(L.pickSchemaBlock([blk('Oelservice', '02_1'), blk('Глушитель', '13_1')]).unit.name, 'Oelservice', 'without a group unit: ТО service unit as before');
     console.log('test-laximo-api: all ok');
   } finally {
     server.close();

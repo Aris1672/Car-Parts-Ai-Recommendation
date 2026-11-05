@@ -29,7 +29,7 @@ module.exports = async function handler(req, res) {
     if (why) return res.status(503).json({ error: 'catalog unavailable' });
     let t;
     const d = await Promise.race([
-      laximo.getPartDiagram({ oem: laximo.normalizeOem(ref.oem), schema: { number: ref.oem, catalog: ref.catalog, vid: ref.vid, ssd: ref.ssd } }),
+      laximo.getPartDiagram({ oem: laximo.normalizeOem(ref.oem), schema: { number: ref.oem, catalog: ref.catalog, vid: ref.vid, ssd: ref.ssd, ...(ref.unit ? { unit: ref.unit } : {}) } }),
       new Promise(r => { t = setTimeout(() => r('timeout'), TIMEOUT_MS); }),
     ]).finally(() => clearTimeout(t));
     if (d === 'timeout') return res.status(504).json({ error: 'timeout' });
