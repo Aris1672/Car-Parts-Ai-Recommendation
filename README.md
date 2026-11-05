@@ -47,6 +47,10 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 **✅ 04.11: Laximo direct API built — switch `LAXIMO_SOURCE=api` in Coolify to use it** (see «🔌 Laximo web service (04.11)» right below). Default stays `site` until the owner has tested.
 
+### 🧭 05.11 — selection strip on product pages ✅ confirmed live 05.11
+- Product page opened from the chat's carousel (page address contains one of the latest carousel's part numbers) → a strip pinned to the bottom replaces the round AI button and its teasers: ‹ › previous/next part (same tab), «5 из 10 · ✓ 2 в корзине», ☰ list sheet, «Спросить ИИ» opens the chat on the same page (strip hidden while the chat is open). Phones: full width, safe area, «5/10 · ✓2».
+- Cart ticks: clicks on the site's cart buttons inside offer-table rows (matched by cart/basket/корзин in class/title/href/onclick) → green «✓ Добавлено · Следующая: … ›». State in localStorage `pc_strip_v1`, keyed by the selection. Selection lives as long as the saved chat (45 min inactivity). Code: `initStrip()` in `widget/chat-widget.js`.
+
 ### 🛞 04.11 (afternoon) — tyre cards, «Популярные категории», ABCP tyre catalog
 - **Tyre / rim / wheel cards show the whole picture** (owner 04.11, ✅ confirmed live): the BMW diagram of a tyre is one picture of the tyre itself, so zooming on position 1 showed only a black strip. `api/chat.js` `wholeDiagram()` sets `diagram.whole` when the unit/name is tyres or wheels («Зимние/Летние шины», «BMW л/с диск…», «BMW кол.с л/с диск», «LM Rad»), not for bearings, hubs, brake discs, RDC sensors, bolts, caps, weights; the widget (`initDiagramCard` / `layoutDiagram(…, whole)`) then shows the full diagram, the red marker stays.
 - **«Популярные категории» → «Популярные категории оригинальных запчастей»** (owner 04.11: original parts only, not BMW-only since Laximo has 60 brands). Changed in `abcp-infoblocks/page_main.html`; **paste by hand** in ABCP (Инфоблоки → page_main → only that `<h2 class="bcMarks_title">` line). The hero stays as it is.
