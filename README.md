@@ -51,6 +51,9 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 - Product page opened from the chat's carousel (page address contains one of the latest carousel's part numbers) → a strip pinned to the bottom replaces the round AI button and its teasers: ‹ › previous/next part (same tab), «5 из 10 · ✓ 2 в корзине», ☰ list sheet, «Спросить ИИ» opens the chat on the same page (strip hidden while the chat is open). Phones: full width, safe area, «5/10 · ✓2».
 - Cart ticks: clicks on the site's cart buttons inside offer-table rows (matched by cart/basket/корзин in class/title/href/onclick) → green «✓ Добавлено · Следующая: … ›». State in localStorage `pc_strip_v1`, keyed by the selection. Selection lives as long as the saved chat (45 min inactivity). Code: `initStrip()` in `widget/chat-widget.js`.
 
+### 🃏 05.11 — wider product cards
+- Carousel cards 230 px (was 195); phones (≤600 px) `min(80%, 320px)` so the next card peeks in. Step = measured card width + gap (was a fixed 207 px), re-laid out on resize.
+
 ### 🔧 05.11 — fixes from «Диалоги» ✅ confirmed live 05.11
 - **BMW M cars** (`c8e2879`): «Воздушный фильтр BMW M5» asked for the year -- the M5 is a model inside «5' E60 / F10 / F90…», not a series. `pickWizardOption()` now offers that family's generations that had the M car (`M_CHASSIS` in lib/laximo.js, M1–M8); M2 / X5 M / X6 M are own series as before.
 - **Same-name parts** (`d168bea`, M5 G90 air filters for cylinders 1–4 and 5–8): (1) a part found in a catalog group shows the diagram of its own unit (`schema.unit` → `pickSchemaBlock(blocks, preferUnit)`, also in the diagram token; cache `diagram6`) -- before, the ТО service picture with both markers on «3»; (2) same-name cards show their catalog note in the card line (`labelSameNameCards`); (3) prompt: different positions + cylinder/side notes = both needed, never «оба варианта»; (4) empty `** **` left after number stripping removed.

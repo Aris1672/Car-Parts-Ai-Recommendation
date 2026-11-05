@@ -540,11 +540,13 @@
     }
     .pc-carousel-track:active { cursor: grabbing; }
     .pc-product-card {
-      flex-shrink: 0; width: 195px; background: #fff; border-radius: 14px;
+      flex-shrink: 0; width: 230px; background: #fff; border-radius: 14px;
       overflow: hidden; box-shadow: 0 2px 14px rgba(0,0,0,0.09);
       display: flex; flex-direction: column; border: 1px solid #ebebeb;
       transition: transform 0.18s, box-shadow 0.18s;
     }
+    /* Phones (05.11, owner): ~80% of the chat width, the next card peeks in */
+    @media (max-width: 600px) { .pc-product-card { width: min(80%, 320px); } }
     .pc-product-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.14); }
     .pc-product-img { width: 100%; aspect-ratio: 1; object-fit: cover; background: #efefef; display: block; }
     /* Diagram card (30.10): BMW diagram instead of a photo, zoomed on the part */
@@ -2555,7 +2557,8 @@
     const track = document.createElement('div');
     track.className = 'pc-carousel-track';
 
-    const cardW = 207;
+    // Step = real card width + gap (cards are 230 px, ~80% of the chat on phones).
+    const cardW = () => { const c = track.querySelector('.pc-product-card'); return c ? c.getBoundingClientRect().width + 12 : 242; };
     let currentIndex = 0;
     const needImage = []; // cards without a photo -> fillMissingImages()
 
@@ -2641,7 +2644,7 @@
     function update() {
       const maxIdx = products.length - 1;
       currentIndex = Math.max(0, Math.min(currentIndex, maxIdx));
-      track.style.transform = `translateX(${-currentIndex * cardW}px)`;
+      track.style.transform = `translateX(${-currentIndex * cardW()}px)`;
       prev.disabled = currentIndex === 0;
       next.disabled = currentIndex >= maxIdx;
       dots.forEach((d, i) => d.classList.toggle('active', i === currentIndex));
@@ -2649,6 +2652,7 @@
 
     prev.addEventListener('click', () => { currentIndex--; update(); });
     next.addEventListener('click', () => { currentIndex++; update(); });
+    window.addEventListener('resize', () => { if (currentIndex) update(); }); // card width changes (rotation, full screen)
 
     arrowsEl.appendChild(prev);
     arrowsEl.appendChild(next);
