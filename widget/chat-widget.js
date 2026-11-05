@@ -890,6 +890,8 @@
   // Friendly support-agent icon (headset + face) used for the launcher button.
   const ICON_AGENT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="6.3"/><path d="M8.6 9.6c.5.5 1.3.8 2.1.8s1.6-.3 2.1-.8"/><path d="M8.8 8.4c.15-.3.35-.3.5 0"/><path d="M14.7 8.4c.15-.3.35-.3.5 0"/><path d="M6 9.5V9a6 6 0 0 1 12 0v.5"/><path d="M5.7 9.8h.9a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-.9a1.3 1.3 0 0 1-1.3-1.3v-1.4A1.3 1.3 0 0 1 5.7 9.8z"/><path d="M18.3 9.8h-.9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h.9a1.3 1.3 0 0 0 1.3-1.3v-1.4a1.3 1.3 0 0 0-1.3-1.3z"/><path d="M18.3 13.8v1a3 3 0 0 1-3 3h-1.8"/></svg>`;
   const ICON_SEND  = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
+// «Свернуть» arrow (05.11, owner: the ✕ looked like «delete the chat»; the chat stays, the panel just hides).
+  const ICON_HIDE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>`;
   const ICON_CLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
   const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
   const ICON_EXPAND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>`;
@@ -1633,7 +1635,7 @@
         </div>
         <div class="pc-header-actions">
           <button class="pc-header-btn" id="pc-clear" aria-label="Очистить чат" title="Очистить чат">${ICON_CLEAR}</button>
-          <button class="pc-header-btn" id="pc-close" aria-label="Закрыть">${ICON_CLOSE}</button>
+          <button class="pc-header-btn" id="pc-close" aria-label="Свернуть чат" title="Свернуть — переписка сохранится">${ICON_HIDE}</button>
           <button class="pc-inline-btn" id="pc-restart" type="button" title="Начать заново" aria-label="Начать заново">${ICON_CLEAR}<span class="pc-inline-btn-text">Начать заново</span></button>
           <button class="pc-inline-btn" id="pc-full" type="button" title="Во весь экран" aria-label="Во весь экран" aria-pressed="false">${ICON_EXPAND}<span class="pc-inline-btn-text">Во весь экран</span></button>
         </div>
