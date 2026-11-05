@@ -858,7 +858,7 @@
           <div class="table-title">Сессии</div>
           <div class="table-count" id="table-count">0</div>
         </div>
-        <input type="text" class="table-search" id="table-search" placeholder="🔍  Поиск по сессиям…">
+        <input type="search" class="table-search" id="table-search" name="table-search-q" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="🔍  Поиск по сессиям…">
       </div>
       <div class="table-scroll">
         <table>
@@ -937,7 +937,7 @@
             <div class="table-title">Товары</div>
             <div class="table-count" id="products-count">0</div>
           </div>
-          <input type="text" class="table-search" id="products-search" placeholder="🔍  Поиск по товарам…">
+          <input type="search" class="table-search" id="products-search" name="products-search-q" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="🔍  Поиск по товарам…">
         </div>
         <div class="table-scroll">
           <table>
@@ -1011,7 +1011,7 @@
             <option value="30">30 дней</option>
             <option value="90">90 дней</option>
           </select>
-          <input type="text" class="table-search" id="dialogs-search" placeholder="🔍  Поиск по тексту, артикулу, машине…" style="max-width:280px;">
+          <input type="search" class="table-search" id="dialogs-search" name="dialogs-search-q" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="🔍  Поиск по тексту, артикулу, машине…" style="max-width:280px;">
           <button class="filter-btn" id="dialogs-refresh">Обновить</button>
           <button class="filter-btn" id="dialogs-download" title="Скачать показанные диалоги (фильтр и период) файлом JSON">⬇ Скачать</button>
           <button class="filter-btn" id="dialogs-push" title="Отправить проверенные (✓/✗) диалоги за период в приватный репозиторий — Claude прочитает их">📤 Передать Claude</button>
@@ -1044,7 +1044,7 @@
             <div class="table-count" id="requests-count">0</div>
             <div class="table-count" id="requests-open" title="Новые (не обработаны)" style="background:var(--red);color:#fff;">0 новых</div>
           </div>
-          <input type="text" class="table-search" id="requests-search" placeholder="🔍  Поиск по имени, телефону, email или сообщению…">
+          <input type="search" class="table-search" id="requests-search" name="requests-search-q" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="🔍  Поиск по имени, телефону, email или сообщению…">
         </div>
         <div class="table-scroll">
           <table>
@@ -1128,7 +1128,7 @@
               <span><i class="lx-dot lx-blocked"></i>заблокирован</span>
             </div>
           </div>
-          <input type="text" class="table-search" id="views-search" placeholder="🔍  Поиск по сообщению или артикулу…">
+          <input type="search" class="table-search" id="views-search" name="views-search-q" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="🔍  Поиск по сообщению или артикулу…">
         </div>
         <div class="table-scroll">
           <table>
@@ -1178,7 +1178,7 @@
               <option value="unchecked">Не проверен</option>
             </select>
             <button class="filter-btn" id="missing-abcp-btn" type="button" title="Проверить артикулы в каталоге ABCP (только чтение)">🔍 Проверить в ABCP</button>
-            <input type="text" class="table-search" id="missing-search" placeholder="🔍  Поиск по артикулу…">
+            <input type="search" class="table-search" id="missing-search" name="missing-search-q" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="🔍  Поиск по артикулу…">
           </div>
         </div>
         <div id="missing-abcp-progress" style="display:none; padding:8px 20px; font-size:12px; color:var(--text2); border-bottom:1px solid var(--border);"></div>
@@ -2334,9 +2334,23 @@
   document.getElementById('dialogs-filter').addEventListener('change', loadDialogs);
   document.getElementById('dialogs-days').addEventListener('change', loadDialogs);
   document.getElementById('dialogs-search').addEventListener('input', renderDialogs);
+  // The browser's password manager put the login email into the «Заявки» search
+  // box (05.11: badge «2 новых», table «0», empty). Search boxes start empty;
+  // anything filled in before the user typed is browser autofill -> cleared.
+  (function clearAutofilledSearch() {
+    const typed = new WeakSet();
+    document.querySelectorAll('.table-search').forEach(i => i.addEventListener('keydown', () => typed.add(i)));
+    const clear = () => document.querySelectorAll('.table-search').forEach(i => {
+      if (i.value && !typed.has(i)) { i.value = ''; i.dispatchEvent(new Event('input')); }
+    });
+    window.clearAutofilledSearch = clear;
+    [0, 300, 1000, 2500].forEach(ms => setTimeout(clear, ms));
+    window.addEventListener('pageshow', clear);
+  })();
   let allRequests = [];
 
   async function loadRequests() {
+    window.clearAutofilledSearch && window.clearAutofilledSearch(); // after login the browser may fill it
     const days = document.getElementById('requests-days').value;
     const tbody = document.getElementById('requests-table-body');
     if (!allRequests.length) tbody.innerHTML = '<tr><td colspan="6"><div class="state-empty"><div class="spinner"></div></div></td></tr>';
