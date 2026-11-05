@@ -1355,6 +1355,39 @@
       localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state));
     } catch (e) {}
   }
+  // The site's real cart decides (05.11 live: a part removed from the cart kept its ✓).
+  // The header's cart link is fetched (same site, the customer's cookies); a ticked
+  // number that isn't on the cart page any more loses its ✓. Runs on load, on tab
+  // focus and shortly after a cart click. Header «0 ₽» alone also clears all ticks.
+  let cartSyncAt = 0;
+  async function syncWithCart() {
+    if (!strip || !strip.state.added.length || Date.now() - cartSyncAt < 1500) return;
+    cartSyncAt = Date.now();
+    const link = [...document.querySelectorAll('a[href]')].find(a => !a.closest('#pc-strip, #pc-s-sheet, #pc-panel, tr')
+      && /basket|cart|korzin|корзин/i.test(a.getAttribute('href') + ' ' + a.textContent));
+    let keep = null;
+    if (link && /(^|\s)0\s*₽/.test(link.textContent || '') && !/[1-9]\d*\s*₽/.test(link.textContent || '')) keep = [];
+    else if (link) {
+      try {
+        const u = new URL(link.href, location.href);
+        if (u.origin !== location.origin) return;
+        const r = await fetch(u.href, { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+        doc.querySelectorAll('script, style, noscript').forEach(n => n.remove());
+        const body = doc.body ? doc.body.textContent || '' : '';
+        if (!/корзин/i.test(body)) return; // not a cart page (login, error) -- don't touch the ticks
+        const text = codeKey(body);
+        keep = strip.state.added.filter(c => text.includes(c) || Date.now() - ((strip.state.at || {})[c] || 0) < 10000);
+      } catch (e) { return; }
+    }
+    if (!keep || keep.length === strip.state.added.length) return;
+    strip.state.added = keep;
+    try { localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state)); } catch (e) {} // replace, not merge: removals must win
+    renderStrip();
+    const sheet = document.getElementById('pc-s-sheet');
+    if (sheet && !sheet.hidden) { closeSheet(); toggleSheet(); }
+  }
   function refreshStripState() {
     if (!strip) return;
     const other = loadStripState(strip.sig);
@@ -1406,8 +1439,11 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
     document.addEventListener('click', onSiteCartClick, true);
     window.addEventListener('storage', e => { if (e.key === STRIP_KEY) refreshStripState(); });
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshStripState(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refreshStripState(); syncWithCart(); } });
+    // Cart page / mini-cart: a «удалить» click anywhere -> check the cart again.
+    document.addEventListener('click', e => { const b = e.target && e.target.closest && e.target.closest('a, button, [onclick]'); if (b && /удал|убрать|delete|remove|очист/i.test((b.textContent || '') + ' ' + (b.title || '') + ' ' + (b.className || '') + ' ' + (b.getAttribute('onclick') || ''))) setTimeout(syncWithCart, 2000); }, true);
     renderStrip();
+    syncWithCart();
 
     if (!strip.state.toast) {
       strip.state.toast = true; saveStripState();
@@ -1476,7 +1512,9 @@
       .filter(Boolean).join(' ');
     if (!buyButton && !CART_RE.test(hay)) return;
     const cur = strip.items[strip.idx];
-    if (!strip.state.added.includes(cur.code)) { strip.state.added.push(cur.code); saveStripState(); }
+    strip.state.at = { ...(strip.state.at || {}), [cur.code]: Date.now() };
+    if (!strip.state.added.includes(cur.code)) strip.state.added.push(cur.code);
+    saveStripState();
     renderStrip();
     const next = strip.items.findIndex((x, i) => i > strip.idx && !strip.state.added.includes(x.code));
     const nextI = next >= 0 ? next : strip.items.findIndex(x => !strip.state.added.includes(x.code));
