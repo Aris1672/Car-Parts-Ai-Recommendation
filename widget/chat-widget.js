@@ -2404,7 +2404,8 @@
     let rx = 0, ry = 0, rw = nw, rh = nh;
     if (!whole && box && box.x != null && box.y != null) { // whole = tyres/wheels: full picture (owner 04.11)
       const bw = box.w || 12, bh = box.h || 16;
-      rw = Math.min(nw, Math.max(Math.max(bw, bh) * 9, nw * 0.4));
+      // Zoomed out a bit (05.11, owner: after the wider cards the part looked cut off): 13× the label, ≥ 55% of the picture (was 9× / 40%).
+      rw = Math.min(nw, Math.max(Math.max(bw, bh) * 13, nw * 0.55));
       rh = rw * ch / cw;
       if (rh > nh) { rh = nh; rw = rh * cw / ch; }
       const cx = box.x + bw / 2, cy = box.y + bh / 2;
