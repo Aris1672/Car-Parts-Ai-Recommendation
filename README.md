@@ -39,7 +39,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 05.11.2026 evening) — newest: 05.11 blocks below; then 04.11. Open: price profile (waiting for Михаил) — read this block first
+## ▶️ RESUME HERE (state 05.11.2026 evening) — newest: 05.11 blocks below; then 04.11. — read this block first
 
 **Where we are:** everything below is on `main` and deployed (owner redeploys in Coolify by hand). Done 03.11: tyres/rims/wheels from the catalogue (confirmed live), external code review + TASK ORDER, task 1 (repo root no longer served, old secrets removed), task 2 (one normaliser `lib/normalize.js` + `npm test`, confirmed live), Laximo direct API **access confirmed from our server** (`scripts/check-laximo-api.js`), **VIN search too**: `--vin X4XZW61140L560928` → `BMW X5 40dX (catalog BMW202601, vehicleid 2050271679)` (one car from the quota). Use this VIN for the `--dump` run (already counted, so no new car).
 
@@ -67,7 +67,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 - **BMW M cars** (`c8e2879`): «Воздушный фильтр BMW M5» asked for the year -- the M5 is a model inside «5' E60 / F10 / F90…», not a series. `pickWizardOption()` now offers that family's generations that had the M car (`M_CHASSIS` in lib/laximo.js, M1–M8); M2 / X5 M / X6 M are own series as before.
 - **Same-name parts** (`d168bea`, M5 G90 air filters for cylinders 1–4 and 5–8): (1) a part found in a catalog group shows the diagram of its own unit (`schema.unit` → `pickSchemaBlock(blocks, preferUnit)`, also in the diagram token; cache `diagram6`) -- before, the ТО service picture with both markers on «3»; (2) same-name cards show their catalog note in the card line (`labelSameNameCards`); (3) prompt: different positions + cylinder/side notes = both needed, never «оба варианта»; (4) empty `** **` left after number stripping removed.
 - **Order status + «нет ответа»** (`d168bea`): «Писал в телеграм — нет ответа» no longer ends with «напишите нам в Telegram» -- apology + request form (`NO_ANSWER_RE`). Tests: `scripts/test-cards.js`.
-- **⏸ Price profile:** «Гость (Опт)» not found in ABCP (profiles now: Опт, Супер ОПТ, СЕРВИС, С НДС, Market.yandex.ru, Тест). Asked Михаил (05.11) which profile the chat should use -- then change it in the price lookup.
+- **Price profile → «Опт»** (Михаил 05.11: «Цены у нас по сайту по профилю Опт»): default `ABCP_PRICE_PROFILE_NAME` in `lib/abcpPrices.js` is now «Опт» (exact name match, so not «Супер ОПТ»); «Гость (Опт)» no longer exists in ABCP. If Coolify has `ABCP_PRICE_PROFILE_NAME` / `ABCP_PRICE_PROFILE_ID` set, it overrides the default -- remove or set to «Опт». Check log: `[prices] using profile "Опт" (id …)`.
 
 ### 🛞 04.11 (afternoon) — tyre cards, «Популярные категории», ABCP tyre catalog
 - **Tyre / rim / wheel cards show the whole picture** (owner 04.11, ✅ confirmed live): the BMW diagram of a tyre is one picture of the tyre itself, so zooming on position 1 showed only a black strip. `api/chat.js` `wholeDiagram()` sets `diagram.whole` when the unit/name is tyres or wheels («Зимние/Летние шины», «BMW л/с диск…», «BMW кол.с л/с диск», «LM Rad»), not for bearings, hubs, brake discs, RDC sensors, bolts, caps, weights; the widget (`initDiagramCard` / `layoutDiagram(…, whole)`) then shows the full diagram, the red marker stays.
