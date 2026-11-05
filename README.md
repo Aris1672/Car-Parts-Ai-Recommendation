@@ -39,7 +39,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 05.11.2026) — newest: 05.11 blocks below; then 04.11 — read this block first
+## ▶️ RESUME HERE (state 05.11.2026 evening) — newest: 05.11 blocks below; then 04.11. Open: price profile (waiting for Михаил) — read this block first
 
 **Where we are:** everything below is on `main` and deployed (owner redeploys in Coolify by hand). Done 03.11: tyres/rims/wheels from the catalogue (confirmed live), external code review + TASK ORDER, task 1 (repo root no longer served, old secrets removed), task 2 (one normaliser `lib/normalize.js` + `npm test`, confirmed live), Laximo direct API **access confirmed from our server** (`scripts/check-laximo-api.js`), **VIN search too**: `--vin X4XZW61140L560928` → `BMW X5 40dX (catalog BMW202601, vehicleid 2050271679)` (one car from the quota). Use this VIN for the `--dump` run (already counted, so no new car).
 
@@ -47,12 +47,14 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 **✅ 04.11: Laximo direct API built — switch `LAXIMO_SOURCE=api` in Coolify to use it** (see «🔌 Laximo web service (04.11)» right below). Default stays `site` until the owner has tested.
 
-### 🧭 05.11 — selection strip on product pages ✅ confirmed live 05.11
+### 🧭 05.11 — selection strip on product pages ✅ confirmed live 05.11 (incl. «Купить», tabs, cart sync)
 - Product page opened from the chat's carousel (page address contains one of the latest carousel's part numbers) → a strip pinned to the bottom replaces the round AI button and its teasers: ‹ › previous/next part (same tab), «5 из 10 · ✓ 2 в корзине», ☰ list sheet, «Спросить ИИ» opens the chat on the same page (strip hidden while the chat is open). Phones: full width, safe area, «5/10 · ✓2».
 - Cart ticks: clicks on the site's cart buttons inside offer-table rows (matched by cart/basket/корзин in class/title/href/onclick) → green «✓ Добавлено · Следующая: … ›». State in localStorage `pc_strip_v1`, keyed by the selection. Also the product-card layout's single «Купить» / «В корзину» button (not in a table row; fixed 05.11 evening). Tabs merge their ticks (save = union with what is stored; refreshed on `storage` / tab focus) -- before, a second tab overwrote «✓ 4» with its older «✓ 3». **The real cart wins** (`syncWithCart()`, 05.11): on load, tab focus and 2 s after a «удалить» click the widget fetches the header's cart link (same site, customer's cookies) and drops ticks whose number isn't on the cart page (header «0 ₽» → all ticks off); a tick younger than 10 s is kept (cart request may still run). Not a cart page (no «корзин» in it) → ticks untouched. Selection lives as long as the saved chat (45 min inactivity). Code: `initStrip()` in `widget/chat-widget.js`.
 
-### 🃏 05.11 — wider product cards
+### 🃏 05.11 — wider product cards, diagram zoom, alternatives explained ✅ confirmed live 05.11
 - Carousel cards 230 px (was 195); phones (≤600 px) `min(80%, 320px)` so the next card peeks in. Step = measured card width + gap (was a fixed 207 px), re-laid out on resize.
+- Diagram cards zoomed out (`layoutDiagram`, `81a1cab`): view = 13× the position label, at least 55% of the picture (was 9× / 40%), marker centred. Owner: «чуть ближе / дальше» → change these two numbers.
+- Real alternatives explained (`9549778`, prompt next to the «нужны оба» rule): different names («Насос ОЖ с держателем» / «Насос охлаждающей жидкости», «в сборе», «комплект», «с датчиком») → one short line each on the difference, only from catalog names / notes, no numbers or prices. Live: XM 50e VIN, water pump.
 
 ### 🔧 05.11 — fixes from «Диалоги» ✅ confirmed live 05.11
 - **BMW M cars** (`c8e2879`): «Воздушный фильтр BMW M5» asked for the year -- the M5 is a model inside «5' E60 / F10 / F90…», not a series. `pickWizardOption()` now offers that family's generations that had the M car (`M_CHASSIS` in lib/laximo.js, M1–M8); M2 / X5 M / X6 M are own series as before.
