@@ -9,3 +9,12 @@ a.strictEqual(one[0].best_for, '', 'a single card keeps its line empty');
 for (const t of ['Писал в телеграм - нет ответа', 'никто не отвечает', 'не перезвонили', 'жду без ответа']) a.ok(chat.NO_ANSWER_RE.test(t), t);
 for (const t of ['где мой заказ 288183838', 'ответьте по заказу']) a.ok(!chat.NO_ANSWER_RE.test(t), t);
 console.log('test-cards: all ok');
+{
+  const k = chat.kitItemAsked;
+  a.ok(k('Сколько свечи нужно заказать?').test('свеча зажигания BMW'));
+  a.ok(!k('Сколько свечи нужно заказать?').test('Воздушный фильтр'));
+  a.strictEqual(k('ТО для моей машины'), null);
+  a.strictEqual(k('WBS11CS0609158489'), null);
+  a.strictEqual(k('свечи и воздушный фильтр'), null, 'two positions -> whole kit');
+  console.log('test-cards: kit follow-up ok');
+}

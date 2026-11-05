@@ -540,11 +540,13 @@
     }
     .pc-carousel-track:active { cursor: grabbing; }
     .pc-product-card {
-      flex-shrink: 0; width: 195px; background: #fff; border-radius: 14px;
+      flex-shrink: 0; width: 230px; background: #fff; border-radius: 14px;
       overflow: hidden; box-shadow: 0 2px 14px rgba(0,0,0,0.09);
       display: flex; flex-direction: column; border: 1px solid #ebebeb;
       transition: transform 0.18s, box-shadow 0.18s;
     }
+    /* Phones (05.11, owner): ~80% of the chat width, the next card peeks in */
+    @media (max-width: 600px) { .pc-product-card { width: min(80%, 320px); } }
     .pc-product-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.14); }
     .pc-product-img { width: 100%; aspect-ratio: 1; object-fit: cover; background: #efefef; display: block; }
     /* Diagram card (30.10): BMW diagram instead of a photo, zoomed on the part */
@@ -888,6 +890,8 @@
   // Friendly support-agent icon (headset + face) used for the launcher button.
   const ICON_AGENT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="6.3"/><path d="M8.6 9.6c.5.5 1.3.8 2.1.8s1.6-.3 2.1-.8"/><path d="M8.8 8.4c.15-.3.35-.3.5 0"/><path d="M14.7 8.4c.15-.3.35-.3.5 0"/><path d="M6 9.5V9a6 6 0 0 1 12 0v.5"/><path d="M5.7 9.8h.9a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-.9a1.3 1.3 0 0 1-1.3-1.3v-1.4A1.3 1.3 0 0 1 5.7 9.8z"/><path d="M18.3 9.8h-.9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h.9a1.3 1.3 0 0 0 1.3-1.3v-1.4a1.3 1.3 0 0 0-1.3-1.3z"/><path d="M18.3 13.8v1a3 3 0 0 1-3 3h-1.8"/></svg>`;
   const ICON_SEND  = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
+// «Свернуть» arrow (05.11, owner: the ✕ looked like «delete the chat»; the chat stays, the panel just hides).
+  const ICON_HIDE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>`;
   const ICON_CLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
   const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
   const ICON_EXPAND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>`;
@@ -1309,11 +1313,21 @@
 
   function codeKey(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
 
+  // The latest carousel -- unless all its parts are already in an earlier, bigger one
+  // (05.11 live: «Сколько свечи нужно заказать?» answered with 1 card of the 10-card
+  // ТО kit, and the strip shrank to «1 из 1»): then that bigger list stays the selection.
   function currentSelection() {
-    for (let i = displayLog.length - 1; i >= 0; i--) {
-      const e = displayLog[i];
-      if (e.type === 'products' && Array.isArray(e.payload)) {
-        const items = e.payload.map(p => {
+    const lists = displayLog.filter(e => e.type === 'products' && Array.isArray(e.payload)).map(e => selectionItems(e.payload)).filter(Boolean);
+    if (!lists.length) return null;
+    const last = lists[lists.length - 1];
+    for (let i = lists.length - 2; i >= 0; i--) {
+      const codes = new Set(lists[i].map(x => x.code));
+      if (lists[i].length > last.length && last.every(x => codes.has(x.code))) return lists[i];
+    }
+    return last;
+  }
+  function selectionItems(payload) {
+        const items = payload.map(p => {
           let url = safeUrl(p.url);
           const isDiagram = !!(p.diagram && typeof p.diagram === 'object');
           if (isDiagram && !url) url = `${SITE_URL}/search?pcode=${encodeURIComponent(codeKey(p.article))}`;
@@ -1321,9 +1335,6 @@
             priceFrom: !!(isDiagram && p.priceFrom), url };
         }).filter(x => x.url && x.code.length >= 5);
         return items.length ? items : null;
-      }
-    }
-    return null;
   }
 
   function pageMatches(item) {
@@ -1343,7 +1354,55 @@
     } catch (e) {}
     return { sig, added: [], toast: false };
   }
-  function saveStripState() { try { localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state)); } catch (e) {} }
+  // Merge with what other tabs saved (05.11 live: a product page opened in a 2nd
+  // tab wrote its older list over the newer one -> «✓ 4» became «✓ 3»).
+  function saveStripState() {
+    try {
+      const other = loadStripState(strip.sig);
+      strip.state.added = [...new Set([...(other.added || []), ...strip.state.added])];
+      strip.state.toast = strip.state.toast || other.toast;
+      localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state));
+    } catch (e) {}
+  }
+  // The site's real cart decides (05.11 live: a part removed from the cart kept its ✓).
+  // The header's cart link is fetched (same site, the customer's cookies); a ticked
+  // number that isn't on the cart page any more loses its ✓. Runs on load, on tab
+  // focus and shortly after a cart click. Header «0 ₽» alone also clears all ticks.
+  let cartSyncAt = 0;
+  async function syncWithCart() {
+    if (!strip || !strip.state.added.length || Date.now() - cartSyncAt < 1500) return;
+    cartSyncAt = Date.now();
+    const link = [...document.querySelectorAll('a[href]')].find(a => !a.closest('#pc-strip, #pc-s-sheet, #pc-panel, tr')
+      && /basket|cart|korzin|корзин/i.test(a.getAttribute('href') + ' ' + a.textContent));
+    let keep = null;
+    if (link && /(^|\s)0\s*₽/.test(link.textContent || '') && !/[1-9]\d*\s*₽/.test(link.textContent || '')) keep = [];
+    else if (link) {
+      try {
+        const u = new URL(link.href, location.href);
+        if (u.origin !== location.origin) return;
+        const r = await fetch(u.href, { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+        doc.querySelectorAll('script, style, noscript').forEach(n => n.remove());
+        const body = doc.body ? doc.body.textContent || '' : '';
+        if (!/корзин/i.test(body)) return; // not a cart page (login, error) -- don't touch the ticks
+        const text = codeKey(body);
+        keep = strip.state.added.filter(c => text.includes(c) || Date.now() - ((strip.state.at || {})[c] || 0) < 10000);
+      } catch (e) { return; }
+    }
+    if (!keep || keep.length === strip.state.added.length) return;
+    strip.state.added = keep;
+    try { localStorage.setItem(STRIP_KEY, JSON.stringify(strip.state)); } catch (e) {} // replace, not merge: removals must win
+    renderStrip();
+    const sheet = document.getElementById('pc-s-sheet');
+    if (sheet && !sheet.hidden) { closeSheet(); toggleSheet(); }
+  }
+  function refreshStripState() {
+    if (!strip) return;
+    const other = loadStripState(strip.sig);
+    const merged = [...new Set([...(other.added || []), ...strip.state.added])];
+    if (merged.length !== strip.state.added.length) { strip.state.added = merged; renderStrip(); }
+  }
 
   function initStrip() {
     if (inlineHost) return false;
@@ -1388,7 +1447,12 @@
     sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
     document.addEventListener('click', onSiteCartClick, true);
+    window.addEventListener('storage', e => { if (e.key === STRIP_KEY) refreshStripState(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refreshStripState(); syncWithCart(); } });
+    // Cart page / mini-cart: a «удалить» click anywhere -> check the cart again.
+    document.addEventListener('click', e => { const b = e.target && e.target.closest && e.target.closest('a, button, [onclick]'); if (b && /удал|убрать|delete|remove|очист/i.test((b.textContent || '') + ' ' + (b.title || '') + ' ' + (b.className || '') + ' ' + (b.getAttribute('onclick') || ''))) setTimeout(syncWithCart, 2000); }, true);
     renderStrip();
+    syncWithCart();
 
     if (!strip.state.toast) {
       strip.state.toast = true; saveStripState();
@@ -1444,17 +1508,22 @@
   function onSiteCartClick(e) {
     const t = e.target;
     if (!strip || !t || !t.closest || t.closest('#pc-strip, #pc-s-sheet, #pc-panel')) return;
-    if (!t.closest('tr')) return;
     const btn = t.closest('a, button, input, [onclick], [class*="basket"], [class*="cart"]');
     if (!btn) return;
+    // Product card layout (05.11 live): one «Купить» button, not in a table row.
+    const label = String(btn.textContent || btn.value || '').trim();
+    const buyButton = /^(купить|в\s*корзину|добавить\s+в\s+корзину)$/i.test(label) && !btn.closest('header, nav');
+    if (!buyButton && !t.closest('tr')) return;
     const img = btn.querySelector && btn.querySelector('img, i, svg, span');
     const hay = [btn.className && btn.className.baseVal !== undefined ? btn.className.baseVal : btn.className,
       btn.id, btn.title, btn.getAttribute('href'), btn.getAttribute('onclick'), btn.getAttribute('aria-label'),
       btn.getAttribute('value'), img && (img.getAttribute('src') || img.className && String(img.className.baseVal || img.className) || img.title)]
       .filter(Boolean).join(' ');
-    if (!CART_RE.test(hay)) return;
+    if (!buyButton && !CART_RE.test(hay)) return;
     const cur = strip.items[strip.idx];
-    if (!strip.state.added.includes(cur.code)) { strip.state.added.push(cur.code); saveStripState(); }
+    strip.state.at = { ...(strip.state.at || {}), [cur.code]: Date.now() };
+    if (!strip.state.added.includes(cur.code)) strip.state.added.push(cur.code);
+    saveStripState();
     renderStrip();
     const next = strip.items.findIndex((x, i) => i > strip.idx && !strip.state.added.includes(x.code));
     const nextI = next >= 0 ? next : strip.items.findIndex(x => !strip.state.added.includes(x.code));
@@ -1566,7 +1635,7 @@
         </div>
         <div class="pc-header-actions">
           <button class="pc-header-btn" id="pc-clear" aria-label="Очистить чат" title="Очистить чат">${ICON_CLEAR}</button>
-          <button class="pc-header-btn" id="pc-close" aria-label="Закрыть">${ICON_CLOSE}</button>
+          <button class="pc-header-btn" id="pc-close" aria-label="Свернуть чат" title="Свернуть — переписка сохранится">${ICON_HIDE}</button>
           <button class="pc-inline-btn" id="pc-restart" type="button" title="Начать заново" aria-label="Начать заново">${ICON_CLEAR}<span class="pc-inline-btn-text">Начать заново</span></button>
           <button class="pc-inline-btn" id="pc-full" type="button" title="Во весь экран" aria-label="Во весь экран" aria-pressed="false">${ICON_EXPAND}<span class="pc-inline-btn-text">Во весь экран</span></button>
         </div>
@@ -2402,7 +2471,8 @@
     let rx = 0, ry = 0, rw = nw, rh = nh;
     if (!whole && box && box.x != null && box.y != null) { // whole = tyres/wheels: full picture (owner 04.11)
       const bw = box.w || 12, bh = box.h || 16;
-      rw = Math.min(nw, Math.max(Math.max(bw, bh) * 9, nw * 0.4));
+      // Zoomed out a bit (05.11, owner: after the wider cards the part looked cut off): 13× the label, ≥ 55% of the picture (was 9× / 40%).
+      rw = Math.min(nw, Math.max(Math.max(bw, bh) * 13, nw * 0.55));
       rh = rw * ch / cw;
       if (rh > nh) { rh = nh; rw = rh * cw / ch; }
       const cx = box.x + bw / 2, cy = box.y + bh / 2;
@@ -2555,7 +2625,8 @@
     const track = document.createElement('div');
     track.className = 'pc-carousel-track';
 
-    const cardW = 207;
+    // Step = real card width + gap (cards are 230 px, ~80% of the chat on phones).
+    const cardW = () => { const c = track.querySelector('.pc-product-card'); return c ? c.getBoundingClientRect().width + 12 : 242; };
     let currentIndex = 0;
     const needImage = []; // cards without a photo -> fillMissingImages()
 
@@ -2641,7 +2712,7 @@
     function update() {
       const maxIdx = products.length - 1;
       currentIndex = Math.max(0, Math.min(currentIndex, maxIdx));
-      track.style.transform = `translateX(${-currentIndex * cardW}px)`;
+      track.style.transform = `translateX(${-currentIndex * cardW()}px)`;
       prev.disabled = currentIndex === 0;
       next.disabled = currentIndex >= maxIdx;
       dots.forEach((d, i) => d.classList.toggle('active', i === currentIndex));
@@ -2649,6 +2720,7 @@
 
     prev.addEventListener('click', () => { currentIndex--; update(); });
     next.addEventListener('click', () => { currentIndex++; update(); });
+    window.addEventListener('resize', () => { if (currentIndex) update(); }); // card width changes (rotation, full screen)
 
     arrowsEl.appendChild(prev);
     arrowsEl.appendChild(next);
