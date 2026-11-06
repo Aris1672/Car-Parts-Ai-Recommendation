@@ -96,9 +96,10 @@ console.log('test-cards: all ok');
     { oem: '11428575211', name: 'К-т сменного элемента масляного фильтра', query: 'масляный фильтр' },
   ];
   a.deepStrictEqual(L.applyHumanNames(rows, [kw, 'масляный фильтр']).map(r => r.oem), ['11617619286', '11428575211']);
-  // live 06.11 (230i B48): intake gasket = «Уплотнение системы впуска»; the exhaust seal must go
+  // owner 06.11 (230i B48): «коллектора» is the key -- «Уплотнение выпускного коллектора» stays, «Уплотнение системы впуска» goes
   const live = [{ oem: '11618637800', name: 'Уплотнение системы впуска', query: kw }, { oem: '11627617523', name: 'Уплотнение выпускного коллектора', query: kw }];
-  a.deepStrictEqual(L.applyHumanNames(live, [kw]).map(r => r.oem), ['11618637800']);
+  a.deepStrictEqual(L.applyHumanNames(live, [kw]).map(r => r.oem), ['11627617523']);
+  a.ok(L.humanNameFor(kw).searchNames(kw).includes('уплотнение коллектора'));
   a.deepStrictEqual(L.applyHumanNames(live, ['прокладка выпускного коллектора'].concat([])).length, 2, 'rows tagged with another keyword untouched');
   a.deepStrictEqual(L.applyHumanNames(live.map(r => ({ ...r, query: 'прокладка выпускного коллектора' })), ['прокладка выпускного коллектора']).map(r => r.oem), ['11627617523']);
   a.strictEqual(L.applyHumanNames([{ oem: '1', name: 'Корпус дроссельной заслонки', query: kw }], [kw]).length, 1, 'no seal row -> rows stay');
