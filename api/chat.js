@@ -260,6 +260,7 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 
 Товары из КАТАЛОГА ТОВАРОВ показываются карточками ПОД твоим текстом. Если пишешь «подходят следующие позиции», не обрывай фразу: скажи, что они в карточках ниже, или коротко перечисли их названия.
 НИКОГДА не говори клиенту, что какой-то детали или номера «нет в нашем каталоге», «нет на сайте», «пока нет в каталоге сайта» — КАТАЛОГ ТОВАРОВ в этих данных содержит только позиции с фото, а на сайте в поиске по номеру продаётся гораздо больше. Вместо этого направляй к кнопке «Открыть деталь» (если она есть) или к менеджеру.
+НЕСКОЛЬКО ДЕТАЛЕЙ В ОДНОМ СООБЩЕНИИ (06.11): для КАЖДОЙ детали, по которой в данных есть позиция (поле query совпадает с её названием), покажи карточку — даже если в каталоге BMW она называется иначе (например «Прокладка впускного коллектора» → «Уплотнение системы впуска»); тогда одной фразой скажи, как она называется в каталоге. Не пиши, что такой детали нет или что её подберёт специалист, если позиция по ней есть в данных.
 НЕ придумывай данные о совместимости и НЕ придумывай товары, которых нет в каталоге — эскалация в этих случаях лучше, чем неверная информация.
 
 ═══════════════════════════════════════════
@@ -2181,6 +2182,72 @@ function labelSameNameCards(parts, cards) {
 }
 
 /** Adds diagram cards to the reply's PRODUCTS block (creates it if needed); the AI's own cards stay first. */
+/**
+ * Several parts in one message (Диалоги ✗ 06.11 #175, 230i F22 by VIN: gasket, flange,
+ * oil filter, ATF pan, spark plugs): the catalog found rows for the intake gasket
+ * (in the price list), but the AI showed cards for 3 parts and wrote «в каталоге с фото
+ * этих позиций сейчас нет … уточню у специалиста». Code now: every asked part whose
+ * catalog rows are in the price list gets its card(s) (max 2), the card line names the
+ * part as the BMW catalog calls it; the AI's sentences calling that part missing go.
+ * A part with no rows at all that the text no longer mentions gets one honest line. Pure.
+ */
+const MISSING_TALK_RE = /нет(?![а-яё])|не\s+(наш|наход|нашл|удалось)|отсутств|уточн|специалист|менеджер|запрос/i;
+const kwStems = kw => String(kw || '').toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/)
+  .filter(w => w.length >= 4).map(w => w.slice(0, Math.min(5, w.length - 1)));
+const mentionsKw = (sentence, kw) => {
+  const s = String(sentence || '').toLowerCase().replace(/ё/g, 'е'), st = kwStems(kw);
+  return st.length > 0 && st.filter(x => s.includes(x)).length >= Math.min(2, st.length);
+};
+function ensureCardPerKeyword(text, { keywords, parts, feedByOem, carLabel }) {
+  const kws = [...new Set((keywords || []).map(k => String(k || '').trim()).filter(Boolean))];
+  if (kws.length < 2) return text;
+  const norm = x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
+  const m = String(text || '').match(re);
+  let cards = [];
+  if (m) { try { const j = JSON.parse(m[1].trim()); if (Array.isArray(j)) cards = j; } catch { cards = []; } }
+  const shown = new Set(cards.map(c => norm(c && (c.article || (c.diagram && c.diagram.oem)))));
+  const rowsOf = kw => (parts || []).filter(p => String(p.query || '').toLowerCase().split(/\s*,\s*/).includes(kw.toLowerCase()));
+  const added = [], empty = [];
+  for (const kw of kws) {
+    const rows = rowsOf(kw);
+    if (!rows.length) { empty.push(kw); continue; }
+    if (rows.some(p => shown.has(norm(p.oem)))) continue;
+    const inFeed = rows.filter(p => feedByOem.get(norm(p.oem)));
+    if (!inFeed.length) continue; // not in the price list -> diagram cards cover it
+    for (const p of inFeed.slice(0, 2)) {
+      const f = feedByOem.get(norm(p.oem));
+      shown.add(norm(p.oem));
+      cards.push({
+        article: f.article, name: f.name, brand: f.brand, category: f.category,
+        compatibility: carLabel ? `${carLabel} — по оригинальному каталогу BMW` : 'по оригинальному каталогу BMW',
+        price: f.price, stock: f.stock, url: f.url, picture: f.picture,
+        best_for: `Ваш запрос «${kw}». В каталоге BMW: «${p.name || f.name}»${p.unit ? `, узел «${p.unit}»` : ''}.`,
+      });
+    }
+    added.push(kw);
+  }
+  if (!added.length) return text;
+  console.log(`[chat] asked parts without a card -> added by code: ${added.join(', ')}`);
+  let removed = 0;
+  let out = String(text).split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>|<<<CONTACT_FORM>>>)/).map((part, i) => i % 2 ? part
+    : part.split('\n').map(line => line.split(/(?<=[.!?…])\s+/).filter(x => {
+      const bad = MISSING_TALK_RE.test(x) && added.some(kw => mentionsKw(x, kw));
+      if (bad) removed++;
+      return !bad;
+    }).join(' ')).join('\n').replace(/^\s*-{3,}\s*$/gm, '').replace(/\n{3,}/g, '\n\n')).join('');
+  if (removed) console.log(`[chat] ${removed} sentence(s) calling a found part missing removed`);
+  const prose = out.split(/<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>|<<<CONTACT_FORM>>>/).join(' ');
+  const unmentioned = empty.filter(kw => !mentionsKw(prose, kw));
+  const block = `<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+  out = m ? out.replace(re, block) : `${out.trim()}\n${block}`;
+  if (unmentioned.length) {
+    const line = `По ${unmentioned.length > 1 ? 'позициям' : 'позиции'} ${unmentioned.map(k => `«${k}»`).join(', ')} в оригинальном каталоге для вашего автомобиля ничего не нашлось — уточните, пожалуйста, название детали, или менеджер подберёт её по VIN.`;
+    out = out.replace('<<<PRODUCTS>>>', `${line}\n<<<PRODUCTS>>>`);
+  }
+  return out;
+}
+
 function mergeDiagramCards(text, extra) {
   const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
   const m = String(text || '').match(re);
@@ -2230,7 +2297,9 @@ function cleanCardsText(text, fallback) {
   let removed = 0;
   for (let i = 0; i < parts.length; i += 2) {
     const lines = parts[i].split('\n').map(line => {
-      const sentences = line.split(/(?<=[.!?…])\s+/);
+      // «**Фланец** — арт. 11118511205.» (Диалоги 06.11 #175): no split after «арт.» --
+      // the number alone went as a sentence and «— арт.» was left in the text.
+      const sentences = line.split(/(?<=[.!?…])(?<![Аа]рт\.)\s+/);
       // A sentence about the system / cards goes; numbers and prices are cut out of
       // the others, which stay if real words are left (live 30.10: the whole
       // «**Задняя ось** — колодки 34218855007 …» line went, so the text named only
@@ -3366,6 +3435,7 @@ console.log(JSON.stringify(extracted, null, 2));
           engine:    v.options?.['Двигатель'] || null,
           productionDate: v.options?.['Дата выпуска'] || null,
           partName:  p.name,
+          query:     p.query || null, // which of the customer's parts this row answers (06.11)
           axle:      p.axle || null, // передняя / задняя ось -- from the BMW number (31/33, 34 1x/2x)
           variant:   p.alternative ? 'альтернатива (оригинальная принадлежность BMW)' : (p.kitWithSensor ? 'комплект с датчиком износа' : null),
           condition: p.condition || null, // e.g. «Спортивные тормоза M (S2NHA) = нет» (group search)
@@ -4004,6 +4074,13 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     text = markDiscontinuedCards(text, [...(laximoResult?.parts || []), ...(diagram ? [diagram] : []), ...extraDiagrams]);
     text = labelVariantCards(text, laximoResult?.parts || []);
     if (diagramCardsMode) {
+      const v = laximoResult.vehicle || {};
+      text = ensureCardPerKeyword(text, {
+        keywords: extracted.partKeywords,
+        parts: laximoResult?.parts || [],
+        feedByOem: new Map((matchedCatalogByVehicle || []).map(p => [String(p.article || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), p])),
+        carLabel: `${v.brand || 'BMW'} ${v.name || ''}${v.options?.['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim(),
+      });
       text = sortCardsByAxle(text, laximoResult?.parts || []);
       if (/<<<PRODUCTS>>>/.test(text)) {
         const v = laximoResult.vehicle || {};
@@ -4173,3 +4250,4 @@ module.exports.kitItemAsked = kitItemAsked;
 module.exports.articleInMessage = articleInMessage;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;
+module.exports.ensureCardPerKeyword = ensureCardPerKeyword;

@@ -60,3 +60,24 @@ console.log('test-cards: all ok');
   a.strictEqual(f('Колодки BMW X5 G05 M50dX'), null, 'model codes are not articles');
   console.log('test-cards: article detection ok');
 }
+{
+  // Several parts in one message (Диалоги ✗ 06.11 #175): every found part gets a card
+  const ens = chat.ensureCardPerKeyword;
+  const feed = new Map([['11618637800', { article: '11618637800', name: 'Уплотнение', price: 900 }], ['11428575211', { article: '11428575211', name: 'Фильтр', price: 2100 }]]);
+  const parts = [
+    { oem: '11618637800', name: 'Уплотнение системы впуска', unit: 'Система охлаждения наддувочного воздуха', query: 'прокладка впускного коллектора' },
+    { oem: '11428575211', name: 'К-т сменного элемента масляного фильтра', query: 'масляный фильтр' },
+  ];
+  const ai = 'Нашлись позиции.\nПо **прокладке впускного коллектора** и **поддону АКПП с фильтром** — в каталоге с фото этих позиций сейчас нет. Подойдут по VIN.\n<<<PRODUCTS>>>\n[{"article":"11428575211","name":"Фильтр"}]\n<<<END_PRODUCTS>>>';
+  const out = ens(ai, { keywords: ['прокладка впускного коллектора', 'масляный фильтр', 'поддон АКПП с фильтром'], parts, feedByOem: feed, carLabel: 'BMW 230i (F22)' });
+  const cards = JSON.parse(out.match(/<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/)[1]);
+  a.deepStrictEqual(cards.map(c => c.article), ['11428575211', '11618637800']);
+  a.ok(/Уплотнение системы впуска/.test(cards[1].best_for), cards[1].best_for);
+  a.ok(!/с фото этих позиций/.test(out), out);
+  a.ok(/Подойдут по VIN/.test(out), 'other sentences stay');
+  a.ok(/«поддон АКПП с фильтром» в оригинальном каталоге/.test(out), 'not-found part gets one line');
+  a.strictEqual(ens(ai, { keywords: ['масляный фильтр'], parts, feedByOem: feed }), ai, 'one part -> untouched');
+  const t = chat.cleanCardsText('**Фланец** — арт. 11118511205.\n**Свечи** — арт. 12120040551, нужно 4 шт.\n<<<PRODUCTS>>>\n[]\n<<<END_PRODUCTS>>>', 'X');
+  a.ok(!/арт/.test(t) && /нужно 4 шт/.test(t), t);
+  console.log('test-cards: one card per asked part ok');
+}
