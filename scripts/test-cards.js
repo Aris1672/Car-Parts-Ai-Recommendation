@@ -108,3 +108,18 @@ console.log('test-cards: all ok');
   a.strictEqual(L.humanNameFor('масляный фильтр'), null);
   console.log('test-cards: прокладка = уплотнение ok');
 }
+{
+  // «Фланец системы охлаждения» = catalog «Соединительный патрубок» (owner 06.11)
+  const L = require('../lib/laximo.js');
+  const kw = 'фланец системы охлаждения';
+  const h = L.humanNameFor(kw);
+  a.ok(h && h.label === 'flange');
+  a.strictEqual(h.searchNames(kw)[0], 'соединительный патрубок');
+  const rows = [{ oem: '11118511205', name: 'Соединительный патрубок', unit: 'Блок цилиндров/дополнительные элементы', query: kw },
+    { oem: '11537600000', name: 'Шланг радиатора', query: kw }, { oem: '11428575211', name: 'Фильтр', query: 'масляный фильтр' }];
+  const out = L.applyHumanNames(rows, [kw, 'масляный фильтр']);
+  a.deepStrictEqual(out.map(r => r.oem), ['11118511205', '11428575211']);
+  a.strictEqual(out[0].name, 'Фланец системы охлаждения (в каталоге BMW — «Соединительный патрубок»)');
+  a.strictEqual(L.applyHumanNames(rows.slice(1, 2), [kw]).length, 1, 'no catalog row -> rows stay');
+  console.log('test-cards: фланец = соединительный патрубок ok');
+}
