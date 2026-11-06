@@ -25,3 +25,17 @@ console.log('test-cards: all ok');
   a.ok(u.startsWith('Для вашего'), 'a real answer stays');
   console.log('test-cards: stall line ok');
 }
+{
+  const L = require('../lib/laximo.js');
+  const U = 'Масляный фильтр смаз.сист.,теплообменник';
+  const rows = [{ oem: '11427800066', name: 'Масляный фильтр', unit: U }, { oem: '11427808443', name: 'К-т сменного элемента масляного фильтра', unit: U }, { oem: '11427826799', name: 'К-т сменного элемента масляного фильтра', unit: 'ТО по регл.Oelservice / Inspektion' }];
+  a.ok(L.humanNameFor('корпус масляного фильтра'));
+  a.ok(!L.humanNameFor('масляный фильтр'));
+  const housing = L.applyHumanNames(rows, ['корпус масляного фильтра']);
+  a.deepStrictEqual(housing.map(r => r.oem), ['11427800066']);
+  a.ok(/Корпус масляного фильтра/.test(housing[0].name));
+  a.deepStrictEqual(L.applyHumanNames(rows, ['масляный фильтр']).map(r => r.oem), ['11427808443', '11427826799']);
+  const xm = [{ oem: '11429453682', name: 'Масляный фильтр', unit: 'ТО по регл.Oelservice / Inspektion' }];
+  a.deepStrictEqual(L.applyHumanNames(xm, ['масляный фильтр']).map(r => r.oem), ['11429453682'], 'element named «Масляный фильтр» stays');
+  console.log('test-cards: oil filter housing ok');
+}
