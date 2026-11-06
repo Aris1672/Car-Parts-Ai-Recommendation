@@ -9,3 +9,5 @@
 | 38, 40 | 2026-11-05_1418 | «5' G90 M5» → two air filters, «оба варианта», empty «** **», marker on 3 for pos. 4 | «два фильтра, маркер поз. 4 не тот» | ✅ fixed | `d168bea` diagram from the group's own unit; same-name cards show the note (cyl. 1–4 / 5–8); prompt: both needed |
 | 34 | 2026-11-05_1418 | «Писал в телеграм - нет ответа» → order status + «напишите в Telegram» | — | ✅ fixed | `d168bea` no-answer complaint → request form instead of the Telegram line |
 | 37, 39, 35, 32, 33, 30, 31, 27, 26, 25, 24, 19–23, 15–18 | 2026-11-05_1412 / _1418 | ✓ | — | ok | — |
+| 145, 146 | 2026-11-06_0928 | «Корпус масляного фильтра X5 40i» → only filter elements, «корпуса отдельно нет» | — | ✅ fixed | `314c57f` component keyword (корпус, крышка…) with no matching group row → word search |
+| 102–144 (except 145, 146) | 2026-11-06_0928 | ✓ | — | ok | — |
