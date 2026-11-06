@@ -1721,7 +1721,8 @@ async function articleLookupReply(code, carBrand, codeOnly = true) {
       price: c ? Number(c.price) : 0, priceFrom: !!(c && live.count > 1),
       inStock: !!(c && c.inStock), days: c && Number(c.days) > 0 ? Number(c.days) : null,
       offers: live ? live.count || null : null, slowDelivery: !!(live && live.slowOnly),
-      stock: 0, url: null, picture: null, best_for: '', diagram: null,
+      // The site's search page: «Подробнее», and the widget takes the photo from it.
+      stock: 0, url: `${(process.env.SITE_URL || 'https://bmwclub77.ru').replace(/\/$/, '')}/search?pcode=${encodeURIComponent(code)}`, picture: null, best_for: '', diagram: null,
     });
   }
   console.log(`[article] ${code}: ${brands.map(b => b.brand).join(', ')} -- ${cards.filter(c => c.price).length} with an offer within ${abcpPrices.MAX_DAYS} days`);

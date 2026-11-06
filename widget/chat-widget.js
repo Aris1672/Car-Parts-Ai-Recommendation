@@ -2580,8 +2580,10 @@
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         // 1) the page's share image, 2) the first image from ABCP's image server
         const og = doc.querySelector('meta[property="og:image"]');
-        const abcpImg = doc.querySelector('img[src*="nodacdn.net/images/"]');
-        const cand = (og && og.getAttribute('content')) || (abcpImg && abcpImg.getAttribute('src')) || null;
+        const abcpImg = doc.querySelector('img[src*="nodacdn.net/images/"], img[src*="imgcdn.abcp"], img[data-src*="imgcdn.abcp"]');
+        const abcpSrc = abcpImg && (abcpImg.getAttribute('src') || abcpImg.getAttribute('data-src'));
+        // Search page (article cards, 06.11): its og:image may be the site logo -> the product photo first.
+        const cand = /\/search\b/.test(pageUrl) ? (abcpSrc || null) : ((og && og.getAttribute('content')) || abcpSrc || null);
         img = cand ? safeUrl(new URL(cand, pageUrl).href) : null;
       }
     } catch (e) { img = null; }
@@ -2654,6 +2656,9 @@
           : '<span style="color:#7a8591">Цена и срок — уточнит менеджер</span>')
         : (stockNum > 0)
           ? `В наличии: ${stockNum} шт.`
+          // Article search cards (06.11): the cheapest offer's delivery time.
+          : p.inStock ? '<span style="color:#1a8f3c">В наличии</span>'
+          : Number(p.days) > 0 ? `<span style="color:#1a8f3c">Срок ~${Number(p.days)} дн.</span>`
           : '<span style="color:#c00">Под заказ</span>';
 
       card.innerHTML = `
