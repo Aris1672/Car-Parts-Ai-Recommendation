@@ -14,3 +14,6 @@
 | 107, 108 | 2026-11-06_0928 | (marked ✓, found by Claude) #107 «Принял, сейчас проверю по VIN.» over the ТО cards; #108 «комплект для V8» for the 6-cyl. XM 50e | — | ✅ fixed | `e549535` stall line → summary line; prompt: no «сейчас проверю», engine facts only from data |
 | 153 | 2026-11-06_1258 | «CS010502PN» → not recognised as an article, questionnaire | «not correct yet, discuss» | ✅ fixed | `7fbf42a` any article → ABCP search/brands + search/articles → card |
 | 147–152, 154–156 | 2026-11-06_1258 | ✓ (149 already fixed: `edee19b`) | — | ok | — |
+| 175 | 2026-11-06_1955 | 230i F22 VIN, 5 parts → cards for 3; «прокладки впускного коллектора и поддона АКПП с фильтром в каталоге с фото нет, уточню у специалиста» | «- Прокладка впускного коллектора, - Поддон АКПП с фильтром ?» | ✅ fixed | `8e8e0b7` every found part gets a card (gasket rows were found and in the price list); ATF pan / filter → group «Фильтр трансмиссионный»; «— арт.» leftover |
+| 157, 158 | 2026-11-06_1955 | «CS010502PN» → Coolstream antifreeze card | «This is a test» | test | — |
+| 159–174 (except 175) | 2026-11-06_1955 | ✓ | — | ok | — |
