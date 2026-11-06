@@ -2570,9 +2570,9 @@
       return a === location.hostname.replace(/^www\./, '');
     } catch (e) { return false; }
   }
-  async function findProductImage(pageUrl) {
+  async function findProductImage(pageUrl, article) {
     if (!pageUrl || !sameSite(pageUrl)) return null;
-    if (productImageCache.has(pageUrl)) return productImageCache.get(pageUrl);
+    if (productImageCache.has(pageUrl + '|' + article)) return productImageCache.get(pageUrl + '|' + article);
     let img = null;
     try {
       const res = await fetch(pageUrl, { credentials: 'same-origin' });
@@ -2580,20 +2580,25 @@
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         // 1) the page's share image, 2) the first image from ABCP's image server
         const og = doc.querySelector('meta[property="og:image"]');
-        const abcpImg = doc.querySelector('img[src*="nodacdn.net/images/"], img[src*="imgcdn.abcp"], img[data-src*="imgcdn.abcp"]');
+        // Search page (06.11): offer rows are img.searchResultImg with data-number;
+        // the requested number first. Never the garage car picture (wMyGarageCarImage).
+        const key = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const rowImgs = [...doc.querySelectorAll('img.searchResultImg')];
+        const rowImg = rowImgs.find(i => article && key(i.getAttribute('data-number')) === key(article)) || rowImgs[0];
+        const abcpImg = rowImg || doc.querySelector('img[src*="nodacdn.net/images/"]');
         const abcpSrc = abcpImg && (abcpImg.getAttribute('src') || abcpImg.getAttribute('data-src'));
         // Search page (article cards, 06.11): its og:image may be the site logo -> the product photo first.
         const cand = /\/search\b/.test(pageUrl) ? (abcpSrc || null) : ((og && og.getAttribute('content')) || abcpSrc || null);
         img = cand ? safeUrl(new URL(cand, pageUrl).href) : null;
       }
     } catch (e) { img = null; }
-    productImageCache.set(pageUrl, img);
+    productImageCache.set(pageUrl + '|' + article, img);
     return img;
   }
   async function fillMissingImages(items) {
     let changed = false;
     for (const { p, ph } of items.slice(0, 4)) {
-      const src = await findProductImage(p.url);
+      const src = await findProductImage(p.url, p.article);
       if (!src || !ph.isConnected) continue;
       const img = document.createElement('img');
       img.className = 'pc-product-img';
