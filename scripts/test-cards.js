@@ -81,3 +81,22 @@ console.log('test-cards: all ok');
   a.ok(!/арт/.test(t) && /нужно 4 шт/.test(t), t);
   console.log('test-cards: one card per asked part ok');
 }
+{
+  // «Прокладка впускного коллектора» = catalog «Уплотнение впускного коллектора» (owner 06.11)
+  const L = require('../lib/laximo.js');
+  const kw = 'прокладка впускного коллектора';
+  const h = L.humanNameFor(kw);
+  a.ok(h && h.label === 'seal' && h.alsoWords);
+  a.strictEqual(h.searchNames(kw)[0], 'уплотнение впускного коллектора');
+  a.strictEqual(L.humanNameFor('прокладка выпускного коллектора').searchNames('прокладка выпускного коллектора')[0], 'уплотнение выпускного коллектора');
+  const rows = [
+    { oem: '11618637800', name: 'Уплотнение системы впуска', query: kw },
+    { oem: '13548632344', name: 'уплотнительная прокладка', query: kw },
+    { oem: '11617619286', name: 'Уплотнение впускного коллектора', query: kw },
+    { oem: '11428575211', name: 'К-т сменного элемента масляного фильтра', query: 'масляный фильтр' },
+  ];
+  a.deepStrictEqual(L.applyHumanNames(rows, [kw, 'масляный фильтр']).map(r => r.oem), ['11617619286', '11428575211']);
+  a.strictEqual(L.applyHumanNames(rows.slice(0, 2), [kw]).length, 2, 'no exact seal row -> rows stay');
+  a.strictEqual(L.humanNameFor('масляный фильтр'), null);
+  console.log('test-cards: прокладка = уплотнение ok');
+}
