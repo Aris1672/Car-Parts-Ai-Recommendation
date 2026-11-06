@@ -18,3 +18,10 @@ console.log('test-cards: all ok');
   a.strictEqual(k('свечи и воздушный фильтр'), null, 'two positions -> whole kit');
   console.log('test-cards: kit follow-up ok');
 }
+{
+  const t = chat.cleanCardsText('Принял, сейчас проверю по VIN.\n<<<PRODUCTS>>>\n[]\n<<<END_PRODUCTS>>>', 'Подобрал набор ТО для вашего BMW XM 50e — всё в карточках ниже.');
+  a.ok(t.startsWith('Подобрал набор ТО') && !/сейчас проверю/.test(t), t);
+  const u = chat.cleanCardsText('Для вашего XM 50e нужно 6 свечей.\n<<<PRODUCTS>>>\n[]\n<<<END_PRODUCTS>>>', 'X');
+  a.ok(u.startsWith('Для вашего'), 'a real answer stays');
+  console.log('test-cards: stall line ok');
+}
