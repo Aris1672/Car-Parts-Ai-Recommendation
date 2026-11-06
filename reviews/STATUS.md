@@ -17,3 +17,10 @@
 | 175 | 2026-11-06_1955 | 230i F22 VIN, 5 parts → cards for 3; «прокладки впускного коллектора и поддона АКПП с фильтром в каталоге с фото нет, уточню у специалиста» | «- Прокладка впускного коллектора, - Поддон АКПП с фильтром ?» | ✅ fixed | `8e8e0b7` + `c8eafd1` («прокладка X» = catalog «уплотнение X», owner 06.11) every found part gets a card (gasket rows were found and in the price list); ATF pan / filter → group «Фильтр трансмиссионный»; «— арт.» leftover |
 | 157, 158 | 2026-11-06_1955 | «CS010502PN» → Coolstream antifreeze card | «This is a test» | test | — |
 | 159–174 (except 175) | 2026-11-06_1955 | ✓ | — | ok | — |
+| 213, 215, 219, 225, 227, 229, 242, 244 | 2026-11-06_2211 | 230i, 5-part list: gasket / flange missing or wrong (builds before the evening fixes) | — | ✅ fixed | `f702fb2` «коллектора» key, `c6def99` names-table rows survive the AI filter, `8e8715e` … and the group check |
+| 246, 256 | 2026-11-06_2211 | AI question on a 5-part list («Какие детали вам нужны?», «Фланец — вариант 1 / 2») | — | ✅ fixed | `a44f596` no AI variant question for a list |
+| 250 | 2026-11-06_2211 | 230i: gearbox pan kit dropped by the AI filter → «менеджер подберёт» | — | ✅ fixed | `15702a9` catalog-group rows of a fully dropped part put back |
+| 266 | 2026-11-06_2211 | X5 E70 40d: gasket = 2 AGR «Профильная прокладка» rows | owner: gasket is in «Монтажный комплект турбонагнетателя» | ✅ fixed | `a11416d` kit fallback; confirmed in #271 (2026-11-06_2239) |
+| 176–265 other | 2026-11-06_2211 | ✓ / tests | — | ok | — |
+| 267, 268, 269 | 2026-11-06_2239 | «5JA071497N 8Z8» → «не нашёл артикул 5JA071497N» | screenshot: VAG 5JA071497N8Z8 21 700 ₽ | ✅ fixed | `b56f5fe` spaced VAG number / suffix joined |
+| 270, 271 | 2026-11-06_2239 | ✓ (X5 E70: kit 11652456238 shown for the gasket) | — | ok | — |
