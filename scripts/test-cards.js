@@ -133,3 +133,10 @@ console.log('test-cards: all ok');
   a.ok(!L.humanRowMatch('масляный фильтр', { name: 'Соединительный патрубок' }));
   console.log('test-cards: group check for names-table rows ok');
 }
+{
+  const L = require('../lib/laximo.js');
+  const kw = 'уплотнение впускного коллектора';
+  a.ok(L.humanNameFor(kw) && L.humanNameFor(kw).label === 'seal', 'the AI may write «уплотнение …» itself');
+  a.ok(L.humanRowMatch(kw, { name: 'Уплотнение выпускного коллектора' }));
+  console.log('test-cards: «уплотнение …» keyword ok');
+}
