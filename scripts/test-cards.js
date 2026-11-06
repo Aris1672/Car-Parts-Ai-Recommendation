@@ -123,3 +123,13 @@ console.log('test-cards: all ok');
   a.strictEqual(L.applyHumanNames(rows.slice(1, 2), [kw]).length, 1, 'no catalog row -> rows stay');
   console.log('test-cards: фланец = соединительный патрубок ok');
 }
+{
+  // BMW main-group check lets names-table rows through (live 06.11: flange 11 11… dropped, AI allowed only group 17)
+  const L = require('../lib/laximo.js');
+  a.ok(L.humanRowMatch('фланец системы охлаждения', { name: 'Соединительный патрубок' }));
+  a.ok(!L.humanRowMatch('фланец системы охлаждения', { name: 'Шланг радиатора' }));
+  a.ok(L.humanRowMatch('прокладка впускного коллектора', { name: 'Уплотнение выпускного коллектора' }));
+  a.ok(!L.humanRowMatch('прокладка впускного коллектора', { name: 'Уплотнение системы впуска' }));
+  a.ok(!L.humanRowMatch('масляный фильтр', { name: 'Соединительный патрубок' }));
+  console.log('test-cards: group check for names-table rows ok');
+}
