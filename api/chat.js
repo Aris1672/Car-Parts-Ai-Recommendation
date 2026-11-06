@@ -2267,7 +2267,7 @@ function mergeDiagramCards(text, extra) {
  * a ₽ price, or talks about the system / missing photos / cards; keeps the rest.
  * Nothing left -> one plain line. Text outside the special blocks only.
  */
-const CARD_TALK_RE = /показан\S*\s+(\S+\s+){0,2}карточк|вместо\s+фото|систем[аеуы]|покаж(ет|ут)\s+(систем|ниже)|без\s+фото|нет\s+(подтвержд\S*\s+)?карточк|карточк\S*\s+(с\s+фото|нет)|в\s+блок|«?открыть\s+деталь»?|кнопк\S*\s+«?открыть|нет\s+в\s+(каталоге|прайс)/i;
+const CARD_TALK_RE = /показан\S*\s+(\S+\s+){0,2}карточк|вместо\s+фото|систем[аеуы]\s+(сам|покаж|добав|автомат|вывед|отобраз)|покаж(ет|ут)\s+(систем|ниже)|без\s+фото|нет\s+(подтвержд\S*\s+)?карточк|карточк\S*\s+(с\s+фото|нет)|в\s+блок|«?открыть\s+деталь»?|кнопк\S*\s+«?открыть|нет\s+в\s+(каталоге|прайс)/i;
 const PART_NO_RE = /(?<![0-9A-Za-z])\d{2}\s?\d{2}\s?\d\s?[0-9A-Z]{3}\s?[0-9A-Z]{3}(?![0-9A-Za-z])/;
 const PART_NO_G = new RegExp(PART_NO_RE.source, 'g');
 function stripNumbers(x) {
@@ -2299,7 +2299,7 @@ function cleanCardsText(text, fallback) {
     const lines = parts[i].split('\n').map(line => {
       // «**Фланец** — арт. 11118511205.» (Диалоги 06.11 #175): no split after «арт.» --
       // the number alone went as a sentence and «— арт.» was left in the text.
-      const sentences = line.split(/(?<=[.!?…])(?<![Аа]рт\.)\s+/);
+      const sentences = line.split(/(?<=[.!?…])(?<![Аа]рт\.)(?<!(?:^|\*\*|\s)\d{1,2}\.)\s+/); // nor after a list number «**1.» (live 06.11)
       // A sentence about the system / cards goes; numbers and prices are cut out of
       // the others, which stay if real words are left (live 30.10: the whole
       // «**Задняя ось** — колодки 34218855007 …» line went, so the text named only

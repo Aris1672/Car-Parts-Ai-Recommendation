@@ -96,7 +96,14 @@ console.log('test-cards: all ok');
     { oem: '11428575211', name: 'К-т сменного элемента масляного фильтра', query: 'масляный фильтр' },
   ];
   a.deepStrictEqual(L.applyHumanNames(rows, [kw, 'масляный фильтр']).map(r => r.oem), ['11617619286', '11428575211']);
-  a.strictEqual(L.applyHumanNames(rows.slice(0, 2), [kw]).length, 2, 'no exact seal row -> rows stay');
+  // live 06.11 (230i B48): intake gasket = «Уплотнение системы впуска»; the exhaust seal must go
+  const live = [{ oem: '11618637800', name: 'Уплотнение системы впуска', query: kw }, { oem: '11627617523', name: 'Уплотнение выпускного коллектора', query: kw }];
+  a.deepStrictEqual(L.applyHumanNames(live, [kw]).map(r => r.oem), ['11618637800']);
+  a.deepStrictEqual(L.applyHumanNames(live, ['прокладка выпускного коллектора'].concat([])).length, 2, 'rows tagged with another keyword untouched');
+  a.deepStrictEqual(L.applyHumanNames(live.map(r => ({ ...r, query: 'прокладка выпускного коллектора' })), ['прокладка выпускного коллектора']).map(r => r.oem), ['11627617523']);
+  a.strictEqual(L.applyHumanNames([{ oem: '1', name: 'Корпус дроссельной заслонки', query: kw }], [kw]).length, 1, 'no seal row -> rows stay');
+  const lt = chat.cleanCardsText('Подходят две позиции:\n**1. Уплотнение системы впуска BMW арт. 11618637800** — 4 шт.\n<<<PRODUCTS>>>\n[]\n<<<END_PRODUCTS>>>', 'X');
+  a.ok(/1\. Уплотнение системы впуска/.test(lt), lt);
   a.strictEqual(L.humanNameFor('масляный фильтр'), null);
   console.log('test-cards: прокладка = уплотнение ok');
 }
