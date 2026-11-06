@@ -181,6 +181,8 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 **Этап 2 — если пользователь НЕ знает допуск производителя:**
 В текущей версии агента общий (запасной) подбор по типу топлива/наддуву/пробегу ещё не реализован. Если пользователь не знает допуск — вежливо объясни, что для точного подбора масла нужен допуск производителя (можно посмотреть в руководстве по эксплуатации или на крышке маслозаливной горловины), и предложи связаться с менеджером для помощи с подбором, используя сценарий ЭСКАЛАЦИИ (см. ниже). НЕ угадывай подходящее масло по типу топлива/наддуву самостоятельно — это будет добавлено отдельно.
 
+**Не пиши «менеджер уточнит сроки / наличие / цену»** (06.11), когда есть карточки или «Открыть деталь»: цена, наличие и сроки уже видны в карточке и на странице товара.
+
 **Корпус масляного фильтра (06.11):** в каталоге BMW «Масляный фильтр» в узле «…теплообменник» (поз. 1) — это КОРПУС в сборе с теплообменником, а то, что люди называют «масляный фильтр», — «К-т сменного элемента масляного фильтра». Если клиент просил корпус, в данных он уже назван «Корпус масляного фильтра в сборе с теплообменником»: так и объясни одной фразой (дорогой узел, меняется при неисправности, а не на ТО). Если просил «масляный фильтр» — это сменный элемент.
 
 **Ответ сразу, без «сейчас проверю» (Диалоги 06.11):** все данные (каталог, цены, карточки) уже перед тобой — НЕ пиши «принял, сейчас проверю», «минутку», «подождите»: сразу дай результат. **Двигатель и машина — только из данных:** не называй число цилиндров, тип (V8, рядный), объём или мощность, если этого нет в данных автомобиля (код двигателя из каталога — можно). Количество деталей (например свечей) бери из каталога (количество / qty), не выводи его из своих догадок о моторе.
@@ -2155,6 +2157,16 @@ function stripNumbers(x) {
 }
 const STALL_RE = /(сейчас|минут|секунд|момент)\S*\s+(провер|посмотр|подбер|найд|уточн)|^\s*(принял|понял|хорошо|ок)[,.!]?\s+(сейчас|провер)|подожд/i;
 
+const MANAGER_DETAILS_RE = /менеджер\S*[^.!?\n]{0,40}(уточн|подтверд|сообщ|подскаж|расскаж|проверит)\S*[^.!?\n]{0,40}(срок|налич|цен|стоимост|достав)|(срок|налич|цен|стоимост|достав)\S*[^.!?\n]{0,40}(уточн|подтверд|сообщ|подскаж)\S*[^.!?\n]{0,30}менеджер/i;
+/** Drops sentences «менеджер уточнит сроки / наличие / цену» from the prose (not from blocks). Pure. */
+function dropManagerDetailsLine(text) {
+  let n = 0;
+  const out = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>|<<<CONTACT_FORM>>>)/).map((part, i) => i % 2 ? part
+    : part.split('\n').map(line => line.split(/(?<=[.!?…])\s+/).filter(x => { const hit = MANAGER_DETAILS_RE.test(x); if (hit) n++; return !hit; }).join(' ')).join('\n').replace(/\n{3,}/g, '\n\n')).join('');
+  if (n) console.log(`[chat] ${n} «менеджер уточнит сроки/цену» sentence(s) removed (cards show them)`);
+  return n ? out.trim() : text;
+}
+
 function cleanCardsText(text, fallback) {
   const parts = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>|<<<CONTACT_FORM>>>)/);
   let removed = 0;
@@ -3934,6 +3946,9 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       lastUserText: (([...(messages || [])].reverse().find(m => m.role === 'user')) || {}).content,
       compatVerdict: compat ? compat.verdict : null,
     });
+    // «Менеджер уточнит сроки поставки» under cards (owner 06.11: seen often): the
+    // card and the product page already show price, stock and delivery times.
+    if (/<<<PRODUCTS>>>/.test(text) || allLinkCodes.length || diagramCardParts.length) text = dropManagerDetailsLine(text);
 
     // The customer typed a phone/email into the chat: the LLM saw only a mask.
     // Open the request form (the widget fills it from the customer's own
@@ -4080,4 +4095,5 @@ module.exports._extraction = { rememberExtraction, previousExtraction, extractVe
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
 module.exports.kitItemAsked = kitItemAsked;
+module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;

@@ -39,3 +39,11 @@ console.log('test-cards: all ok');
   a.deepStrictEqual(L.applyHumanNames(xm, ['масляный фильтр']).map(r => r.oem), ['11429453682'], 'element named «Масляный фильтр» stays');
   console.log('test-cards: oil filter housing ok');
 }
+{
+  const d = chat.dropManagerDetailsLine;
+  const t = d('Вот корпус для X5 40i. Карточка ниже.\n\nМожно прислать VIN. Менеджер уточнит сроки поставки.\n<<<PRODUCTS>>>\n[]\n<<<END_PRODUCTS>>>');
+  a.ok(!/Менеджер уточнит/.test(t) && /Можно прислать VIN/.test(t) && /<<<PRODUCTS>>>/.test(t), t);
+  a.ok(/менеджер/.test(d('Если нужна установка, менеджер запишет вас в сервис.')), 'other manager lines stay');
+  a.ok(!/уточнит/.test(d('Цену и наличие уточнит менеджер.')));
+  console.log('test-cards: manager details line ok');
+}
