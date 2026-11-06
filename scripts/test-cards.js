@@ -58,6 +58,11 @@ console.log('test-cards: all ok');
   a.strictEqual(f('288183838'), null, 'order number');
   a.strictEqual(f('X5 G05 40i'), null);
   a.strictEqual(f('Колодки BMW X5 G05 M50dX'), null, 'model codes are not articles');
+  a.strictEqual(f('5JA071497N 8Z8'), '5JA071497N8Z8', 'VAG colour suffix (Диалоги #267)');
+  a.strictEqual(f('5JA 071 497 N 8Z8'), '5JA071497N8Z8');
+  a.strictEqual(f('5JA071497N8Z8'), '5JA071497N8Z8');
+  a.strictEqual(f('5JA071497N 2 шт'), '5JA071497N', 'a quantity is not a suffix');
+  a.strictEqual(f('BMW X5 E70 2010'), null);
   console.log('test-cards: article detection ok');
 }
 {

@@ -1716,9 +1716,20 @@ function sanitizeContactPhone(extracted) {
 function articleInMessage(text, extracted) {
   const t = String(text || '').trim();
   if (!t || t.length > 80) return null;
-  const tokens = t.split(/[\s,;]+/).map(x => x.replace(/[^A-Za-z0-9-]/g, '')).filter(Boolean)
-    .map(x => x.toUpperCase().replace(/-/g, ''))
-    .filter(x => x.length >= 6 && x.length <= 20 && /[A-Z]/.test(x) && (x.match(/\d/g) || []).length >= 3);
+  const isCode = x => x.length >= 6 && x.length <= 20 && /[A-Z]/.test(x) && (x.match(/\d/g) || []).length >= 3;
+  // VAG numbers written with spaces («5JA 071 497 N 8Z8», «5JA071497N 8Z8»; Диалоги ✗ 06.11
+  // #267: only «5JA071497N» was searched and not found -- the article is 5JA071497N8Z8).
+  const vag = t.toUpperCase().match(/^\s*([0-9A-Z]{3})[\s.-]?(\d{3})[\s.-]?(\d{3})(?:[\s.-]?([A-Z]{1,2}))?(?:[\s.-]?([0-9A-Z]{3}))?\s*$/);
+  if (vag && /[A-Z]/.test(vag.slice(1).join(''))) return vag.slice(1).filter(Boolean).join('');
+  const raw = t.split(/[\s,;]+/).map(x => x.replace(/[^A-Za-z0-9-]/g, '')).filter(Boolean).map(x => x.toUpperCase().replace(/-/g, ''));
+  // A short suffix right after a code (colour / version: «8Z8», «GRU», «041») belongs to it.
+  const joined = [];
+  for (const x of raw) {
+    const prev = joined[joined.length - 1];
+    if (prev && isCode(prev) && /^[A-Z0-9]{1,4}$/.test(x) && (/[A-Z]/.test(x) || /^\d{3}$/.test(x)) && isCode(prev + x)) joined[joined.length - 1] = prev + x;
+    else joined.push(x);
+  }
+  const tokens = joined.filter(isCode);
   const vin = String((extracted && extracted.vin) || '').toUpperCase();
   const cand = tokens.filter(x => x !== vin && !(x.length === 17 && /^[A-HJ-NPR-Z0-9]{17}$/.test(x) && /^[A-Z]{3}/.test(x) && /^(WBA|WBS|WBY|WMW|X4X|X4M|WBX|LBV|5UX|4US|5YM|WMZ|SAJ|WAU|WDD|WDB|WVW)/.test(x)));
   if (cand.length !== 1) return null;
