@@ -1675,6 +1675,63 @@ function sanitizeContactPhone(extracted) {
   }
 }
 
+// ─── ANY ARTICLE (ABCP site search) ─────────────────────────────────────────
+// One code with letters and digits (6–20 chars, dashes/spaces ignored), not a
+// VIN, not a pure-digit number (BMW 11-digit numbers, order numbers, phones have
+// their own paths). Whole message ≤ 40 chars, or the code is the only such token.
+function articleInMessage(text, extracted) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 80) return null;
+  const tokens = t.split(/[\s,;]+/).map(x => x.replace(/[^A-Za-z0-9-]/g, '')).filter(Boolean)
+    .map(x => x.toUpperCase().replace(/-/g, ''))
+    .filter(x => x.length >= 6 && x.length <= 20 && /[A-Z]/.test(x) && (x.match(/\d/g) || []).length >= 3);
+  const vin = String((extracted && extracted.vin) || '').toUpperCase();
+  const cand = tokens.filter(x => x !== vin && !(x.length === 17 && /^[A-HJ-NPR-Z0-9]{17}$/.test(x) && /^[A-Z]{3}/.test(x) && /^(WBA|WBS|WBY|WMW|X4X|X4M|WBX|LBV|5UX|4US|5YM|WMZ|SAJ|WAU|WDD|WDB|WVW)/.test(x)));
+  if (cand.length !== 1) return null;
+  if (t.replace(/[\s-]/g, '').length > 40 && !/артикул|номер|код/i.test(t)) return null;
+  return cand[0];
+}
+
+/** Reply with one card for a non-BMW article, or null (BMW/MINI number, ABCP off). */
+async function articleLookupReply(code, carBrand, codeOnly = true) {
+  if (!abcpOrders.enabled()) return null;
+  let list;
+  try {
+    const res = await Promise.race([abcpOrders.apiGet('search/brands', { number: code }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout 5s')), 5000))]);
+    list = (Array.isArray(res) ? res : Object.values(res || {})).filter(x => x && x.brand);
+  } catch (err) {
+    if (err.abcpCode == 301) list = []; else { console.error('[article] search/brands failed:', err.message); return null; }
+  }
+  if (list.some(x => /^(bmw|mini)$/i.test(String(x.brand).trim()))) return null; // original number: catalog path
+  if (!list.length) {
+    console.log(`[article] ${code}: no brand at the suppliers`);
+    if (!codeOnly) return null; // «двигатель S63B44…»: not an article -- normal path
+    return `Не нашёл артикул **${code}** у наших поставщиков. Проверьте, пожалуйста, номер — или пришлите VIN (17 символов из СТС), и я подберу оригинальную деталь по каталогу BMW.\n<<<MANAGER_BUTTON>>>`;
+  }
+  const brands = [...new Map(list.map(x => [BRAND_KEY(x.brand), x])).values()].slice(0, 4);
+  const cards = [];
+  for (const b of brands) {
+    const live = await abcpPrices.priceFor(code, b.brand);
+    const c = live && live.cheapest;
+    const desc = String(b.description || '').trim();
+    cards.push({
+      article: code, name: desc && !/^деталь$/i.test(desc) && !looksGarbled(desc) ? desc : `${b.brand} ${code}`,
+      brand: b.brand, category: 'поиск по артикулу', compatibility: '',
+      price: c ? Number(c.price) : 0, priceFrom: !!(c && live.count > 1),
+      inStock: !!(c && c.inStock), days: c && Number(c.days) > 0 ? Number(c.days) : null,
+      offers: live ? live.count || null : null, slowDelivery: !!(live && live.slowOnly),
+      stock: 0, url: null, picture: null, best_for: '', diagram: null,
+    });
+  }
+  console.log(`[article] ${code}: ${brands.map(b => b.brand).join(', ')} -- ${cards.filter(c => c.price).length} with an offer within ${abcpPrices.MAX_DAYS} days`);
+  const first = cards[0];
+  const text = cards.length > 1
+    ? `Артикул **${code}** есть у нескольких производителей — выберите нужный в карточках ниже. На странице товара — все предложения по цене и сроку.`
+    : `Нашёл: **${first.brand} ${code}** — ${first.name}. Откройте карточку: на странице товара все предложения по цене и сроку, можно сразу оформить заказ.`;
+  return `${text}\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+}
+
 // ─── PART-NUMBER COMPATIBILITY CHECK (ABCP name + Laximo) ──────────────────
 // The customer names a part number and their car: is that number in the car's
 // original catalog? Laximo on the site can't search by number, only by part
@@ -3063,6 +3120,23 @@ console.log(JSON.stringify(extracted, null, 2));
       return res.status(200).json({ reply });
     }
 
+    // A non-BMW article typed alone («CS010502PN», Диалоги ✗ 06.11): the site's
+    // own search (ABCP) -> brand, name, cheapest offer. BMW / MINI numbers keep
+    // their catalog path below.
+    {
+      const art = articleInMessage(lastUserMessage(messages), extracted);
+      if (art) {
+        progress.step(`Ищу артикул ${art} у поставщиков…`);
+        const codeOnly = String(lastUserMessage(messages) || '').replace(/[^A-Za-zА-Яа-яЁё0-9]/g, '').length <= art.length + 8;
+        const reply = await articleLookupReply(art, (extracted.brand || '').toUpperCase(), codeOnly);
+        if (reply) {
+          Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+          res.setHeader('Content-Type', 'application/json');
+          return res.status(200).json({ reply });
+        }
+      }
+    }
+
     // Part number + car known -> check that number against the car's catalog.
     let compat = null;
     let compatSkipCode = null;
@@ -4095,5 +4169,6 @@ module.exports._extraction = { rememberExtraction, previousExtraction, extractVe
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
 module.exports.kitItemAsked = kitItemAsked;
+module.exports.articleInMessage = articleInMessage;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;

@@ -47,3 +47,16 @@ console.log('test-cards: all ok');
   a.ok(!/уточнит/.test(d('Цену и наличие уточнит менеджер.')));
   console.log('test-cards: manager details line ok');
 }
+{
+  const f = chat.articleInMessage;
+  a.strictEqual(f('CS010502PN'), 'CS010502PN');
+  a.strictEqual(f('CS-010502-PN'), 'CS010502PN');
+  a.strictEqual(f('есть артикул CS010502PN?'), 'CS010502PN');
+  a.strictEqual(f('WBS11CS0609158489', { vin: 'WBS11CS0609158489' }), null, 'VIN');
+  a.strictEqual(f('WBS11CS0609158489'), null, 'VIN without extraction');
+  a.strictEqual(f('11427826799'), null, 'BMW number keeps its path');
+  a.strictEqual(f('288183838'), null, 'order number');
+  a.strictEqual(f('X5 G05 40i'), null);
+  a.strictEqual(f('Колодки BMW X5 G05 M50dX'), null, 'model codes are not articles');
+  console.log('test-cards: article detection ok');
+}
