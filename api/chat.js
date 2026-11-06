@@ -1729,7 +1729,7 @@ async function articleLookupReply(code, carBrand, codeOnly = true) {
   const first = cards[0];
   const text = cards.length > 1
     ? `Артикул **${code}** есть у нескольких производителей — выберите нужный в карточках ниже. На странице товара — все предложения по цене и сроку.`
-    : `Нашёл: **${first.brand} ${code}** — ${first.name}. Откройте карточку: на странице товара все предложения по цене и сроку, можно сразу оформить заказ.`;
+    : `Нашёл: **${first.brand} ${code}** — ${String(first.name).replace(/[.\s]+$/, '')}. Откройте карточку: на странице товара все предложения по цене и сроку, можно сразу оформить заказ.`;
   return `${text}\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
 }
 
