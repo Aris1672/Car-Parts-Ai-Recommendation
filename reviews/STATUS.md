@@ -12,3 +12,5 @@
 | 145, 146 | 2026-11-06_0928 | «Корпус масляного фильтра X5 40i» → only filter elements, «корпуса отдельно нет» | — | ✅ fixed | `314c57f` component keyword (корпус, крышка…) with no matching group row → word search |
 | 102–144 (except 145, 146) | 2026-11-06_0928 | ✓ | — | ok | — |
 | 107, 108 | 2026-11-06_0928 | (marked ✓, found by Claude) #107 «Принял, сейчас проверю по VIN.» over the ТО cards; #108 «комплект для V8» for the 6-cyl. XM 50e | — | ✅ fixed | `e549535` stall line → summary line; prompt: no «сейчас проверю», engine facts only from data |
+| 153 | 2026-11-06_1258 | «CS010502PN» → not recognised as an article, questionnaire | «not correct yet, discuss» | ✅ fixed | `7fbf42a` any article → ABCP search/brands + search/articles → card |
+| 147–152, 154–156 | 2026-11-06_1258 | ✓ (149 already fixed: `edee19b`) | — | ok | — |
