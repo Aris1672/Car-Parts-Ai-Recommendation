@@ -140,3 +140,22 @@ console.log('test-cards: all ok');
   a.ok(L.humanRowMatch(kw, { name: 'Уплотнение выпускного коллектора' }));
   console.log('test-cards: «уплотнение …» keyword ok');
 }
+{
+  // X5 E70 N57S (owner 06.11): manifold gasket only in «Монтажный комплект турбонагнетателя»
+  const L = require('../lib/laximo.js');
+  const kw = 'прокладка впускного коллектора';
+  const rows = [
+    { oem: '11617801943', name: 'Профильная прокладка', unit: 'Система впуска AGR с упр.заслонками', query: kw },
+    { oem: '11617807480', name: 'Профильная прокладка', unit: 'Система впуска AGR с упр.заслонками', query: kw },
+    { oem: '11652456238', name: 'Монтажный комплект турбонагнетателя', unit: 'Турбонагнетатель и монт.к-т Value Line', query: kw },
+    { oem: '11427808443', name: 'Фильтр масляный', query: 'масляный фильтр' },
+  ];
+  const out = L.applyHumanNames(rows, [kw, 'масляный фильтр']);
+  a.deepStrictEqual(out.map(r => r.oem), ['11652456238', '11427808443']);
+  a.ok(/входит в монтажный комплект турбонагнетателя/.test(out[0].name) && out[0].fixedName === kw, out[0].name);
+  a.ok(L.humanRowMatch(kw, { name: 'Монтажный комплект турбонагнетателя' }), 'kit passes the group check');
+  // 230i: the «… коллектора» seal row wins over the kit
+  const b = L.applyHumanNames([{ oem: '11627617523', name: 'Уплотнение выпускного коллектора', query: kw }, { oem: '11652456238', name: 'Монтажный комплект турбонагнетателя', query: kw }], [kw]);
+  a.deepStrictEqual(b.map(r => r.oem), ['11627617523']);
+  console.log('test-cards: gasket in the turbo mounting kit ok');
+}
