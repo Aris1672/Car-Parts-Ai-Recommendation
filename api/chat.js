@@ -1320,6 +1320,21 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     // впускного коллектора» («выпускного» ≠ «впускного» to it) -> answer invented a part.
     const fixed = rows.map((p, i) => (p.fixedName && !keep.has(i + 1) ? i + 1 : 0)).filter(Boolean);
     if (fixed.length) { fixed.forEach(n => keep.add(n)); console.log(`[laximo] AI filter: ${fixed.length} row(s) from the names table kept (${fixed.map(n => rows[n - 1].name).join('; ')})`); }
+    // A list of parts (owner 06.11, Диалоги #250: «Поддон АКПП с фильтром» -- the AI dropped the
+    // only row, group «Фильтр трансмиссионный», and the answer sent it to the manager): when the
+    // AI drops EVERY row of one part and those rows came from a BMW quick group, they come back.
+    // Word-search rows stay the AI's call (they can be noise).
+    if (manyParts) {
+      const tags = p => String(p.query || '').toLowerCase().split(/\s*,\s*/).filter(Boolean);
+      for (const kw of new Set(rows.flatMap(tags))) {
+        const idx = rows.map((p, i) => (tags(p).includes(kw) ? i + 1 : 0)).filter(Boolean);
+        if (!idx.length || idx.some(n => keep.has(n))) continue;
+        const back = idx.filter(n => rows[n - 1].viaGroup);
+        if (!back.length) continue;
+        back.forEach(n => keep.add(n));
+        console.log(`[laximo] AI filter dropped every row of "${kw}" -- ${back.length} catalog-group row(s) put back (${back.map(n => rows[n - 1].name).join('; ')})`);
+      }
+    }
     const kept = rows.filter((_, i) => keep.has(i + 1));
     const searchAgain = opts.allowSearchAgain && !kept.length && Array.isArray(answer.searchAgain)
       ? [...new Set(answer.searchAgain.map(x => String(x || '').toLowerCase().replace(/\s+/g, ' ').trim()).filter(x => x.length >= 3 && x.length <= 40))].slice(0, 3)
