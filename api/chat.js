@@ -1288,10 +1288,16 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     const extra = partsMeta(parts);
     const validRows = list => [...new Set([].concat(list || []).map(Number).filter(n => n >= 1 && n <= rows.length))];
 
-    if (opts.allowAsk && answer.ask && Array.isArray(answer.ask.options)) {
+    // Several parts in one message (live 06.11, X5 E70, 5-part list): the AI asked only about
+    // the flange, with buttons «Фланец (патрубок) — вариант 1 / вариант 2» -- the other parts
+    // were lost and the labels said nothing. A list of parts never gets the AI's variant
+    // question (axle / side questions above are code rules and stay); meaningless labels neither.
+    const manyParts = (extracted.partKeywords || []).length >= 2;
+    const vagueLabel = l => /вариант\s*\d|^\s*(вариант|option)\b|^\s*\d+\s*$/i.test(l);
+    if (opts.allowAsk && !manyParts && answer.ask && Array.isArray(answer.ask.options)) {
       const options = answer.ask.options
         .map(o => ({ label: String((o && o.label) || '').replace(/[<>\n]/g, ' ').trim().slice(0, 45), rows: validRows(o && o.rows) }))
-        .filter(o => o.label && o.rows.length && o.label !== CLARIFY_ALL)
+        .filter(o => o.label && o.rows.length && o.label !== CLARIFY_ALL && !vagueLabel(o.label))
         .slice(0, 6);
       if (options.length >= 2) {
         const all = [...new Set(options.flatMap(o => o.rows))].sort((a, b) => a - b);
@@ -1299,6 +1305,13 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
         console.log(`[laximo] AI filter "${asked}": asks "${answer.ask.question}" -> ${options.map(o => `${o.label} [${o.rows.join(',')}]`).join(' | ')}`);
         return Object.assign(kept, extra, { clarify: { question: String(answer.ask.question || '').slice(0, 160), options } });
       }
+    }
+    if (answer.ask && !Array.isArray(answer.keep)) {
+      // question not used (several parts / vague labels): keep every row the AI offered in it
+      // several parts: every row stays (the question covered only some of them); one part: its options' rows
+      const offered = manyParts ? rows.map((_, i) => i + 1) : validRows([].concat(...(answer.ask.options || []).map(o => (o && o.rows) || [])));
+      if (offered.length) answer.keep = offered;
+      console.log(`[laximo] AI filter "${asked}": question not asked (${manyParts ? 'several parts' : 'vague labels'}), rows of its options kept`);
     }
     if (!Array.isArray(answer.keep)) return parts;
     const keep = new Set(validRows(answer.keep));
