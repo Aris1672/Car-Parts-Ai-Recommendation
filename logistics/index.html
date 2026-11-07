@@ -177,6 +177,7 @@
         <div class="chart"><h3>Какие проблемы <small>заказы со свежими проблемами</small></h3><div id="chKinds"></div></div>
         <div class="chart"><h3>Сколько дней заказ уже открыт</h3><div id="chAge"></div></div>
         <div class="chart"><h3>Поставщики с опозданиями <small>топ-8, позиций</small></h3><div id="chSuppliers"></div></div>
+        <div class="chart"><h3>Оплата <small>открытые заказы</small></h3><div id="chPay"></div></div>
         <div class="chart"><h3>Способ доставки <small>открытые заказы</small></h3><div id="chCarrier"></div></div>
       </div>
       <div class="foot" id="foot2"></div>
@@ -189,6 +190,7 @@
       <div class="filters">
         <input id="q" placeholder="Поиск: номер заказа, клиент, артикул…">
         <button class="chip" data-f="problems">Только проблемные</button>
+        <button class="chip" data-f="unpaid">Не оплачены</button>
         <button class="chip" data-f="cdek">СДЭК</button>
         <button class="chip" data-f="yandex">Яндекс</button>
         <button class="chip" data-f="pickup">Самовывоз</button>
@@ -217,6 +219,9 @@
   let data = null, filters = new Set(), openNumber = null, pollT = null;
 
   const CARRIER = { cdek: 'СДЭК', yandex: 'Яндекс', pickup: 'Самовывоз', courier: 'Курьер', other: 'Доставка' };
+  const payOf = sm => sm.payState || (!(Number(sm.debt) > 0) || sm.paid ? 'paid' : Number(sm.debt) < Number(sm.sum) - 0.5 ? 'partial' : 'unpaid');
+  const PAY = { paid: ['💳 Оплачен', 'var(--green)'], partial: ['◐ Частично оплачен', 'var(--amber)'], unpaid: ['⏳ Не оплачен', 'var(--amber)'] };
+  const payTag = sm => { const [t, c] = PAY[payOf(sm)]; return `<span class="tag" style="color:${c}">${t}</span>`; };
   const rub = n => n ? Number(n).toLocaleString('ru-RU') + ' ₽' : '—';
   const dt = s => { if (!s) return '—'; const d = new Date(String(s).includes('T') || String(s).endsWith('Z') ? s : String(s).replace(' ', 'T') + '+03:00'); return isNaN(d) ? s : d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
   const ago = s => { const d = new Date(s); if (isNaN(d)) return ''; const m = Math.round((Date.now() - d) / 60000); return m < 60 ? `${m} мин назад` : m < 1440 ? `${Math.round(m / 60)} ч назад` : `${Math.round(m / 1440)} дн. назад`; };
@@ -306,7 +311,7 @@
       const risk = x.kinds.every(k => k === 'silent');
       return `<div class="alert ${risk ? 'risk' : ''} ${x.acked ? 'acked' : ''}">
         <div class="main" data-open="${esc(x.o.number)}">
-          <div class="t">Заказ ${esc(x.o.number)} · ${esc(sm.customer || '—')} <span style="color:var(--text2);font-weight:500">· ${Math.floor(orderAge(x.o))} дн. · ${rub(sm.sum)}</span></div>
+          <div class="t">Заказ ${esc(x.o.number)} · ${esc(sm.customer || '—')} <span style="color:var(--text2);font-weight:500">· ${Math.floor(orderAge(x.o))} дн. · ${rub(sm.sum)}</span> ${payOf(sm) !== 'paid' ? payTag(sm) : ''}</div>
           <div class="kinds">${x.kinds.map(k => `<span class="k ${k === 'silent' ? 'risk' : ''}">${KIND_LABEL[k]}</span>`).join('')}${x.al.length > 1 ? `<span class="d" style="margin:0">${x.al.length} поз.</span>` : ''}</div>
           ${who ? `<div class="d">✓ взял: ${esc(who)}</div>` : ''}
         </div>
@@ -433,6 +438,16 @@
     }
     hbars($('chSuppliers'), Object.entries(sup).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, value]) => ({ label: label.length > 22 ? label.slice(0, 21) + '…' : label, value, tip: `${esc(label)}: <b>${value}</b> поз. с опозданием` })), C.orange);
 
+    // payment
+    const pc = k => open.filter(o => payOf(o.summary || {}) === k);
+    const sumDebt = l => l.reduce((a, o) => a + (Number((o.summary || {}).debt) || 0), 0);
+    hbars($('chPay'), [
+      { label: 'Оплачены', value: pc('paid').length, color: C.good },
+      { label: 'Частично', value: pc('partial').length, color: C.warning, tip: `Частично оплачены: <b>${pc('partial').length}</b>, долг ${rub(sumDebt(pc('partial')))}` },
+      { label: 'Не оплачены', value: pc('unpaid').length, color: C.warning, tip: `Не оплачены: <b>${pc('unpaid').length}</b>, на сумму ${rub(sumDebt(pc('unpaid')))}`,
+        click: () => goBoard(() => { const c = document.querySelector('.chip[data-f="unpaid"]'); if (c && !filters.has('unpaid')) c.click(); }) },
+    ]);
+
     // carriers
     const car = {};
     open.forEach(o => { const k = CARRIER[(o.summary || {}).carrier] || 'Не указан'; car[k] = (car[k] || 0) + 1; });
@@ -442,6 +457,7 @@
   function matches(o) {
     const sm = o.summary || {};
     if (filters.has('problems') && o.health === 'ok') return false;
+    if (filters.has('unpaid') && payOf(sm) === 'paid') return false;
     const car = ['cdek', 'yandex', 'pickup'].filter(c => filters.has(c));
     if (car.length && !car.includes(sm.carrier)) return false;
     const q = $('q').value.trim().toLowerCase();
@@ -466,7 +482,7 @@
     const first = pos[0] ? `${pos[0].brand || ''} ${pos[0].number || ''}`.trim() + (pos.length > 1 ? ` +${pos.length - 1}` : '') : '';
     const al = (o.alerts || []).filter(a => a.kind !== 'unknown_status');
     return `<div class="card ${o.health}" data-open="${esc(o.number)}">
-      <div class="n">№ ${esc(o.number)} ${sm.carrier ? `<span class="tag ${sm.carrier}">${CARRIER[sm.carrier] || ''}</span>` : ''}</div>
+      <div class="n">№ ${esc(o.number)} <span style="display:flex;gap:4px">${payOf(sm) !== 'paid' ? payTag(sm) : ''}${sm.carrier ? `<span class="tag ${sm.carrier}">${CARRIER[sm.carrier] || ''}</span>` : ''}</span></div>
       <div class="c">${esc(sm.customer || '—')} · ${rub(sm.sum)}</div>
       <div class="c">${esc(first)} · ${dt(sm.date)}</div>
       ${al.length ? `<div class="a">⚠ ${esc([...new Set(al.map(a => a.text))].join(', '))}</div>` : ''}
@@ -512,11 +528,11 @@
       const old = (order.alerts || []).filter(a => a.resolved_at).slice(0, 10);
       $('dBody').innerHTML = `
         <div class="dh">Заказ № ${esc(order.number)}</div>
-        <div style="color:var(--text2);margin-top:4px">${esc(stage)} · ${order.health === 'late' ? '🔴 есть проблема' : order.health === 'risk' ? '🟡 под наблюдением' : '🟢 по плану'}${sm.archived ? ' · в архиве ABCP' : ''}</div>
+        <div style="color:var(--text2);margin-top:4px">${esc(stage)} · ${order.health === 'late' ? '🔴 есть проблема' : order.health === 'risk' ? '🟡 под наблюдением' : '🟢 по плану'}${sm.archived ? ' · в архиве ABCP' : ''} · ${payTag(sm)}</div>
         <div class="meta">
           <div><b>Клиент</b>${esc(sm.customer || '—')}</div>
           <div><b>Телефон</b>${sm.phone ? `<a href="tel:${esc(sm.phone)}" style="color:var(--text)">${esc(sm.phone)}</a>` : '—'}</div>
-          <div><b>Сумма / долг</b>${rub(sm.sum)} / ${sm.debt ? rub(sm.debt) : 'оплачен'}</div>
+          <div><b>Оплата</b>${payOf(sm) === 'paid' ? `оплачен · ${rub(sm.sum)}` : payOf(sm) === 'partial' ? `оплачено ${rub(sm.sum - sm.debt)} из ${rub(sm.sum)} · долг ${rub(sm.debt)}` : `не оплачен · долг ${rub(sm.debt)}`}</div>
           <div><b>Дата заказа</b>${dt(sm.date)}</div>
           <div><b>Доставка</b>${esc([CARRIER[sm.carrier], sm.deliveryType, sm.deliveryOffice].filter(Boolean).join(' · ') || '—')}</div>
           <div><b>Адрес</b>${esc(sm.deliveryAddress || '—')}</div>
