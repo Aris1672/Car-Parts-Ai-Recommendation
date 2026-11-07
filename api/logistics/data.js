@@ -93,7 +93,7 @@ module.exports = async function handler(req, res) {
             const k = suppliers.nameKey(p.supplier);
             const curOffer = offers.find(x => (p.supplierId && x.supplierId === p.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
             if (offers[0]) offers[0] = { ...offers[0], pickWhy: suppliers.explainPick(offers, { supplier: p.supplier, supplierId: p.supplierId, priceIn: p.priceIn }) };
-            return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, supplierId: p.supplierId, price: p.price, priceIn: p.priceIn, deadlineMaxHours: p.deadlineMaxHours, offer: curOffer }, offers: offers.slice(0, 12) };
+            return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, supplierId: p.supplierId, price: p.price, priceIn: p.priceIn, deadlineMaxHours: p.deadlineMaxHours, offer: curOffer }, offers: offers.slice(0, 40) };
           }
           catch (err) { return { id: p.id, number: p.number, brand: p.brand, error: err.message }; }
         }));

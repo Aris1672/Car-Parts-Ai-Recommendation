@@ -561,7 +561,7 @@
         <div class="sec"><h3>Позиции и история статусов</h3>${pos || '<div class="empty">Нет позиций</div>'}</div>
         <div class="sec"><h3>Варианты поставщиков</h3>
           <div id="offers"><button class="btn small ghost" id="offersBtn">Показать, что выбрал бы агент</button>
-          <div class="hint" style="margin-top:6px">Только просмотр: агент ищет предложения по каждой позиции и выбирает по цене, сроку и надёжности поставщика. Сравнение — по закупочной цене («Цена поставщика» в ABCP); цена продажи профиля «Опт» показана мелко. Заказ у поставщика по-прежнему делается в ABCP.</div></div>
+          <div class="hint" style="margin-top:6px">Предложения живые: ABCP обновляет их постоянно, агент перечитывает раз в 20 минут — онлайн-поставщики могут появляться и пропадать. Только просмотр: агент ищет предложения по каждой позиции и выбирает по цене, сроку и надёжности поставщика. Сравнение — по закупочной цене («Цена поставщика» в ABCP); цена продажи профиля «Опт» показана мелко. Заказ у поставщика по-прежнему делается в ABCP.</div></div>
         </div>
         <div class="sec"><h3>Заметки менеджеров</h3>
           ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
@@ -610,6 +610,7 @@
             return head + (curOffer ? '' : ' (поставщика из заказа сейчас нет в предложениях)');
           })()}</div>` : ''}
           ${p.offers.slice(0, 4).map(row).join('')}
+          <div class="sub" style="color:var(--text3)">${p.offers.length} предложений · обновлено ${new Date().toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })}</div>
           ${p.offers.length > 4 ? `<details><summary class="sub" style="cursor:pointer">ещё ${p.offers.length - 4} предложений</summary>${p.offers.slice(4).map((o, i) => row(o, i + 4)).join('')}</details>` : ''}</div>`;
       }).join('') : '<div class="hint">Нет открытых позиций для подбора.</div>';
     } catch (err) { $('offers').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
