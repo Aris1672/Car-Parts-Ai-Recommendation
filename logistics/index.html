@@ -561,7 +561,7 @@
         <div class="sec"><h3>Позиции и история статусов</h3>${pos || '<div class="empty">Нет позиций</div>'}</div>
         <div class="sec"><h3>Варианты поставщиков</h3>
           <div id="offers"><button class="btn small ghost" id="offersBtn">Показать, что выбрал бы агент</button>
-          <div class="hint" style="margin-top:6px">Только просмотр: агент ищет предложения по каждой позиции и выбирает по цене, сроку и надёжности поставщика. Цены — из профиля цен ABCP, это ещё не подтверждённая закупочная цена. Заказ у поставщика по-прежнему делается в ABCP.</div></div>
+          <div class="hint" style="margin-top:6px">Только просмотр: агент ищет предложения по каждой позиции и выбирает по цене, сроку и надёжности поставщика. Сравнение — по закупочной цене («Цена поставщика» в ABCP); цена продажи профиля «Опт» показана мелко. Заказ у поставщика по-прежнему делается в ABCP.</div></div>
         </div>
         <div class="sec"><h3>Заметки менеджеров</h3>
           ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
@@ -595,13 +595,22 @@
         const same = curOffer && curOffer.supplier === best.supplier;
         const row = (o, i) => `<div class="offer ${i === 0 ? 'best' : ''}">
             <div>${i === 0 ? '<div class="pick">Агент выбрал бы</div>' : ''}<b>${esc(o.supplier)}</b>${o.qty ? ` · ${o.qty} шт.` : ''}</div>
-            <div class="pr">${rub(o.price)}${o.priceIn ? `<div style="color:var(--text3);font-size:11px" title="Поле priceIn из ABCP — что именно в нём, ещё уточняем">priceIn ${rub(o.priceIn)} (?)</div>` : ''}</div>
+            <div class="pr">${o.priceIn ? `закупка ${rub(o.priceIn)}` : `${rub(o.price)} <span style="color:var(--text3)">(нет закупки)</span>`}${o.sale ? `<div style="color:var(--text2);font-size:11px">продажа «Опт» ${rub(o.sale)}</div>` : ''}</div>
             <div class="why">${esc(o.reasons.join(' · '))}</div></div>`;
         return `<div class="pos"><div class="top"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div>
             <div class="sub" style="margin:0">${cur.supplier ? `в заказе: ${esc(cur.supplier)}` : ''}</div></div>
-          ${cur.supplier ? `<div class="sub">${same ? '✅ Совпадает с выбором менеджера' : curOffer ? `Менеджер выбрал ${esc(cur.supplier)} — агент предлагает ${esc(best.supplier)}${best.price < curOffer.price ? `, дешевле на ${rub(curOffer.price - best.price)}` : ''}` : `Поставщика из заказа (${esc(cur.supplier)}) нет среди предложений, которые видит профиль цен — сравнить нельзя`}</div>` : ''}
+          ${cur.supplier ? `<div class="sub">${(() => {
+            const paid = cur.priceIn || (curOffer && curOffer.priceIn) || null; // what the shop pays now (order's «Цена поставщика»)
+            if (same) return `✅ Совпадает с выбором менеджера (${esc(cur.supplier)}${paid ? `, закупка ${rub(paid)}` : ''})`;
+            const head = `Менеджер выбрал ${esc(cur.supplier)}${paid ? ` (закупка ${rub(paid)})` : ''} — агент предлагает ${esc(best.supplier)}`;
+            if (paid && best.priceIn) {
+              const d = paid - best.priceIn;
+              return head + (d > 0 ? `: закупка дешевле на <b>${rub(d)}</b>` : d < 0 ? `: закупка дороже на ${rub(-d)}, но надёжнее / быстрее` : ', та же закупка');
+            }
+            return head + (curOffer ? '' : ' (поставщика из заказа сейчас нет в предложениях)');
+          })()}</div>` : ''}
           ${p.offers.slice(0, 4).map(row).join('')}
-          ${p.offers.length > 4 ? `<div class="sub">ещё ${p.offers.length - 4} предложений</div>` : ''}</div>`;
+          ${p.offers.length > 4 ? `<details><summary class="sub" style="cursor:pointer">ещё ${p.offers.length - 4} предложений</summary>${p.offers.slice(4).map((o, i) => row(o, i + 4)).join('')}</details>` : ''}</div>`;
       }).join('') : '<div class="hint">Нет открытых позиций для подбора.</div>';
     } catch (err) { $('offers').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
   }

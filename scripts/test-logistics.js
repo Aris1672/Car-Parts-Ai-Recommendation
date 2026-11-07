@@ -177,7 +177,7 @@ t('offers: own number only, scored by price, days, reliability', () => {
   const s = sup.scoreOffers(offers, stats, 1);
   assert.strictEqual(s[0].supplier, 'Stock');                 // a bit dearer, in stock and reliable beats the cheapest flaky one
   assert.ok(s[0].reasons.includes('в наличии'));
-  assert.ok(s.find(o => o.supplier === 'Flaky').reasons.includes('самая низкая цена'));
+  assert.ok(s.find(o => o.supplier === 'Flaky').reasons.includes('самая низкая закупка'));
   assert.ok(s.find(o => o.supplier === 'Flaky').reasons.some(r => r.startsWith('отказы')));
   assert.ok(s.find(o => o.supplier === 'Slow').reasons.includes('мало истории по поставщику'));
 });
@@ -194,5 +194,14 @@ t('unreliable cheapest loses; one offer per supplier; names match across [online
   assert.strictEqual(s2[0].supplier, 'ЦС Автодом Сток');
   assert.strictEqual(s2.filter(o => o.supplier.startsWith('trinity')).length, 1);
   assert.strictEqual(sup.nameKey('germsp.ru [online]'), sup.nameKey('GermSP.ru'));
+});
+t('offers compared by purchase price (priceIn), not the profile selling price', () => {
+  // order 288688455, 07.11: froza 38 400 sale / 41 735 purchase; Мезенцев 49 500 / 43 000
+  const o = sup.normalizeOffers('11128571308', [
+    { number: '11128571308', price: 38400, priceIn: 41735, deliveryPeriod: 96, distributorId: 1 },
+    { number: '11128571308', price: 49500, priceIn: 43000, deliveryPeriod: 24, distributorId: 2 }], new Map([['1', 'froza'], ['2', 'Мезенцев']]));
+  assert.strictEqual(o[0].price, 41735); assert.strictEqual(o[0].sale, 38400);
+  const sc = sup.scoreOffers(o, [], 1);
+  assert.ok(sc.find(x => x.supplier === 'froza').reasons.includes('самая низкая закупка'));
 });
 console.log(`test-logistics (suppliers): ok`);
