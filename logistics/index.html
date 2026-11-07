@@ -120,6 +120,20 @@
   .offer .why { grid-column:1 / -1; color:var(--text2); font-size:12px; }
   .offer .pr { font-family:var(--mono); font-weight:600; text-align:right; }
   .pick { color:var(--green); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+  .dec { background:var(--bg2); border:1px solid var(--border); border-left:3px solid var(--blue); border-radius:10px; padding:10px 12px; }
+  .dec.forgot { border-left-color:var(--red2); }
+  .dec .row1 { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .dec .row1 .t { font-weight:700; flex:1; min-width:220px; }
+  .dec .plist { color:var(--text2); font-size:12px; margin-top:4px; }
+  .dec .prep { margin-top:10px; border-top:1px solid var(--border); padding-top:10px; display:flex; flex-direction:column; gap:8px; }
+  .dec .pp { background:var(--bg3); border-radius:8px; padding:8px 10px; font-size:13px; }
+  .dec .pp .ok { color:var(--green); } .dec .pp .warn { color:var(--amber); }
+  .dec .params { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; }
+  .dec .params label { font-size:12px; color:var(--text2); display:flex; flex-direction:column; gap:3px; }
+  .dec .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .btn.green { background:#15803d; }
+  .res { border-radius:8px; padding:9px 11px; font-size:13px; }
+  .res.good { background:var(--green-dim); color:#86efac; } .res.bad { background:var(--red-dim); color:#fca5a5; } .res.info { background:var(--blue-dim); color:#93c5fd; }
   .hint { color:var(--text2); font-size:13px; line-height:1.55; margin-bottom:12px; max-width:800px; }
   .foot { color:var(--text3); font-size:11px; font-family:var(--mono); margin-top:14px; }
 
@@ -193,6 +207,10 @@
       <div class="foot" id="foot2"></div>
     </section>
     <section id="v-board" class="hidden">
+      <h2>Нужно ваше решение <span class="cnt" id="decCnt"></span> <span class="badge-ro" id="decMode"></span></h2>
+      <p class="hint" style="margin-bottom:8px">Оплаченные позиции, которые ещё не заказаны у поставщика. Агент проверяет предложения, менеджер подтверждает — и агент сам отправляет заказ поставщику через ABCP (как кнопка «Отправить заказ поставщику»).</p>
+      <div id="unclear"></div>
+      <div class="alerts" id="decList"><div class="empty">Загрузка…</div></div>
       <h2>Нужно внимание <span class="cnt" id="alCnt"></span></h2>
       <div class="filters" id="alFilters"></div>
       <div class="alerts" id="alerts"></div>
@@ -276,7 +294,7 @@
   });
 
   // ── data ──
-  async function load() { data = await api('list', { finishedDays: 30 }); render(); }
+  async function load() { data = await api('list', { finishedDays: 30 }); render(); if (!Object.keys(decOpen).length) loadDecisions(); }
 
   function render() {
     const s = data.stats || {}, w = data.watcher || {};
@@ -300,6 +318,90 @@
     $('foot2').textContent = $('foot').textContent = (data.enabled ? '' : 'Агент выключен (LOGISTICS_ENABLED). ') + ok + (w.lastError ? ` · ошибка: ${w.lastError}` : '') + ' · обновление каждые 30 с';
   }
 
+
+
+  // ── «Нужно ваше решение» (phase 2) ──
+  let dec = null, decLimit = 10;
+  const decOpen = {};
+  async function loadDecisions() {
+    try { dec = await api('decisions'); renderDecisions(); }
+    catch (err) { $('decList').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  }
+  function renderDecisions() {
+    if (!dec) return;
+    $('decCnt').textContent = `· ${dec.total}`;
+    $('decMode').textContent = dec.sendEnabled ? 'ОТПРАВКА ВКЛЮЧЕНА' : 'ТЕСТ: ОТПРАВКА ВЫКЛЮЧЕНА';
+    $('decMode').style.color = dec.sendEnabled ? 'var(--green)' : 'var(--amber)';
+    $('unclear').innerHTML = (dec.unclear || []).length ? `<div class="res bad" style="margin-bottom:8px"><b>Уточнить у поставщика (${dec.unclear.length}):</b> отправка не подтверждена — заказ мог создаться у поставщика. Проверьте на его стороне, агент сам повторно не отправляет.
+        ${dec.unclear.map(u => `<div style="margin-top:6px">Заказ ${esc(u.number)} · ${esc(u.supplier || '')} · поз. ${esc(u.position_id)} · ${esc((u.response && u.response.message) || u.status)}
+          <button class="btn small ghost" data-unc="${esc(u.position_id)}" data-ord="1">Заказано</button> <button class="btn small ghost" data-unc="${esc(u.position_id)}" data-ord="0">Не заказано — вернуть в очередь</button></div>`).join('')}</div>` : '';
+    const list = dec.items;
+    $('decList').innerHTML = list.length ? list.slice(0, decLimit).map(i => `
+      <div class="dec ${i.forgotten ? 'forgot' : ''}" id="dec-${esc(i.key)}">
+        <div class="row1">
+          <div class="t" data-open="${esc(i.number)}" style="cursor:pointer">Заказ ${esc(i.number)} · ${esc(i.customer || '—')} <span style="color:var(--text2);font-weight:500">· ${i.ageHours != null ? (i.ageHours < 48 ? i.ageHours + ' ч' : Math.round(i.ageHours / 24) + ' дн.') : ''} · ${esc(i.supplier)}</span>
+            ${i.forgotten ? '<span class="k">Забытая позиция</span>' : ''}${i.loss ? ' <span class="k">в минус</span>' : ''}${payOf({ payState: i.payState }) !== 'paid' ? ' ' + payTag({ payState: i.payState }) : ''}${!i.sendable ? ' <span class="k risk">только вручную</span>' : ''}</div>
+          <button class="btn small" data-prep="${esc(i.key)}">${decOpen[i.key] ? 'Свернуть' : 'Подготовить'}</button>
+        </div>
+        <div class="plist">${i.positions.map(p => `${esc(p.brand || '')} ${esc(p.number || '')} × ${p.quantity || 1}${p.priceIn ? ` · закупка ${rub(p.priceIn)}` : ''}`).join(' · ')} · закупка всего ${rub(i.cost)}, клиенту ${rub(i.sum)}</div>
+        <div class="prep ${decOpen[i.key] ? '' : 'hidden'}" id="prep-${esc(i.key)}">${decOpen[i.key] || ''}</div>
+      </div>`).join('') + (list.length > decLimit ? `<button class="more" data-decmore="1">Показать ещё (${list.length - decLimit})</button>` : '')
+      : '<div class="empty">✅ Все оплаченные позиции уже заказаны у поставщиков</div>';
+  }
+
+  async function prepare(key) {
+    const box = $('prep-' + key);
+    if (decOpen[key]) { delete decOpen[key]; renderDecisions(); return; }
+    decOpen[key] = '<div class="hint">Агент проверяет предложения и параметры поставщика…</div>';
+    renderDecisions();
+    try {
+      const { item, params, offers } = await api('decisionPrepare', { key });
+      const byId = Object.fromEntries(offers.map(o => [o.id, o]));
+      const pos = item.positions.map(p => {
+        const o = byId[p.id] || {};
+        if (o.error) return `<div class="pp">${esc(p.number)}: <span class="warn">не удалось получить предложения (${esc(o.error)})</span></div>`;
+        const pick = o.pick, cur = o.current;
+        const same = pick && cur && pick.supplier === cur.supplier;
+        let line;
+        if (!pick) line = '<span class="warn">предложений сейчас нет — проверьте вручную</span>';
+        else if (same) line = `<span class="ok">✓ Агент согласен с поставщиком из заказа</span> — ${esc(item.supplier)}, закупка ${rub(cur.priceIn || cur.price)}${p.priceIn && (cur.priceIn || cur.price) > p.priceIn + 0.5 ? ` <span class="warn">(сейчас дороже, чем в заказе: было ${rub(p.priceIn)})</span>` : ''}`;
+        else line = `<span class="warn">Агент предлагает другого поставщика:</span> <b>${esc(pick.supplier)}</b>, закупка ${rub(pick.priceIn || pick.price)} — ${esc((pick.pickWhy || pick.reasons || []).join(' · '))}.<br><span style="color:var(--text2)">Чтобы заказать у него, смените поставщика позиции в ABCP — после этого карточка обновится. Или подтвердите текущего (${esc(item.supplier)}${cur ? `, закупка ${rub(cur.priceIn || cur.price)}` : ', его предложения сейчас нет'}).</span>`;
+        return `<div class="pp"><b>${esc(p.brand || '')} ${esc(p.number)}</b> × ${p.quantity || 1} — ${esc(p.description || '')}<div style="margin-top:4px">${line}</div></div>`;
+      }).join('');
+      let form = '';
+      if (!item.sendable) form = '<div class="res bad">У позиции нет кода склада поставщика — ABCP не позволяет отправить её онлайн. Закажите вручную в ABCP.</div>';
+      else if (!params.ok) form = `<div class="res bad">ABCP не отдал параметры заказа: ${esc(params.error)}</div>`;
+      else {
+        const ops = (params.params && params.params.orderParams) || [];
+        form = ops.length ? `<div class="params">${ops.map(f => `<label>${esc(f.name || f.fieldName)}${f.description ? ` <small>${esc(f.description)}</small>` : ''}
+          ${Array.isArray(f.enum) && f.enum.length ? `<select data-op="${esc(f.fieldName)}">${f.enum.map(e => `<option value="${esc(e.value)}" ${e.selected ? 'selected' : ''}>${esc(e.name || e.value)}</option>`).join('')}</select>`
+            : f.type === 'bool' ? `<select data-op="${esc(f.fieldName)}"><option value="0">нет</option><option value="1">да</option></select>`
+            : `<input data-op="${esc(f.fieldName)}" value="">`}</label>`).join('')}</div>` : '<div class="hint">Поставщику не нужны дополнительные параметры заказа.</div>';
+      }
+      const btn = item.sendable && params.ok ? `<button class="btn ${dec.sendEnabled ? 'green' : ''}" data-confirm="${esc(key)}">${dec.sendEnabled ? `Подтвердить: отправить поставщику ${esc(item.supplier)}` : 'Проверить отправку (тест, ничего не отправится)'}</button>` : '';
+      decOpen[key] = `${pos}${form}<div class="actions">${btn}<button class="btn ghost small" data-manual="${esc(key)}">Сделаю сам в ABCP</button></div><div id="res-${esc(key)}"></div>`;
+    } catch (err) { decOpen[key] = `<div class="res bad">${esc(err.message)}</div>`; }
+    renderDecisions();
+  }
+
+  async function confirmSend(key, btn) {
+    const box = $('prep-' + key);
+    const orderParams = {};
+    box.querySelectorAll('[data-op]').forEach(el => { if (el.value !== '') orderParams[el.dataset.op] = el.value; });
+    if (dec.sendEnabled && !confirm('Отправить заказ поставщику? Это действие нельзя отменить из этой панели.')) return;
+    btn.disabled = true; btn.textContent = 'Проверяю заказ в ABCP…';
+    const out = $('res-' + key);
+    try {
+      const { result } = await api('decisionConfirm', { key, author, orderParams });
+      if (result.stopped) out.innerHTML = `<div class="res bad">Остановлено: ${esc(result.stopped)}</div>`;
+      else if (result.dryRun) out.innerHTML = `<div class="res info">${esc(result.message)}<pre style="white-space:pre-wrap;font-size:11px;margin-top:6px">${esc(JSON.stringify(result.request, null, 1))}</pre></div>`;
+      else {
+        out.innerHTML = `<div class="res ${result.sent === result.total ? 'good' : 'bad'}">Отправлено и подтверждено поставщиком: ${result.sent} из ${result.total}.${result.sent < result.total ? ' Остальные — «уточнить у поставщика» (вверху списка).' : ''}</div>`;
+        setTimeout(() => { delete decOpen[key]; loadDecisions(); load().catch(() => {}); }, 2500);
+      }
+    } catch (err) { out.innerHTML = `<div class="res bad">${esc(err.message)}</div>`; }
+    btn.disabled = false; btn.textContent = dec.sendEnabled ? 'Подтвердить ещё раз' : 'Проверить ещё раз';
+  }
 
   // ── «Нужно внимание»: one row per order, grouped by kind, fresh vs old ──
   const FRESH_DAYS = 14;
@@ -547,6 +649,11 @@
     if (ack) { ack.disabled = true; try { for (const id of ack.dataset.ack.split(',')) await api('ack', { id, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
     const un = e.target.closest('[data-unack]');
     if (un) { un.disabled = true; try { await api('unack', { number: un.dataset.unack, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
+    const pr = e.target.closest('[data-prep]'); if (pr) { prepare(pr.dataset.prep); return; }
+    const cf = e.target.closest('[data-confirm]'); if (cf) { confirmSend(cf.dataset.confirm, cf); return; }
+    const mn = e.target.closest('[data-manual]'); if (mn) { if (!confirm('Агент перестанет предлагать эти позиции. Закажете их сами в ABCP?')) return; await api('decisionManual', { key: mn.dataset.manual, author }); delete decOpen[mn.dataset.manual]; loadDecisions(); return; }
+    const uc = e.target.closest('[data-unc]'); if (uc) { await api('unclearResolve', { positionId: uc.dataset.unc, ordered: uc.dataset.ord === '1', author }); loadDecisions(); return; }
+    if (e.target.closest('[data-decmore]')) { decLimit += 20; renderDecisions(); return; }
     const ak = e.target.closest('[data-alkind]'); if (ak) { alKind = ak.dataset.alkind || null; alLimit = 10; renderAlerts(); return; }
     const ao = e.target.closest('[data-alold]'); if (ao) { alOld = ao.dataset.alold === '1'; alKind = null; alLimit = 10; renderAlerts(); return; }
     if (e.target.closest('[data-almore]')) { alLimit += 20; renderAlerts(); return; }
@@ -603,7 +710,7 @@
           ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
           <form class="note-form" id="noteForm"><textarea id="noteText" placeholder="Например: клиент просил позвонить перед отправкой"></textarea><button class="btn" type="submit">Добавить</button></form>
         </div>
-        <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'unack' ? 'отменил «в работе»' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
+        <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'unack' ? 'отменил «в работе»' : a.action === 'send' ? 'отправил поставщику' : a.action === 'dry_run' ? 'тест отправки' : a.action === 'manual' ? 'закажет сам в ABCP' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
           <div class="hint" style="margin-top:8px">В фазе 1 агент только наблюдает: изменения в заказе делаются в ABCP, как обычно.</div></div>`;
       $('offersBtn').onclick = () => loadOffers(number);
       $('noteForm').onsubmit = async ev => {

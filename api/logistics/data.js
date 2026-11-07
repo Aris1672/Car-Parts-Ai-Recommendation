@@ -22,6 +22,7 @@ const stages = require('../../lib/logistics/stages');
 const watch = require('../../lib/logistics/watch');
 const abcp = require('../../lib/abcpOrders');
 const suppliers = require('../../lib/logistics/suppliers');
+const decisions = require('../../lib/logistics/decisions');
 
 function roleOf(password) {
   const p = String(password || '');
@@ -102,6 +103,45 @@ module.exports = async function handler(req, res) {
       case 'suppliers': {
         const days = Math.min(365, Math.max(14, parseInt(body.days, 10) || 120));
         return res.json({ success: true, days, suppliers: await suppliers.supplierStats(days) });
+      }
+      // ─── «Нужно ваше решение» (phase 2) ───
+      case 'decisions': {
+        const items = await decisions.queue(await store.listOrders(1));
+        return res.json({ success: true, sendEnabled: decisions.sendEnabled(), total: items.length, items: items.slice(0, 60), unclear: await decisions.unclearList() });
+      }
+      case 'decisionPrepare': {
+        const item = (await decisions.queue(await store.listOrders(1))).find(i => i.key === clean(body.key, 80));
+        if (!item) return res.status(404).json({ error: 'Уже не в очереди — обновите страницу' });
+        const [params, offers] = await Promise.all([
+          item.sendable ? decisions.orderParamsFor(item.positions.map(p => p.id)) : Promise.resolve({ ok: false, error: 'нет кода склада поставщика — онлайн-отправка невозможна' }),
+          Promise.all(item.positions.map(async p => {
+            try {
+              const list = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+              if (list[0]) list[0] = { ...list[0], pickWhy: suppliers.explainPick(list, { supplier: item.supplier, supplierId: item.supplierId, priceIn: p.priceIn }) };
+              const k = suppliers.nameKey(item.supplier);
+              const cur = list.find(x => (item.supplierId && x.supplierId === item.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
+              return { id: p.id, pick: list[0] || null, current: cur, count: list.length, fetchedAt: list.fetchedAt };
+            } catch (err) { return { id: p.id, error: err.message }; }
+          })),
+        ]);
+        return res.json({ success: true, item, params, offers });
+      }
+      case 'decisionConfirm': {
+        const item = (await decisions.queue(await store.listOrders(1))).find(i => i.key === clean(body.key, 80));
+        if (!item) return res.status(404).json({ error: 'Уже не в очереди — обновите страницу' });
+        const orderParams = {};
+        for (const [k, v] of Object.entries(body.orderParams || {})) if (/^[A-Za-z0-9_]{1,40}$/.test(k)) orderParams[k] = clean(v, 200);
+        return res.json({ success: true, result: await decisions.confirm(item, clean(body.author, 60) || role, orderParams) });
+      }
+      case 'decisionManual': {
+        const item = (await decisions.queue(await store.listOrders(1))).find(i => i.key === clean(body.key, 80));
+        if (!item) return res.status(404).json({ error: 'Уже не в очереди — обновите страницу' });
+        await decisions.markManual(item, clean(body.author, 60) || role, clean(body.reason, 300));
+        return res.json({ success: true });
+      }
+      case 'unclearResolve': {
+        await decisions.resolveUnclear(clean(body.positionId, 30), clean(body.author, 60) || role, !!body.ordered);
+        return res.json({ success: true });
       }
       case 'statuses': {
         const list = await abcp.apiGet('cp/statuses');

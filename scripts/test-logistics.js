@@ -286,3 +286,49 @@ t('trusted supplier (БорисХофы, every branch) wins lever 771 without ow
   assert.ok(why.includes('доверенный поставщик') && why[0].startsWith('дешевле поставщика из заказа на 1'), why.join(' | '));
 });
 console.log(`test-logistics (suppliers): ok`);
+
+// ─── «Нужно ваше решение» (phase 2) ───
+const dec = require('../lib/logistics/decisions');
+const write = require('../lib/abcpWrite');
+const row = (number, positions, extra = {}) => ({ number, finished_at: null, alerts: extra.alerts || [], summary: { number, date: '2026-11-07 10:00:00', customer: 'Клиент', sum: 1000, debt: extra.debt ?? 0, payState: extra.payState, positions } });
+const P = (id, status, supplierId, extra = {}) => ({ id, number: 'A' + id, brand: 'BMW', status, supplier: 'S' + supplierId, supplierId: String(supplierId), price: 1000, priceIn: 800, quantity: 1, dsRouteId: '77', ...extra });
+
+t('queue: paid «new» positions grouped per order + supplier; unpaid, ordered and handled ones out', () => {
+  const rows = [
+    row('1', [P('11', 'Заказ принят', 5), P('12', 'Заказ принят', 5), P('13', 'Заказ принят', 6), P('14', 'Заказано', 5)]),
+    row('2', [P('21', 'Заказ принят', 5)], { payState: 'unpaid', debt: 1000 }),
+    row('3', [P('31', 'Заказ принят', 5), P('32', 'Заказано', 5)], { payState: 'unpaid', debt: 1000, alerts: [{ kind: 'forgotten' }] }),
+    row('4', [P('41', 'Заказ принят', 5, { dsRouteId: null })]),
+  ];
+  const q = dec.buildQueue(rows, new Map([['12', 'sent']]), Date.parse('2026-11-07T12:00:00Z'));
+  const keys = q.map(i => i.key).sort();
+  assert.deepStrictEqual(keys, ['1|5', '1|6', '3|5', '4|5']);
+  assert.deepStrictEqual(q.find(i => i.key === '1|5').positions.map(p => p.id), ['11']); // 12 handled, 14 already ordered
+  assert.strictEqual(q[0].key, '3|5');                    // forgotten first
+  assert.strictEqual(q.find(i => i.key === '4|5').sendable, false);
+});
+
+t('re-check before sending stops on any change', () => {
+  const item = dec.buildQueue([row('1', [P('11', 'Заказ принят', 5)])])[0];
+  const fresh = st => ({ positions: [{ id: 11, status: st, distributorId: 5, priceIn: 800, dsRouteId: 77 }] });
+  assert.strictEqual(dec.recheck(item, fresh('Заказ принят')), null);
+  assert.ok(dec.recheck(item, fresh('Заказано')).includes('уже не новая'));
+  assert.ok(dec.recheck(item, { positions: [{ id: 11, status: 'Заказ принят', distributorId: 9, priceIn: 800, dsRouteId: 77 }] }).includes('сменился поставщик'));
+  assert.ok(dec.recheck(item, { positions: [{ id: 11, status: 'Заказ принят', distributorId: 5, priceIn: 950, dsRouteId: 77 }] }).includes('изменилась закупочная цена'));
+  assert.ok(dec.recheck(item, { positions: [] }).includes('удалена'));
+  assert.ok(dec.recheck(item, null).includes('не найден'));
+});
+
+t('send answer: confirmSend true = sent, anything else = unclear (never retried)', () => {
+  const r = dec.parseSendAnswer([{ number: 'S-1', status: 'ok', positions: [{ reference: '11', confirmSend: true }, { reference: '12', confirmSend: false, status: ['Нет в наличии'] }] }], ['11', '12', '13']);
+  assert.strictEqual(r.get('11').status, 'sent'); assert.strictEqual(r.get('11').supplierOrder, 'S-1');
+  assert.strictEqual(r.get('12').status, 'unclear'); assert.ok(r.get('12').message.includes('Нет в наличии'));
+  assert.strictEqual(r.get('13').status, 'unclear');
+});
+
+t('write client refuses while sending is switched off', async () => {
+  delete process.env.LOGISTICS_SEND_ENABLED;
+  assert.strictEqual(write.sendEnabled(), false);
+  await assert.rejects(write.sendOnline([{ id: 1 }]), /switched off/);
+});
+console.log('test-logistics (decisions): ok');
