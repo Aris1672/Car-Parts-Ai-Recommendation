@@ -315,7 +315,7 @@
           <div class="kinds">${x.kinds.map(k => `<span class="k ${k === 'silent' ? 'risk' : ''}">${KIND_LABEL[k]}</span>`).join('')}${x.al.length > 1 ? `<span class="d" style="margin:0">${x.al.length} поз.</span>` : ''}</div>
           ${who ? `<div class="d">✓ взял: ${esc(who)}</div>` : ''}
         </div>
-        ${ids ? `<button class="btn small ghost" data-ack="${ids}">Беру в работу</button>` : ''}
+        ${ids ? `<button class="btn small ghost" data-ack="${ids}">Беру в работу</button>` : `<button class="btn small ghost" data-unack="${esc(x.o.number)}">Отменить «в работе»</button>`}
       </div>`;
     }).join('') + (list.length > alLimit ? `<button class="more" data-almore="1">Показать ещё 20 (осталось ${list.length - alLimit})</button>` : '')
       : `<div class="empty">${alOld ? 'Старых хвостов нет' : '✅ Свежих проблем нет'}</div>`;
@@ -495,6 +495,8 @@
   document.addEventListener('click', async e => {
     const ack = e.target.closest('[data-ack]');
     if (ack) { ack.disabled = true; try { for (const id of ack.dataset.ack.split(',')) await api('ack', { id, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
+    const un = e.target.closest('[data-unack]');
+    if (un) { un.disabled = true; try { await api('unack', { number: un.dataset.unack, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
     const ak = e.target.closest('[data-alkind]'); if (ak) { alKind = ak.dataset.alkind || null; alLimit = 10; renderAlerts(); return; }
     const ao = e.target.closest('[data-alold]'); if (ao) { alOld = ao.dataset.alold === '1'; alKind = null; alLimit = 10; renderAlerts(); return; }
     if (e.target.closest('[data-almore]')) { alLimit += 20; renderAlerts(); return; }
@@ -539,6 +541,7 @@
         </div>
         ${sm.comment ? `<div class="note"><small>Комментарий к заказу</small>${esc(sm.comment)}</div>` : ''}
         <div class="sec"><h3>Предупреждения</h3>${alerts.length ? alerts.map(a => `<div class="alert ${a.kind === 'silent' || a.kind === 'unknown_status' ? 'risk' : ''} ${a.ack_by ? 'acked' : ''}"><div class="main"><div class="t">${esc(a.text)}</div><div class="d">${esc(a.detail || '')}${a.position ? ' · арт. ' + esc(a.position) : ''}${a.ack_by ? ' · ✓ взял: ' + esc(a.ack_by) : ''}</div></div>${a.ack_by ? '' : `<button class="btn small ghost" data-ack="${a.id}">Беру в работу</button>`}</div>`).join('') : '<div class="empty">Нет</div>'}
+ ${alerts.some(a => a.ack_by) ? `<button class="btn small ghost" style="margin-top:6px" data-unack="${esc(order.number)}">Отменить «Беру в работу»</button>` : ''}
           ${old.length ? `<div class="sub" style="color:var(--text2);font-size:12px;margin-top:6px">Решено: ${old.map(a => esc(a.text) + ' (' + dt(a.resolved_at) + ')').join(', ')}</div>` : ''}
         </div>
         <div class="sec"><h3>Позиции и история статусов</h3>${pos || '<div class="empty">Нет позиций</div>'}</div>
@@ -546,7 +549,7 @@
           ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
           <form class="note-form" id="noteForm"><textarea id="noteText" placeholder="Например: клиент просил позвонить перед отправкой"></textarea><button class="btn" type="submit">Добавить</button></form>
         </div>
-        <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
+        <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'unack' ? 'отменил «в работе»' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
           <div class="hint" style="margin-top:8px">В фазе 1 агент только наблюдает: изменения в заказе делаются в ABCP, как обычно.</div></div>`;
       $('noteForm').onsubmit = async ev => {
         ev.preventDefault();

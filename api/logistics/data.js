@@ -7,6 +7,7 @@
  *   action 'order', number                 -> { order (+ live status history), notes, alerts, actions }
  *   action 'note', number, author, text    -> { success }
  *   action 'ack', id, author               -> { success }   («Принято, занимаюсь»)
+ *   action 'unack', number, author        -> { reset }  (undo «Беру в работу» on the order)
  *   action 'statuses'                      -> ABCP statuses with the stage each one maps to
  *   action 'run'                           -> one watcher pass now (admin / client only)
  *
@@ -72,6 +73,11 @@ module.exports = async function handler(req, res) {
         const id = parseInt(body.id, 10);
         if (!id) return res.status(400).json({ error: 'id required' });
         return res.json({ success: await store.ackAlert(id, clean(body.author, 60) || role) });
+      }
+      case 'unack': {
+        const number = clean(body.number, 20);
+        if (!number) return res.status(400).json({ error: 'number required' });
+        return res.json({ success: true, reset: await store.unackOrder(number, clean(body.author, 60) || role) });
       }
       case 'statuses': {
         const list = await abcp.apiGet('cp/statuses');
