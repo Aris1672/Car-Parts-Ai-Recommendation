@@ -125,8 +125,15 @@ t('loss: purchase above the customer price (order 288586374)', () => {
     { id: 1, number: '31108866771', status: 'ЗАКАЗАНО СРОЧНЫМ', statusChangeDate: '2026-11-07 10:00:00', price: 19400, priceIn: 20983.35, quantity: 1, deadlineMax: 240 },
     { id: 2, number: '31108866772', status: 'ЗАКАЗАНО СРОЧНЫМ', statusChangeDate: '2026-11-07 10:00:00', price: 19400, priceIn: 19000, quantity: 1, deadlineMax: 240 }] });
   const a = s.alertsFor(o, now, lim, {});
-  assert.deepStrictEqual(a.filter(x => x.kind === 'loss').map(x => x.position), ['31108866771']);
-  assert.ok(a.find(x => x.kind === 'loss').detail.includes('минус 1583 ₽'));
+  // 20 983 vs 19 400 = +8.2 % -> below the 10 % threshold -> yellow «loss_small»
+  assert.deepStrictEqual(a.filter(x => x.kind === 'loss_small').map(x => x.position), ['31108866771']);
+  assert.ok(a.find(x => x.kind === 'loss_small').detail.includes('(+8.2%), минус 1583 ₽'));
+  const big = s.normalizeOrder({ number: 1, date: '2026-11-06 19:36:00', sum: 1000, positions: [{ id: 9, number: 'X', status: 'Заказано', statusChangeDate: '2026-11-07 10:00:00', price: 1000, priceIn: 1150, quantity: 2, deadlineMax: 240 }] });
+  const ab = s.alertsFor(big, now, lim, {});
+  assert.deepStrictEqual(ab.filter(x => x.kind.startsWith('loss')).map(x => x.kind), ['loss']);
+  assert.strictEqual(s.describe(big, now, lim, {}).health, 'late');
+  const small = s.normalizeOrder({ number: 2, date: '2026-11-07 14:00:00', sum: 1000, positions: [{ id: 9, number: 'X', status: 'Заказано', statusChangeDate: '2026-11-07 14:00:00', price: 1000, priceIn: 1030, quantity: 1, deadlineMax: 240 }] });
+  assert.strictEqual(s.describe(small, now, lim, {}).health, 'risk');
 });
 
 t('describe: health + finished orders have no alerts', () => {

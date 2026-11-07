@@ -415,8 +415,9 @@
 
   // ── «Нужно внимание»: one row per order, grouped by kind, fresh vs old ──
   const FRESH_DAYS = 14;
-  const SEVERITY = { loss: -2, forgotten: -1, no_stock: 0, not_ordered: 1, supplier_late: 2, not_shipped: 3, delivery_long: 4, silent: 5 };
-  const KIND_LABEL = { loss: 'Продаём в минус', forgotten: 'Забытая позиция', no_stock: 'Нет на складе', not_ordered: 'Не заказан', supplier_late: 'Поставщик опаздывает', not_shipped: 'Пришёл, не отправлен', delivery_long: 'Долго в доставке', silent: 'Нет движения' };
+  const YELLOW = new Set(['silent', 'loss_small']);
+  const SEVERITY = { loss: -2, forgotten: -1, no_stock: 0, not_ordered: 1, supplier_late: 2, not_shipped: 3, delivery_long: 4, silent: 5, loss_small: 6 };
+  const KIND_LABEL = { loss: 'Продаём в минус (10%+)', loss_small: 'Небольшой минус (до 10%)', forgotten: 'Забытая позиция', no_stock: 'Нет на складе', not_ordered: 'Не заказан', supplier_late: 'Поставщик опаздывает', not_shipped: 'Пришёл, не отправлен', delivery_long: 'Долго в доставке', silent: 'Нет движения' };
   let alKind = null, alOld = false, alLimit = 10, colLimit = {};
   const orderAge = o => { const t = Date.parse(String((o.summary || {}).date || '').replace(' ', 'T') + '+03:00'); return isNaN(t) ? 0 : (Date.now() - t) / 86400000; };
   function problemOrders() {
@@ -443,11 +444,11 @@
       const sm = x.o.summary || {};
       const ids = x.al.filter(a => !a.ack_by).map(a => a.id).join(',');
       const who = [...new Set(x.al.map(a => a.ack_by).filter(Boolean))].join(', ');
-      const risk = x.kinds.every(k => k === 'silent');
+      const risk = x.kinds.every(k => YELLOW.has(k));
       return `<div class="alert ${risk ? 'risk' : ''} ${x.acked ? 'acked' : ''}">
         <div class="main" data-open="${esc(x.o.number)}">
           <div class="t">Заказ ${esc(x.o.number)} · ${esc(sm.customer || '—')} <span style="color:var(--text2);font-weight:500">· ${Math.floor(orderAge(x.o))} дн. · ${rub(sm.sum)}</span> ${payOf(sm) !== 'paid' ? payTag(sm) : ''}</div>
-          <div class="kinds">${x.kinds.map(k => `<span class="k ${k === 'silent' ? 'risk' : ''}">${KIND_LABEL[k]}</span>`).join('')}${x.al.length > 1 ? `<span class="d" style="margin:0">${x.al.length} поз.</span>` : ''}</div>
+          <div class="kinds">${x.kinds.map(k => `<span class="k ${YELLOW.has(k) ? 'risk' : ''}">${KIND_LABEL[k]}</span>`).join('')}${x.al.length > 1 ? `<span class="d" style="margin:0">${x.al.length} поз.</span>` : ''}</div>
           ${who ? `<div class="d">✓ взял: ${esc(who)}</div>` : ''}
         </div>
         ${ids ? `<button class="btn small ghost" data-ack="${ids}">Беру в работу</button>` : `<button class="btn small ghost" data-unack="${esc(x.o.number)}">Отменить «в работе»</button>`}
@@ -720,7 +721,7 @@
           <div><b>Адрес</b>${esc(sm.deliveryAddress || '—')}</div>
         </div>
         ${sm.comment ? `<div class="note"><small>Комментарий к заказу</small>${esc(sm.comment)}</div>` : ''}
-        <div class="sec"><h3>Предупреждения</h3>${alerts.length ? alerts.map(a => `<div class="alert ${a.kind === 'silent' || a.kind === 'unknown_status' ? 'risk' : ''} ${a.ack_by ? 'acked' : ''}"><div class="main"><div class="t">${esc(a.text)}</div><div class="d">${esc(a.detail || '')}${a.position ? ' · арт. ' + esc(a.position) : ''}${a.ack_by ? ' · ✓ взял: ' + esc(a.ack_by) : ''}</div></div>${a.ack_by ? '' : `<button class="btn small ghost" data-ack="${a.id}">Беру в работу</button>`}</div>`).join('') : '<div class="empty">Нет</div>'}
+        <div class="sec"><h3>Предупреждения</h3>${alerts.length ? alerts.map(a => `<div class="alert ${YELLOW.has(a.kind) || a.kind === 'unknown_status' ? 'risk' : ''} ${a.ack_by ? 'acked' : ''}"><div class="main"><div class="t">${esc(a.text)}</div><div class="d">${esc(a.detail || '')}${a.position ? ' · арт. ' + esc(a.position) : ''}${a.ack_by ? ' · ✓ взял: ' + esc(a.ack_by) : ''}</div></div>${a.ack_by ? '' : `<button class="btn small ghost" data-ack="${a.id}">Беру в работу</button>`}</div>`).join('') : '<div class="empty">Нет</div>'}
  ${alerts.some(a => a.ack_by) ? `<button class="btn small ghost" style="margin-top:6px" data-unack="${esc(order.number)}">Отменить «Беру в работу»</button>` : ''}
           ${old.length ? `<div class="sub" style="color:var(--text2);font-size:12px;margin-top:6px">Решено: ${old.map(a => esc(a.text) + ' (' + dt(a.resolved_at) + ')').join(', ')}</div>` : ''}
         </div>
