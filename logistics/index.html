@@ -409,7 +409,7 @@
     try {
       const { result } = await api('decisionConfirm', { key, author, orderParams });
       if (result.stopped) out.innerHTML = `<div class="res bad">Остановлено: ${esc(result.stopped)}</div>`;
-      else if (result.dryRun) out.innerHTML = `<div class="res info">${esc(result.message)}<pre style="white-space:pre-wrap;font-size:11px;margin-top:6px">${esc(JSON.stringify(result.request, null, 1))}</pre></div>`;
+      else if (result.dryRun) out.innerHTML = `<div class="res info">${esc(result.message)}<pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;margin-top:6px">${esc(JSON.stringify(result.request, null, 1))}</pre></div>`;
       else {
         out.innerHTML = `<div class="res ${result.sent === result.total ? 'good' : 'bad'}">Отправлено и подтверждено поставщиком: ${result.sent} из ${result.total}.${result.sent < result.total ? ' Остальные — «уточнить у поставщика» (вверху списка).' : ''}</div>`;
         setTimeout(() => { delete decOpen[key]; loadDecisions(); load().catch(() => {}); }, 2500);
@@ -673,7 +673,7 @@
       try {
         const { result } = await api('decisionSwitch', { key: sw.dataset.switch, positionId: sw.dataset.pos, supplier: sw.dataset.sup, supplierId: sw.dataset.supid, priceIn: sw.dataset.pin, author });
         if (result.stopped) out.innerHTML = `<div class="res bad" style="margin-top:6px">Остановлено: ${esc(result.stopped)}</div>`;
-        else if (result.dryRun) out.innerHTML = `<div class="res info" style="margin-top:6px">${esc(result.message)}<pre style="white-space:pre-wrap;font-size:11px;margin-top:6px">${esc(JSON.stringify(result.request, null, 1))}</pre></div>`;
+        else if (result.dryRun) out.innerHTML = `<div class="res info" style="margin-top:6px">${esc(result.message)}<pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;margin-top:6px">${esc(JSON.stringify(result.request, null, 1))}</pre></div>`;
         else { out.innerHTML = `<div class="res good" style="margin-top:6px">Поставщик сменён на ${esc(result.to)} (закупка ${rub(result.priceIn)}), ABCP подтвердил. Карточка обновится.</div>`; setTimeout(() => { for (const k in decOpen) delete decOpen[k]; loadDecisions(); load().catch(() => {}); }, 2500); }
       } catch (err) { out.innerHTML = `<div class="res bad">${esc(err.message)}</div>`; }
       sw.disabled = false; sw.textContent = t0; return;
