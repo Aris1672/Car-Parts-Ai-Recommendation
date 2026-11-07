@@ -94,11 +94,12 @@ module.exports = async function handler(req, res) {
             // the customer chose the order's offer: slower offers can't be the pick (shown last, marked)
             const okList = all0.filter(o => !decisions.slowerThanPromised(p, o));
             const slow = all0.filter(o => decisions.slowerThanPromised(p, o)).map(o => ({ ...o, slower: true, reasons: [`медленнее срока, который выбрал клиент (до ${Math.ceil((p.deadlineMaxHours || p.deadlineHours) / 24)} дн.)`, ...o.reasons] }));
-            const offers = [...okList, ...slow];
+            const kept = suppliers.preferCurrent(okList, { supplier: p.supplier, supplierId: p.supplierId });
+            const offers = [...kept, ...slow];
             offers.fetchedAt = all0.fetchedAt;
             const k = suppliers.nameKey(p.supplier);
             const curOffer = offers.find(x => (p.supplierId && x.supplierId === p.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
-            if (okList.length) offers[0] = { ...offers[0], pickWhy: suppliers.explainPick(okList, { supplier: p.supplier, supplierId: p.supplierId, priceIn: p.priceIn }) };
+            if (kept.length) offers[0] = { ...offers[0], pickWhy: suppliers.explainPick(kept, { supplier: p.supplier, supplierId: p.supplierId, priceIn: p.priceIn }) };
             else if (offers[0]) offers[0] = { ...offers[0], noPick: true };
             return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, supplierId: p.supplierId, price: p.price, priceIn: p.priceIn, deadlineMaxHours: p.deadlineMaxHours, offer: curOffer }, offers: offers.slice(0, 40), fetchedAt: offers.fetchedAt };
           }
@@ -124,7 +125,7 @@ module.exports = async function handler(req, res) {
             try {
               const all = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
               // the customer chose the order's offer (price + delivery): only offers not slower than that promise may be picked
-              const list = all.filter(o => !decisions.slowerThanPromised(p, o));
+              const list = suppliers.preferCurrent(all.filter(o => !decisions.slowerThanPromised(p, o)), { supplier: item.supplier, supplierId: item.supplierId });
               list.fetchedAt = all.fetchedAt;
               if (list[0]) list[0] = { ...list[0], pickWhy: suppliers.explainPick(list, { supplier: item.supplier, supplierId: item.supplierId, priceIn: p.priceIn }) };
               const k = suppliers.nameKey(item.supplier);

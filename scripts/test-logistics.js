@@ -360,4 +360,23 @@ t('never switch to an offer slower than the delivery the customer chose', () => 
   assert.ok(dec.slowerThanPromised(pos, { supplier: 'froza', hoursMax: 96 }).includes('клиент выбрал срок до 1 дн.'));
   assert.strictEqual(dec.slowerThanPromised({}, { supplier: 'A', hoursMax: 96 }), null);
 });
+t('order 288688455: 250 ₽ cheaper but 50 % of 8 vs 78 % of 80 -> keep the current supplier', () => {
+  const o = sup.normalizeOffers('11128571308', [
+    { number: '11128571308', brand: 'BMW', price: 49500, priceIn: 43000, deliveryPeriod: 24, distributorId: 1 },
+    { number: '11128571308', brand: 'BMW', price: 51900, priceIn: 43250, deliveryPeriod: 48, distributorId: 2 },
+    { number: '11128571308', brand: 'BMW', price: 63000, priceIn: 62994, deliveryPeriod: 24, distributorId: 3 }],
+    new Map([['1', 'Иван Мезенцев'], ['2', 'zlataauto.ru [online]'], ['3', 'АвтоСкай']]));
+  const stats = [
+    { supplier: 'Иван Мезенцев', judged: 8, onTimeShare: 0.5, positions: 8, refusedShare: 0 },
+    { supplier: 'zlataauto.ru [online]', judged: 80, onTimeShare: 0.78, positions: 90, refusedShare: 0.12 }];
+  const sc = sup.scoreOffers(o, stats, 1, 'BMW');
+  const kept = sup.preferCurrent(sc, { supplier: 'zlataauto.ru [online]' });
+  assert.strictEqual(kept[0].supplier, 'zlataauto.ru [online]');
+  assert.ok(kept[0].keptCurrent);
+  const why = sup.explainPick(kept, { supplier: 'zlataauto.ru [online]', priceIn: 43250 });
+  assert.ok(why[0].startsWith('оставить поставщика из заказа'), why[0]);
+  // the trade-off is said out loud when a less reliable supplier IS recommended
+  const why2 = sup.explainPick(sc, { supplier: 'zlataauto.ru [online]', priceIn: 43250 });
+  if (sc[0].supplier === 'Иван Мезенцев') assert.ok(why2.some(w => w.startsWith('но вовремя 50% (из 8) против 78% (из 80)')), why2.join(' | '));
+});
 console.log('test-logistics (decisions): ok');
