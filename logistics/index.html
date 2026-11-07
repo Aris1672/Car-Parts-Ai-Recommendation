@@ -365,7 +365,9 @@
         let line;
         if (!pick) line = '<span class="warn">предложений сейчас нет — проверьте вручную</span>';
         else if (same) line = `<span class="ok">✓ Агент согласен с поставщиком из заказа</span> — ${esc(item.supplier)}, закупка ${rub(cur.priceIn || cur.price)}${p.priceIn && (cur.priceIn || cur.price) > p.priceIn + 0.5 ? ` <span class="warn">(сейчас дороже, чем в заказе: было ${rub(p.priceIn)})</span>` : ''}`;
-        else line = `<span class="warn">Агент предлагает другого поставщика:</span> <b>${esc(pick.supplier)}</b>, закупка ${rub(pick.priceIn || pick.price)} — ${esc((pick.pickWhy || pick.reasons || []).join(' · '))}.<br><span style="color:var(--text2)">Чтобы заказать у него, смените поставщика позиции в ABCP — после этого карточка обновится. Или подтвердите текущего (${esc(item.supplier)}${cur ? `, закупка ${rub(cur.priceIn || cur.price)}` : ', его предложения сейчас нет'}).</span>`;
+        else line = `<span class="warn">Агент предлагает другого поставщика:</span> <b>${esc(pick.supplier)}</b>, закупка ${rub(pick.priceIn || pick.price)} — ${esc((pick.pickWhy || pick.reasons || []).join(' · '))}.
+          <div class="actions" style="margin-top:6px"><button class="btn small ${dec.sendEnabled ? 'green' : ''}" data-switch="${esc(key)}" data-pos="${esc(p.id)}" data-sup="${esc(pick.supplier)}" data-supid="${esc(pick.supplierId || '')}" data-pin="${pick.priceIn || pick.price}">${dec.sendEnabled ? `Сменить поставщика на ${esc(pick.supplier)}` : `Проверить смену на ${esc(pick.supplier)} (тест)`}</button></div>
+          <span style="color:var(--text2)">Цена клиента не меняется. Или подтвердите текущего (${esc(item.supplier)}${cur ? `, закупка ${rub(cur.priceIn || cur.price)}` : ', его предложения сейчас нет'}).</span><div id="sw-${esc(p.id)}"></div>`;
         return `<div class="pp"><b>${esc(p.brand || '')} ${esc(p.number)}</b> × ${p.quantity || 1} — ${esc(p.description || '')}<div style="margin-top:4px">${line}</div></div>`;
       }).join('');
       let form = '';
@@ -649,6 +651,19 @@
     if (ack) { ack.disabled = true; try { for (const id of ack.dataset.ack.split(',')) await api('ack', { id, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
     const un = e.target.closest('[data-unack]');
     if (un) { un.disabled = true; try { await api('unack', { number: un.dataset.unack, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
+    const sw = e.target.closest('[data-switch]');
+    if (sw) {
+      if (dec.sendEnabled && !confirm(`Сменить поставщика позиции на ${sw.dataset.sup}? Цена клиента не изменится.`)) return;
+      sw.disabled = true; const t0 = sw.textContent; sw.textContent = 'Проверяю…';
+      const out = $('sw-' + sw.dataset.pos);
+      try {
+        const { result } = await api('decisionSwitch', { key: sw.dataset.switch, positionId: sw.dataset.pos, supplier: sw.dataset.sup, supplierId: sw.dataset.supid, priceIn: sw.dataset.pin, author });
+        if (result.stopped) out.innerHTML = `<div class="res bad" style="margin-top:6px">Остановлено: ${esc(result.stopped)}</div>`;
+        else if (result.dryRun) out.innerHTML = `<div class="res info" style="margin-top:6px">${esc(result.message)}<pre style="white-space:pre-wrap;font-size:11px;margin-top:6px">${esc(JSON.stringify(result.request, null, 1))}</pre></div>`;
+        else { out.innerHTML = `<div class="res good" style="margin-top:6px">Поставщик сменён на ${esc(result.to)} (закупка ${rub(result.priceIn)}), ABCP подтвердил. Карточка обновится.</div>`; setTimeout(() => { for (const k in decOpen) delete decOpen[k]; loadDecisions(); load().catch(() => {}); }, 2500); }
+      } catch (err) { out.innerHTML = `<div class="res bad">${esc(err.message)}</div>`; }
+      sw.disabled = false; sw.textContent = t0; return;
+    }
     const pr = e.target.closest('[data-prep]'); if (pr) { prepare(pr.dataset.prep); return; }
     const cf = e.target.closest('[data-confirm]'); if (cf) { confirmSend(cf.dataset.confirm, cf); return; }
     const mn = e.target.closest('[data-manual]'); if (mn) { if (!confirm('Агент перестанет предлагать эти позиции. Закажете их сами в ABCP?')) return; await api('decisionManual', { key: mn.dataset.manual, author }); delete decOpen[mn.dataset.manual]; loadDecisions(); return; }
@@ -710,7 +725,7 @@
           ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
           <form class="note-form" id="noteForm"><textarea id="noteText" placeholder="Например: клиент просил позвонить перед отправкой"></textarea><button class="btn" type="submit">Добавить</button></form>
         </div>
-        <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'unack' ? 'отменил «в работе»' : a.action === 'send' ? 'отправил поставщику' : a.action === 'dry_run' ? 'тест отправки' : a.action === 'manual' ? 'закажет сам в ABCP' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
+        <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'unack' ? 'отменил «в работе»' : a.action === 'send' ? 'отправил поставщику' : a.action === 'switch' ? 'сменил поставщика' : a.action === 'switch_dry_run' ? 'тест смены поставщика' : a.action === 'dry_run' ? 'тест отправки' : a.action === 'manual' ? 'закажет сам в ABCP' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
           <div class="hint" style="margin-top:8px">В фазе 1 агент только наблюдает: изменения в заказе делаются в ABCP, как обычно.</div></div>`;
       $('offersBtn').onclick = () => loadOffers(number);
       $('noteForm').onsubmit = async ev => {

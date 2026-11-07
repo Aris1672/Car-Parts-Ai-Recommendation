@@ -133,6 +133,12 @@ module.exports = async function handler(req, res) {
         for (const [k, v] of Object.entries(body.orderParams || {})) if (/^[A-Za-z0-9_]{1,40}$/.test(k)) orderParams[k] = clean(v, 200);
         return res.json({ success: true, result: await decisions.confirm(item, clean(body.author, 60) || role, orderParams) });
       }
+      case 'decisionSwitch': {
+        const item = (await decisions.queue(await store.listOrders(1))).find(i => i.key === clean(body.key, 80));
+        if (!item) return res.status(404).json({ error: 'Уже не в очереди — обновите страницу' });
+        const chosen = { supplier: clean(body.supplier, 120), supplierId: clean(body.supplierId, 30) || null, priceIn: Number(body.priceIn) || null };
+        return res.json({ success: true, result: await decisions.switchSupplier(item, clean(body.positionId, 30), chosen, clean(body.author, 60) || role) });
+      }
       case 'decisionManual': {
         const item = (await decisions.queue(await store.listOrders(1))).find(i => i.key === clean(body.key, 80));
         if (!item) return res.status(404).json({ error: 'Уже не в очереди — обновите страницу' });

@@ -331,4 +331,26 @@ t('write client refuses while sending is switched off', async () => {
   assert.strictEqual(write.sendEnabled(), false);
   await assert.rejects(write.sendOnline([{ id: 1 }]), /switched off/);
 });
+t('switch supplier: edit request changes only route / itemKey / purchase / deadline, never the customer price', () => {
+  const offers = sup.normalizeOffers('31108866771', [{ number: '31108866771', brand: 'BMW', price: 22200, priceIn: 19300, deliveryPeriod: 24, deliveryPeriodMax: 48, distributorId: 3, supplierCode: '8812', itemKey: 'abc==' }], new Map([['3', 'Наличие БорисХофы']]));
+  assert.strictEqual(offers[0].routeId, '8812'); assert.strictEqual(offers[0].itemKey, 'abc==');
+  const o = write.buildSwitchOrder(288586374, 601, offers[0]);
+  assert.deepStrictEqual(o, { number: '288586374', positions: [{ id: '601', routeId: '8812', itemKey: 'abc==', priceIn: 19300, deadline: 24, deadlineMax: 48 }] });
+  assert.ok(!('priceOut' in o.positions[0]) && !('quantity' in o.positions[0]) && !('statusCode' in o.positions[0]));
+  assert.throws(() => write.buildSwitchOrder(1, 2, { ...offers[0], itemKey: null }), /itemKey/);
+});
+
+t('switch supplier: verified only if ABCP shows the new supplier and the same customer price', () => {
+  const offer = { supplier: 'Наличие БорисХофы', supplierId: '3' };
+  const fresh = (dist, out) => ({ positions: [{ id: 601, distributorId: dist, distributorName: dist === 3 ? 'Наличие БорисХофы' : 'ЦС Автодом Сток', priceOut: out }] });
+  assert.strictEqual(dec.verifySwitch(fresh(3, 19400), '601', offer, 19400), null);
+  assert.ok(dec.verifySwitch(fresh(5, 19400), '601', offer, 19400).includes('не сменился'));
+  assert.ok(dec.verifySwitch(fresh(3, 22200), '601', offer, 19400).includes('цена клиента'));
+  assert.ok(dec.verifySwitch({ positions: [] }, '601', offer, 19400).includes('не найдена'));
+});
+
+t('write client: switching refuses while writing is switched off', async () => {
+  delete process.env.LOGISTICS_SEND_ENABLED;
+  await assert.rejects(write.switchPositionSupplier(1, 2, { routeId: '1', itemKey: 'k', priceIn: 10 }), /switched off/);
+});
 console.log('test-logistics (decisions): ok');
