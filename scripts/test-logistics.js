@@ -120,6 +120,15 @@ t('unpaid «Заказ принят» -> «Ждём оплату»; no «пос�
   assert.deepStrictEqual(paid.alerts.map(a => a.kind), ['not_ordered']);
 });
 
+t('loss: purchase above the customer price (order 288586374)', () => {
+  const o = s.normalizeOrder({ number: 288586374, date: '2026-11-06 19:36:00', sum: 38800, debt: 38800, positions: [
+    { id: 1, number: '31108866771', status: 'ЗАКАЗАНО СРОЧНЫМ', statusChangeDate: '2026-11-07 10:00:00', price: 19400, priceIn: 20983.35, quantity: 1, deadlineMax: 240 },
+    { id: 2, number: '31108866772', status: 'ЗАКАЗАНО СРОЧНЫМ', statusChangeDate: '2026-11-07 10:00:00', price: 19400, priceIn: 19000, quantity: 1, deadlineMax: 240 }] });
+  const a = s.alertsFor(o, now, lim, {});
+  assert.deepStrictEqual(a.filter(x => x.kind === 'loss').map(x => x.position), ['31108866771']);
+  assert.ok(a.find(x => x.kind === 'loss').detail.includes('минус 1583 ₽'));
+});
+
 t('describe: health + finished orders have no alerts', () => {
   const late = s.describe(order([{ id: 1, number: 'A1', status: 'Новый' }]), now, lim, {});
   assert.strictEqual(late.health, 'late');
@@ -235,5 +244,19 @@ t('pick explains itself (order 288688455)', () => {
   const tr = sc.find(x => x.supplier.startsWith('trinity'));
   assert.ok(tr.reasons[0].startsWith('дешевле выбора агента на 7\u00a0950 ₽, но опаздывает в 80% случаев'), tr.reasons[0]);
   assert.ok(sc.find(x => x.supplier.startsWith('zlata')).reasons[0].startsWith('дороже выбора агента на 1\u00a0515 ₽ (4%)'));
+});
+t('suspiciously cheap / other brand offers lose and are flagged', () => {
+  const o = sup.normalizeOffers('31108866771', [
+    { number: '31108866771', brand: 'BMW', price: 10300, priceIn: 11047, deliveryPeriod: 48, distributorId: 1 },
+    { number: '31108866771', brand: 'BMW', price: 19400, priceIn: 20983, deliveryPeriod: 24, distributorId: 2 },
+    { number: '31108866771', brand: 'BMW', price: 22200, priceIn: 19300, deliveryPeriod: 24, distributorId: 3 },
+    { number: '31108866771', brand: 'FEBI', price: 9000, priceIn: 15000, deliveryPeriod: 24, distributorId: 4 }],
+    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'Наличие БорисХофы'], ['4', 'X']]));
+  const sc = sup.scoreOffers(o, [], 1, 'BMW');
+  const adeo = sc.find(x => x.supplier.startsWith('adeo'));
+  assert.ok(adeo.suspicious);
+  assert.ok(adeo.reasons.some(r => r.startsWith('⚠ подозрительно дёшево')));
+  assert.ok(sc.find(x => x.supplier === 'X').otherBrand);
+  assert.strictEqual(sc[0].supplier, 'Наличие БорисХофы');
 });
 console.log(`test-logistics (suppliers): ok`);
