@@ -111,6 +111,11 @@
   table.st td, table.st th { padding:9px 12px; border-bottom:1px solid var(--border); text-align:left; font-size:13px; }
   table.st th { color:var(--text2); font-weight:700; font-size:12px; }
   .st-other { color:var(--amber); font-weight:700; }
+  .offer { display:grid; grid-template-columns:1fr auto; gap:2px 10px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-top:6px; font-size:13px; }
+  .offer.best { border-color:var(--green); background:var(--green-dim); }
+  .offer .why { grid-column:1 / -1; color:var(--text2); font-size:12px; }
+  .offer .pr { font-family:var(--mono); font-weight:600; text-align:right; }
+  .pick { color:var(--green); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
   .hint { color:var(--text2); font-size:13px; line-height:1.55; margin-bottom:12px; max-width:800px; }
   .foot { color:var(--text3); font-size:11px; font-family:var(--mono); margin-top:14px; }
 
@@ -163,6 +168,7 @@
     <div class="tabs">
       <button class="tab active" data-view="overview">Обзор</button>
       <button class="tab" data-view="board">Заказы</button>
+      <button class="tab" data-view="suppliers">Поставщики</button>
       <button class="tab" data-view="statuses">Статусы ABCP</button>
       <button class="tab" id="logout">Выйти</button>
     </div>
@@ -197,6 +203,12 @@
       </div>
       <div class="board" id="board"></div>
       <div class="foot" id="foot"></div>
+    </section>
+    <section id="v-suppliers" class="hidden">
+      <h2>Надёжность поставщиков <span class="cnt">по истории статусов ABCP, последние 120 дней</span></h2>
+      <p class="hint">«Вовремя» — позиция пришла в Химки не позже обещанного максимального срока + 1 день. «Отказы» — «Нет на складе» или отказ не по вине клиента. Агент учитывает эти цифры, когда выбирает предложение. История догружается понемногу (300 позиций за проверку), первые часы цифры неполные.</p>
+      <div class="chart" style="margin-bottom:12px"><h3>Доля поставок вовремя <small>поставщики с 5+ поставками</small></h3><div id="chRel"></div></div>
+      <div id="supList"><div class="empty">Загрузка…</div></div>
     </section>
     <section id="v-statuses" class="hidden">
       <h2>Статусы ABCP → этапы доски</h2>
@@ -254,6 +266,8 @@
     if (b.dataset.view === 'overview' && data) setTimeout(renderCharts);
     $('v-board').classList.toggle('hidden', b.dataset.view !== 'board');
     $('v-statuses').classList.toggle('hidden', b.dataset.view !== 'statuses');
+    $('v-suppliers').classList.toggle('hidden', b.dataset.view !== 'suppliers');
+    if (b.dataset.view === 'suppliers') loadSuppliers();
     if (b.dataset.view === 'statuses') loadStatuses();
   });
 
@@ -545,12 +559,17 @@
           ${old.length ? `<div class="sub" style="color:var(--text2);font-size:12px;margin-top:6px">Решено: ${old.map(a => esc(a.text) + ' (' + dt(a.resolved_at) + ')').join(', ')}</div>` : ''}
         </div>
         <div class="sec"><h3>Позиции и история статусов</h3>${pos || '<div class="empty">Нет позиций</div>'}</div>
+        <div class="sec"><h3>Варианты поставщиков</h3>
+          <div id="offers"><button class="btn small ghost" id="offersBtn">Показать, что выбрал бы агент</button>
+          <div class="hint" style="margin-top:6px">Только просмотр: агент ищет предложения по каждой позиции и выбирает по цене, сроку и надёжности поставщика. Заказ у поставщика по-прежнему делается в ABCP.</div></div>
+        </div>
         <div class="sec"><h3>Заметки менеджеров</h3>
           ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
           <form class="note-form" id="noteForm"><textarea id="noteText" placeholder="Например: клиент просил позвонить перед отправкой"></textarea><button class="btn" type="submit">Добавить</button></form>
         </div>
         <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'unack' ? 'отменил «в работе»' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
           <div class="hint" style="margin-top:8px">В фазе 1 агент только наблюдает: изменения в заказе делаются в ABCP, как обычно.</div></div>`;
+      $('offersBtn').onclick = () => loadOffers(number);
       $('noteForm').onsubmit = async ev => {
         ev.preventDefault();
         const text = $('noteText').value.trim(); if (!text) return;
@@ -561,6 +580,48 @@
   function closeDrawer() { openNumber = null; $('shade').classList.add('hidden'); $('drawer').classList.add('hidden'); }
   $('dClose').onclick = closeDrawer; $('shade').onclick = closeDrawer;
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+  // ── supplier offers (phase 2 preview, read-only) ──
+  async function loadOffers(number) {
+    $('offers').innerHTML = '<div class="hint">Ищу предложения у поставщиков…</div>';
+    try {
+      const { positions } = await api('offers', { number });
+      if (openNumber !== number) return;
+      $('offers').innerHTML = positions.length ? positions.map(p => {
+        if (p.error) return `<div class="pos"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div><div class="sub">Ошибка поиска: ${esc(p.error)}</div></div>`;
+        if (!p.offers.length) return `<div class="pos"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div><div class="sub">Предложений сейчас нет ни у одного поставщика.</div></div>`;
+        const best = p.offers[0], cur = p.current || {};
+        const curOffer = p.offers.find(o => o.supplier === cur.supplier);
+        const same = cur.supplier && best.supplier === cur.supplier;
+        const row = (o, i) => `<div class="offer ${i === 0 ? 'best' : ''}">
+            <div>${i === 0 ? '<div class="pick">Агент выбрал бы</div>' : ''}<b>${esc(o.supplier)}</b>${o.qty ? ` · ${o.qty} шт.` : ''}</div>
+            <div class="pr">${rub(o.price)}${o.priceIn ? `<div style="color:var(--text2);font-size:11px">закупка ${rub(o.priceIn)}</div>` : ''}</div>
+            <div class="why">${esc(o.reasons.join(' · '))}</div></div>`;
+        return `<div class="pos"><div class="top"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div>
+            <div class="sub" style="margin:0">${cur.supplier ? `в заказе: ${esc(cur.supplier)}` : ''}</div></div>
+          ${cur.supplier ? `<div class="sub">${same ? '✅ Совпадает с выбором менеджера' : curOffer ? `Менеджер выбрал ${esc(cur.supplier)} — агент предлагает ${esc(best.supplier)}${best.price < curOffer.price ? `, дешевле на ${rub(curOffer.price - best.price)}` : ''}` : `Поставщика из заказа (${esc(cur.supplier)}) сейчас нет в предложениях`}</div>` : ''}
+          ${p.offers.slice(0, 4).map(row).join('')}
+          ${p.offers.length > 4 ? `<div class="sub">ещё ${p.offers.length - 4} предложений</div>` : ''}</div>`;
+      }).join('') : '<div class="hint">Нет открытых позиций для подбора.</div>';
+    } catch (err) { $('offers').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  }
+
+  // ── suppliers tab ──
+  async function loadSuppliers() {
+    try {
+      const { suppliers } = await api('suppliers');
+      const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+      const judged = suppliers.filter(s => s.judged >= 5).sort((a, b) => b.onTimeShare - a.onTimeShare);
+      hbars($('chRel'), judged.slice(0, 15).map(s => ({ label: s.supplier.length > 24 ? s.supplier.slice(0, 23) + '…' : s.supplier, value: Math.round(s.onTimeShare * 100),
+        color: s.onTimeShare >= 0.85 ? C.good : s.onTimeShare >= 0.6 ? C.warning : C.critical,
+        tip: `${esc(s.supplier)}: вовремя <b>${pct(s.onTimeShare)}</b> из ${s.judged}, медиана ${s.medianDays ?? '—'} дн., отказы ${pct(s.refusedShare)}` })), C.blue, '%');
+      $('supList').innerHTML = suppliers.length ? `<table class="st"><tr><th>Поставщик</th><th>Позиций</th><th>Пришло</th><th>Вовремя</th><th>Медиана, дн.</th><th>Отказы</th></tr>${suppliers.map(s => `<tr>
+        <td>${esc(s.supplier)}</td><td>${s.positions}</td><td>${s.arrived}</td>
+        <td style="color:${s.judged < 5 ? 'var(--text2)' : s.onTimeShare >= 0.85 ? 'var(--green)' : s.onTimeShare >= 0.6 ? 'var(--amber)' : 'var(--red2)'}">${pct(s.onTimeShare)}${s.judged < 5 && s.judged ? ` <small>(${s.judged})</small>` : ''}</td>
+        <td>${s.medianDays ?? '—'}</td><td style="color:${s.refusedShare >= 0.1 ? 'var(--red2)' : 'inherit'}">${pct(s.refusedShare)}</td></tr>`).join('')}</table>`
+        : '<div class="empty">История ещё собирается — загляните через 10–15 минут после запуска.</div>';
+    } catch (err) { $('supList').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  }
 
   // ── statuses ──
   async function loadStatuses() {

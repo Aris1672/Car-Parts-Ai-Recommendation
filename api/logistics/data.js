@@ -8,6 +8,8 @@
  *   action 'note', number, author, text    -> { success }
  *   action 'ack', id, author               -> { success }   («Принято, занимаюсь»)
  *   action 'unack', number, author        -> { reset }  (undo «Беру в работу» on the order)
+ *   action 'offers', number                -> scored supplier offers per position (read-only)
+ *   action 'suppliers', days               -> supplier reliability from status history
  *   action 'statuses'                      -> ABCP statuses with the stage each one maps to
  *   action 'run'                           -> one watcher pass now (admin / client only)
  *
@@ -19,6 +21,7 @@ const store = require('../../lib/logistics/store');
 const stages = require('../../lib/logistics/stages');
 const watch = require('../../lib/logistics/watch');
 const abcp = require('../../lib/abcpOrders');
+const suppliers = require('../../lib/logistics/suppliers');
 
 function roleOf(password) {
   const p = String(password || '');
@@ -78,6 +81,21 @@ module.exports = async function handler(req, res) {
         const number = clean(body.number, 20);
         if (!number) return res.status(400).json({ error: 'number required' });
         return res.json({ success: true, reset: await store.unackOrder(number, clean(body.author, 60) || role) });
+      }
+      case 'offers': {
+        // Supplier offers for every live position of an order, scored (read-only preview of phase 2).
+        const o = await store.getOrder(clean(body.number, 20));
+        if (!o) return res.status(404).json({ error: 'Заказ не найден' });
+        const pos = (o.summary.positions || []).filter(p => p.number && !['done', 'cancelled'].includes(stages.stageOfStatus(p.status))).slice(0, 6);
+        const out = await Promise.all(pos.map(async p => {
+          try { return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, price: p.price, deadlineMaxHours: p.deadlineMaxHours }, offers: (await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1)).slice(0, 8) }; }
+          catch (err) { return { id: p.id, number: p.number, brand: p.brand, error: err.message }; }
+        }));
+        return res.json({ success: true, positions: out });
+      }
+      case 'suppliers': {
+        const days = Math.min(365, Math.max(14, parseInt(body.days, 10) || 120));
+        return res.json({ success: true, days, suppliers: await suppliers.supplierStats(days) });
       }
       case 'statuses': {
         const list = await abcp.apiGet('cp/statuses');

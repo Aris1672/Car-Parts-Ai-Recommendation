@@ -116,3 +116,49 @@ t('MAX message groups alerts per order', () => {
 });
 
 console.log(`test-logistics: ${n} passed`);
+
+// ─── suppliers (phase 2 preview) ───
+const sup = require('../lib/logistics/suppliers');
+t('history facts: ordered, arrived, refusals', () => {
+  const f = sup.historyFacts([
+    { status: 'Заказ принят', at: '2026-10-26 05:49:14' }, { status: 'ЗАКАЗАНО СРОЧНЫМ', at: '2026-10-26 20:26:02' },
+    { status: 'Пришло в СЕРВИС Химки', at: '2026-10-27 16:59:52' }, { status: 'ОПЛАЧЕНО', at: '2026-10-28 05:47:53' }], {});
+  assert.strictEqual(new Date(f.orderedAt).toISOString(), '2026-10-26T17:26:02.000Z');
+  assert.strictEqual(new Date(f.arrivedAt).toISOString(), '2026-10-27T13:59:52.000Z');
+  assert.strictEqual(f.refused, false);
+  assert.strictEqual(sup.historyFacts([{ status: 'Нет на складе', at: '2026-10-26 05:49:14' }], {}).refused, true);
+  assert.strictEqual(sup.historyFacts([{ status: 'Отказ клиента', at: '2026-10-26 05:49:14' }], {}).refused, false);
+});
+
+t('reliability per supplier', () => {
+  const row = (supplier, ordered, arrived, promised, refused = false) => ({ supplier, order_date: ordered, ordered_at: ordered, arrived_at: arrived, promised_hours: promised, refused });
+  const r = sup.reliability([
+    row('A', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z', 48), row('A', '2026-10-01T00:00:00Z', '2026-10-06T00:00:00Z', 48),
+    row('B', '2026-10-01T00:00:00Z', null, 48, true)]);
+  const a = r.find(x => x.supplier === 'A'), b = r.find(x => x.supplier === 'B');
+  assert.strictEqual(a.onTimeShare, 0.5); assert.strictEqual(a.judged, 2); assert.strictEqual(a.medianDays, 5);
+  assert.strictEqual(b.refusedShare, 1); assert.strictEqual(b.onTimeShare, null);
+});
+
+t('offers: own number only, scored by price, days, reliability', () => {
+  const raw = [
+    { number: '51319466313', price: 30000, deliveryPeriod: 72, deliveryPeriodMax: 120, distributorId: 1, availability: 2 },
+    { number: '51319466313', price: 31000, deliveryPeriod: 0, distributorId: 2, availability: 1 },
+    { number: '51319466313', price: 29000, deliveryPeriod: 24, distributorId: 3, availability: 1 },
+    { number: '51319466399', price: 100, deliveryPeriod: 0, distributorId: 4 },  // analog: dropped
+    { number: '51319466313', price: 1000, deliveryPeriod: 0, distributorId: 5, isUsed: 1 }, // used: dropped
+  ];
+  const offers = sup.normalizeOffers('51 31 9 466 313', raw, new Map([['1', 'Slow'], ['2', 'Stock'], ['3', 'Flaky']]));
+  assert.strictEqual(offers.length, 3);
+  const stats = [
+    { supplier: 'Flaky', supplierId: '3', judged: 20, onTimeShare: 0.4, positions: 20, refusedShare: 0.3 },
+    { supplier: 'Stock', supplierId: '2', judged: 20, onTimeShare: 0.95, positions: 20, refusedShare: 0 },
+  ];
+  const s = sup.scoreOffers(offers, stats, 1);
+  assert.strictEqual(s[0].supplier, 'Stock');                 // a bit dearer, in stock and reliable beats the cheapest flaky one
+  assert.ok(s[0].reasons.includes('в наличии'));
+  assert.ok(s.find(o => o.supplier === 'Flaky').reasons.includes('самая низкая цена'));
+  assert.ok(s.find(o => o.supplier === 'Flaky').reasons.some(r => r.startsWith('отказы')));
+  assert.ok(s.find(o => o.supplier === 'Slow').reasons.includes('мало истории по поставщику'));
+});
+console.log(`test-logistics (suppliers): ok`);
