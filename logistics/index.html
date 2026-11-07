@@ -610,7 +610,7 @@
             return head + (curOffer ? '' : ' (поставщика из заказа сейчас нет в предложениях)');
           })()}</div>` : ''}
           ${p.offers.slice(0, 4).map(row).join('')}
-          <div class="sub" style="color:var(--text3)">${p.offers.length} предложений · обновлено ${new Date().toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })}</div>
+          <div class="sub" style="color:var(--text3)">${p.offers.length} предложений · данные ABCP на ${new Date(p.fetchedAt || Date.now()).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })}</div>
           ${p.offers.length > 4 ? `<details><summary class="sub" style="cursor:pointer">ещё ${p.offers.length - 4} предложений</summary>${p.offers.slice(4).map((o, i) => row(o, i + 4)).join('')}</details>` : ''}</div>`;
       }).join('') : '<div class="hint">Нет открытых позиций для подбора.</div>';
     } catch (err) { $('offers').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
