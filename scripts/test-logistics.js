@@ -8,7 +8,7 @@ const t = (name, fn) => { fn(); n++; };
 t('status names -> stages', () => {
   const m = {};
   assert.strictEqual(s.stageOfStatus('Новый', m), 'new');
-  assert.strictEqual(s.stageOfStatus('Ожидает оплаты', m), 'new');
+  assert.strictEqual(s.stageOfStatus('Ожидает оплаты', m), 'payment');
   assert.strictEqual(s.stageOfStatus('Заказан у поставщика', m), 'supplier');
   assert.strictEqual(s.stageOfStatus('Отправлен поставщику', m), 'supplier');
   assert.strictEqual(s.stageOfStatus('В пути', m), 'transit');
@@ -19,6 +19,20 @@ t('status names -> stages', () => {
   assert.strictEqual(s.stageOfStatus('Выдан', m), 'done');
   assert.strictEqual(s.stageOfStatus('Отказ поставщика', m), 'cancelled');
   assert.strictEqual(s.stageOfStatus('Что-то своё', m), 'other');
+  // BMW Club77 real statuses (log 07.11)
+  assert.strictEqual(s.stageOfStatus('ВЫДАНО.', m), 'done');
+  assert.strictEqual(s.stageOfStatus('Заказ принят', m), 'new');
+  assert.strictEqual(s.stageOfStatus('Пришло в СЕРВИС Химки', m), 'stock');
+  assert.strictEqual(s.stageOfStatus('Ждем предоплату', m), 'payment');
+  assert.strictEqual(s.stageOfStatus('Нет на складе', m), 'problem');
+  assert.strictEqual(s.stageOfStatus('Комплектуется на складе поставщика', m), 'supplier');
+  assert.strictEqual(s.stageOfStatus('ЗАКАЗАНО СРОЧНЫМ', m), 'supplier');
+  assert.strictEqual(s.stageOfStatus('Заказано из Германии', m), 'supplier');
+  assert.strictEqual(s.stageOfStatus('В пути на склад', m), 'transit');
+  assert.strictEqual(s.stageOfStatus('ОПЛАЧЕНО', m), 'new');
+  assert.strictEqual(s.stageOfStatus('Уточняем наличие в Польше', m), 'new');
+  assert.strictEqual(s.stageOfStatus('Отказ клиента', m), 'cancelled');
+  assert.strictEqual(s.stageOfStatus('СПАСИБО ЗА ЗАКАЗ!', m), 'other'); // waits for Михаил
   assert.strictEqual(s.stageOfStatus('Что-то своё', { 'Что-то своё': 'stock' }), 'stock');
 });
 
@@ -67,6 +81,11 @@ t('stock not shipped, long delivery, silent, unknown status', () => {
   assert.deepStrictEqual(s.alertsFor(si, now, lim, {}).map(x => x.kind), ['silent']);
   const un = order([{ id: 1, number: 'A1', status: 'Странный', statusChangeDate: '2026-11-07 10:00:00' }]);
   assert.deepStrictEqual(s.alertsFor(un, now, lim, {}).map(x => x.kind), ['unknown_status']);
+});
+
+t('payment: no «not ordered» alert; problem: no_stock at once', () => {
+  assert.deepStrictEqual(s.alertsFor(order([{ id: 1, number: 'A1', status: 'Ждем предоплату', statusChangeDate: '2026-11-07 09:00:00' }]), now, lim, {}), []);
+  assert.deepStrictEqual(s.alertsFor(order([{ id: 1, number: 'A1', status: 'Нет на складе', statusChangeDate: '2026-11-07 14:00:00' }]), now, lim, {}).map(x => x.kind), ['no_stock']);
 });
 
 t('describe: health + finished orders have no alerts', () => {

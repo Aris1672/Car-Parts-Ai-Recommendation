@@ -230,7 +230,7 @@
 
     // alerts list
     const al = [];
-    for (const o of data.orders) for (const a of o.alerts || []) al.push({ ...a, o });
+    for (const o of data.orders) for (const a of o.alerts || []) if (a.kind !== 'unknown_status') al.push({ ...a, o });
     al.sort((a, b) => (a.ack_by ? 1 : 0) - (b.ack_by ? 1 : 0) || new Date(a.since || a.created_at) - new Date(b.since || b.created_at));
     $('alCnt').textContent = al.length ? `· ${al.length}` : '';
     $('alerts').innerHTML = al.length ? al.slice(0, 40).map(a => {
