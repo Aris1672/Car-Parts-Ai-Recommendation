@@ -140,6 +140,13 @@ app.get('/dashboard', (req, res) => {
 });
 
 app.use('/dashboard', express.static(path.join(__dirname, 'dashboard')));
+
+// /logistics -> logistics/index.html: managers' workplace of the logistics
+// agent (phase 1: read-only watcher, see lib/logistics/watch.js).
+app.get('/logistics', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'logistics', 'index.html'));
+});
 app.use('/widget', express.static(path.join(__dirname, 'widget')));
 
 // Images and fonts outside /widget and /dashboard (chat-bg.jpg, agent-avatar.jpg,
@@ -161,4 +168,6 @@ app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok' }));
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
+  // Logistics watcher (LOGISTICS_ENABLED=1); a failure here never stops the server.
+  try { require('./lib/logistics/watch').start(); } catch (err) { console.error('[logistics] start failed:', err.message); }
 });

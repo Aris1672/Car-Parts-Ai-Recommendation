@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Логистика — ИИ-агент</title>
+<meta name="theme-color" content="#0a0a0f">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#0a0a0f; --bg2:#111118; --bg3:#16161f; --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.12);
+    --red:#cc0000; --red2:#ef4444; --red-dim:rgba(239,68,68,.13); --green:#22c55e; --green-dim:rgba(34,197,94,.12);
+    --amber:#f59e0b; --amber-dim:rgba(245,158,11,.13); --blue:#3b82f6; --blue-dim:rgba(59,130,246,.13);
+    --text:#e8e8f0; --text2:#8888a0; --text3:#4a4a60; --font:'Manrope',sans-serif; --mono:'JetBrains Mono',monospace; --r:12px;
+  }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; min-height:100vh; }
+  button { font-family:var(--font); cursor:pointer; }
+  input, textarea, select { font-family:var(--font); font-size:14px; color:var(--text); background:var(--bg3); border:1px solid var(--border2); border-radius:8px; padding:9px 11px; outline:none; }
+  input:focus, textarea:focus { border-color:var(--red); }
+  .hidden { display:none !important; }
+
+  /* login */
+  #login { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .login-box { width:100%; max-width:360px; background:var(--bg2); border:1px solid var(--border); border-radius:16px; padding:28px; display:flex; flex-direction:column; gap:12px; }
+  .login-box h1 { font-size:20px; font-weight:800; }
+  .login-box p { color:var(--text2); font-size:13px; line-height:1.5; }
+  .btn { background:var(--red); color:#fff; border:0; border-radius:8px; padding:10px 14px; font-weight:700; font-size:14px; }
+  .btn:hover { filter:brightness(1.1); }
+  .btn.ghost { background:transparent; border:1px solid var(--border2); color:var(--text); font-weight:600; }
+  .btn.small { padding:6px 10px; font-size:12px; }
+  .err { color:var(--red2); font-size:13px; min-height:18px; }
+
+  /* top */
+  header { position:sticky; top:0; z-index:5; background:rgba(10,10,15,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); padding:12px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .logo { font-weight:800; font-size:16px; display:flex; align-items:center; gap:8px; }
+  .logo .dot { width:9px; height:9px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); }
+  .logo .dot.off { background:var(--text3); box-shadow:none; }
+  .logo .dot.bad { background:var(--red2); box-shadow:0 0 8px var(--red2); }
+  .badge-ro { font-family:var(--mono); font-size:10px; color:var(--text2); border:1px solid var(--border2); border-radius:6px; padding:2px 6px; }
+  .tabs { display:flex; gap:4px; margin-left:auto; flex-wrap:wrap; }
+  .tab { background:transparent; border:1px solid transparent; color:var(--text2); border-radius:8px; padding:7px 11px; font-weight:600; font-size:13px; }
+  .tab.active { color:var(--text); background:var(--bg3); border-color:var(--border2); }
+  .who { font-size:12px; color:var(--text2); }
+  main { padding:18px; max-width:1600px; margin:0 auto; }
+
+  /* stats */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:16px; }
+  .stat { background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:12px 14px; }
+  .stat .v { font-size:24px; font-weight:800; font-family:var(--mono); }
+  .stat .l { color:var(--text2); font-size:12px; margin-top:2px; }
+  .stat.red .v { color:var(--red2); } .stat.amber .v { color:var(--amber); } .stat.green .v { color:var(--green); }
+
+  /* alerts */
+  h2 { font-size:15px; font-weight:800; margin:6px 0 10px; display:flex; align-items:center; gap:8px; }
+  h2 .cnt { font-family:var(--mono); font-size:12px; color:var(--text2); }
+  .alerts { display:flex; flex-direction:column; gap:8px; margin-bottom:22px; }
+  .alert { background:var(--bg2); border:1px solid var(--border); border-left:3px solid var(--red2); border-radius:10px; padding:10px 12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .alert.risk { border-left-color:var(--amber); }
+  .alert.acked { opacity:.6; }
+  .alert .main { flex:1; min-width:200px; cursor:pointer; }
+  .alert .t { font-weight:700; }
+  .alert .d { color:var(--text2); font-size:12px; margin-top:2px; }
+  .empty { color:var(--text2); background:var(--bg2); border:1px dashed var(--border2); border-radius:10px; padding:16px; text-align:center; }
+
+  /* filters */
+  .filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+  .filters input { min-width:220px; }
+  .chip { background:var(--bg3); border:1px solid var(--border2); color:var(--text2); border-radius:20px; padding:6px 12px; font-size:12px; font-weight:600; }
+  .chip.on { color:#fff; border-color:var(--red); background:var(--red-dim); }
+
+  /* board */
+  .board { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(250px,1fr); gap:10px; overflow-x:auto; padding-bottom:10px; }
+  .col { background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); display:flex; flex-direction:column; min-height:200px; max-height:calc(100vh - 230px); }
+  .col-h { padding:10px 12px; border-bottom:1px solid var(--border); font-weight:700; font-size:13px; display:flex; justify-content:space-between; }
+  .col-h span { font-family:var(--mono); color:var(--text2); }
+  .col-b { padding:8px; display:flex; flex-direction:column; gap:7px; overflow-y:auto; }
+  .card { background:var(--bg3); border:1px solid var(--border); border-left:3px solid var(--green); border-radius:9px; padding:9px 10px; cursor:pointer; }
+  .card:hover { border-color:var(--border2); }
+  .card.risk { border-left-color:var(--amber); } .card.late { border-left-color:var(--red2); }
+  .card .n { font-family:var(--mono); font-weight:600; font-size:13px; display:flex; justify-content:space-between; gap:6px; }
+  .card .c { color:var(--text2); font-size:12px; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card .a { color:var(--red2); font-size:12px; margin-top:4px; font-weight:600; }
+  .card.risk .a { color:var(--amber); }
+  .tag { font-size:10px; font-weight:700; border-radius:5px; padding:2px 6px; background:var(--bg2); border:1px solid var(--border2); color:var(--text2); font-family:var(--font); }
+  .tag.cdek { color:#4ade80; } .tag.yandex { color:#facc15; } .tag.pickup { color:#93c5fd; }
+
+  /* drawer */
+  #shade { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:20; }
+  #drawer { position:fixed; top:0; right:0; bottom:0; width:min(640px,100%); background:var(--bg2); border-left:1px solid var(--border2); z-index:21; overflow-y:auto; padding:18px 20px 40px; }
+  #drawer .close { position:absolute; top:12px; right:14px; background:none; border:0; color:var(--text2); font-size:22px; }
+  .dh { font-size:18px; font-weight:800; font-family:var(--mono); }
+  .meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px; margin:12px 0 16px; }
+  .meta div { background:var(--bg3); border-radius:8px; padding:8px 10px; font-size:13px; }
+  .meta b { display:block; color:var(--text2); font-size:11px; font-weight:600; margin-bottom:2px; }
+  .sec { margin-top:18px; }
+  .sec h3 { font-size:13px; font-weight:800; color:var(--text2); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+  .pos { background:var(--bg3); border:1px solid var(--border); border-radius:9px; padding:10px; margin-bottom:8px; }
+  .pos .top { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .pos .nm { font-weight:700; }
+  .pos .sub { color:var(--text2); font-size:12px; margin-top:3px; }
+  .tl { margin-top:8px; border-left:2px solid var(--border2); padding-left:10px; display:flex; flex-direction:column; gap:4px; }
+  .tl div { font-size:12px; color:var(--text2); } .tl div b { color:var(--text); font-weight:600; }
+  .note { background:var(--bg3); border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:13px; }
+  .note small { color:var(--text2); display:block; margin-bottom:2px; }
+  .note-form { display:flex; gap:8px; margin-top:8px; } .note-form textarea { flex:1; min-height:40px; resize:vertical; }
+
+  table.st { width:100%; border-collapse:collapse; background:var(--bg2); border-radius:var(--r); overflow:hidden; }
+  table.st td, table.st th { padding:9px 12px; border-bottom:1px solid var(--border); text-align:left; font-size:13px; }
+  table.st th { color:var(--text2); font-weight:700; font-size:12px; }
+  .st-other { color:var(--amber); font-weight:700; }
+  .hint { color:var(--text2); font-size:13px; line-height:1.55; margin-bottom:12px; max-width:800px; }
+  .foot { color:var(--text3); font-size:11px; font-family:var(--mono); margin-top:14px; }
+
+  @media (max-width:700px) {
+    main { padding:12px; }
+    header { padding:10px 12px; }
+    .tabs { margin-left:0; width:100%; }
+    .board { grid-auto-flow:row; grid-auto-columns:auto; }
+    .col { max-height:none; }
+    .filters input { min-width:0; flex:1; }
+  }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <form class="login-box" id="loginForm">
+    <h1>📦 Логистика</h1>
+    <p>Рабочее место менеджеров: ИИ-агент следит за заказами ABCP и подсказывает, где нужна помощь.</p>
+    <input id="lgName" placeholder="Ваше имя (видно в заметках)" autocomplete="name">
+    <input id="lgPass" type="password" placeholder="Пароль" autocomplete="current-password">
+    <button class="btn" type="submit">Войти</button>
+    <div class="err" id="lgErr"></div>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="logo"><span class="dot" id="wDot"></span>Логистика <span class="badge-ro">ФАЗА 1 · ТОЛЬКО ЧТЕНИЕ</span></div>
+    <div class="tabs">
+      <button class="tab active" data-view="board">Заказы</button>
+      <button class="tab" data-view="statuses">Статусы ABCP</button>
+      <button class="tab" id="logout">Выйти</button>
+    </div>
+  </header>
+  <main>
+    <section id="v-board">
+      <div class="stats" id="stats"></div>
+      <h2>Нужно внимание <span class="cnt" id="alCnt"></span></h2>
+      <div class="alerts" id="alerts"></div>
+      <h2>Заказы по этапам</h2>
+      <div class="filters">
+        <input id="q" placeholder="Поиск: номер заказа, клиент, артикул…">
+        <button class="chip" data-f="problems">Только проблемные</button>
+        <button class="chip" data-f="cdek">СДЭК</button>
+        <button class="chip" data-f="yandex">Яндекс</button>
+        <button class="chip" data-f="pickup">Самовывоз</button>
+      </div>
+      <div class="board" id="board"></div>
+      <div class="foot" id="foot"></div>
+    </section>
+    <section id="v-statuses" class="hidden">
+      <h2>Статусы ABCP → этапы доски</h2>
+      <p class="hint">Агент сам раскладывает статусы магазина по этапам. Статусы, помеченные <span class="st-other">«Другой статус»</span>, он пока не понимает — напишите нам, на какой этап их отнести (настройка <code>LOGISTICS_STAGE_MAP</code>).</p>
+      <div id="stList"><div class="empty">Загрузка…</div></div>
+    </section>
+  </main>
+</div>
+
+<div id="shade" class="hidden"></div>
+<aside id="drawer" class="hidden"><button class="close" id="dClose">×</button><div id="dBody"></div></aside>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} }, del(k) { try { localStorage.removeItem(k); } catch {} } };
+  let pass = store.get('lg_pass'), author = store.get('lg_name') || '';
+  let data = null, filters = new Set(), openNumber = null, pollT = null;
+
+  const CARRIER = { cdek: 'СДЭК', yandex: 'Яндекс', pickup: 'Самовывоз', courier: 'Курьер', other: 'Доставка' };
+  const rub = n => n ? Number(n).toLocaleString('ru-RU') + ' ₽' : '—';
+  const dt = s => { if (!s) return '—'; const d = new Date(String(s).includes('T') || String(s).endsWith('Z') ? s : String(s).replace(' ', 'T') + '+03:00'); return isNaN(d) ? s : d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+  const ago = s => { const d = new Date(s); if (isNaN(d)) return ''; const m = Math.round((Date.now() - d) / 60000); return m < 60 ? `${m} мин назад` : m < 1440 ? `${Math.round(m / 60)} ч назад` : `${Math.round(m / 1440)} дн. назад`; };
+
+  async function api(action, extra = {}) {
+    const r = await fetch('/api/logistics/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pass, action, ...extra }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) { logout(); throw new Error('Неверный пароль'); }
+    if (!r.ok) throw new Error(j.error || `Ошибка ${r.status}`);
+    return j;
+  }
+
+  // ── login ──
+  $('lgName').value = author;
+  $('loginForm').onsubmit = async e => {
+    e.preventDefault();
+    pass = $('lgPass').value; author = $('lgName').value.trim();
+    $('lgErr').textContent = '';
+    try { await load(); store.set('lg_pass', pass); store.set('lg_name', author); show(); }
+    catch (err) { $('lgErr').textContent = err.message; }
+  };
+  function show() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); clearInterval(pollT); pollT = setInterval(() => load().catch(() => {}), 30000); }
+  function logout() { store.del('lg_pass'); pass = null; clearInterval(pollT); $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
+  $('logout').onclick = logout;
+
+  // ── tabs ──
+  document.querySelectorAll('.tab[data-view]').forEach(b => b.onclick = () => {
+    document.querySelectorAll('.tab[data-view]').forEach(x => x.classList.toggle('active', x === b));
+    $('v-board').classList.toggle('hidden', b.dataset.view !== 'board');
+    $('v-statuses').classList.toggle('hidden', b.dataset.view !== 'statuses');
+    if (b.dataset.view === 'statuses') loadStatuses();
+  });
+
+  // ── data ──
+  async function load() { data = await api('list'); render(); }
+
+  function render() {
+    const s = data.stats || {}, w = data.watcher || {};
+    $('wDot').className = 'dot' + (!data.enabled ? ' off' : w.lastError ? ' bad' : '');
+    $('stats').innerHTML = [
+      ['', s.open, 'заказов в работе'],
+      [s.alerts ? 'red' : 'green', s.alerts, 'предупреждений'],
+      [s.alerts_new ? 'amber' : '', s.alerts_new, 'ещё никто не взял'],
+      ['green', s.finished_day, 'закрыто за сутки'],
+    ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${v ?? 0}</div><div class="l">${l}</div></div>`).join('');
+
+    // alerts list
+    const al = [];
+    for (const o of data.orders) for (const a of o.alerts || []) al.push({ ...a, o });
+    al.sort((a, b) => (a.ack_by ? 1 : 0) - (b.ack_by ? 1 : 0) || new Date(a.since || a.created_at) - new Date(b.since || b.created_at));
+    $('alCnt').textContent = al.length ? `· ${al.length}` : '';
+    $('alerts').innerHTML = al.length ? al.slice(0, 40).map(a => {
+      const risk = a.kind === 'silent' || a.kind === 'unknown_status';
+      const sm = a.o.summary || {};
+      return `<div class="alert ${risk ? 'risk' : ''} ${a.ack_by ? 'acked' : ''}">
+        <div class="main" data-open="${esc(a.o.number)}">
+          <div class="t">${esc(a.text)} · заказ ${esc(a.o.number)}</div>
+          <div class="d">${esc(a.detail || '')}${a.position ? ' · арт. ' + esc(a.position) : ''} · ${esc(sm.customer || '')}${a.ack_by ? ' · ✓ взял: ' + esc(a.ack_by) : ''}</div>
+        </div>
+        ${a.ack_by ? '' : `<button class="btn small ghost" data-ack="${a.id}">Беру в работу</button>`}
+      </div>`;
+    }).join('') : '<div class="empty">✅ Все заказы идут по плану</div>';
+
+    renderBoard();
+    const ok = w.lastOk ? `последняя проверка ABCP: ${dt(w.lastOk)}` : 'проверок ещё не было';
+    $('foot').textContent = (data.enabled ? '' : 'Агент выключен (LOGISTICS_ENABLED). ') + ok + (w.lastError ? ` · ошибка: ${w.lastError}` : '') + ' · обновление каждые 30 с';
+  }
+
+  function matches(o) {
+    const sm = o.summary || {};
+    if (filters.has('problems') && o.health === 'ok') return false;
+    const car = ['cdek', 'yandex', 'pickup'].filter(c => filters.has(c));
+    if (car.length && !car.includes(sm.carrier)) return false;
+    const q = $('q').value.trim().toLowerCase();
+    if (q) {
+      const hay = [o.number, sm.customer, sm.phone, ...(sm.positions || []).flatMap(p => [p.number, p.brand, p.description, p.supplier])].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }
+
+  function renderBoard() {
+    const cols = (data.stages || []).filter(s => s.id !== 'other' || data.orders.some(o => o.stage === 'other'));
+    $('board').innerHTML = cols.map(st => {
+      const list = data.orders.filter(o => o.stage === st.id && matches(o));
+      return `<div class="col"><div class="col-h">${esc(st.label)} <span>${list.length}</span></div><div class="col-b">${list.slice(0, 150).map(card).join('') || '<div class="c" style="color:var(--text3);padding:6px">—</div>'}</div></div>`;
+    }).join('');
+  }
+
+  function card(o) {
+    const sm = o.summary || {};
+    const pos = sm.positions || [];
+    const first = pos[0] ? `${pos[0].brand || ''} ${pos[0].number || ''}`.trim() + (pos.length > 1 ? ` +${pos.length - 1}` : '') : '';
+    const al = (o.alerts || []).filter(a => a.kind !== 'unknown_status');
+    return `<div class="card ${o.health}" data-open="${esc(o.number)}">
+      <div class="n">№ ${esc(o.number)} ${sm.carrier ? `<span class="tag ${sm.carrier}">${CARRIER[sm.carrier] || ''}</span>` : ''}</div>
+      <div class="c">${esc(sm.customer || '—')} · ${rub(sm.sum)}</div>
+      <div class="c">${esc(first)} · ${dt(sm.date)}</div>
+      ${al.length ? `<div class="a">⚠ ${esc([...new Set(al.map(a => a.text))].join(', '))}</div>` : ''}
+    </div>`;
+  }
+
+  $('q').oninput = () => data && renderBoard();
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => { filters.has(c.dataset.f) ? filters.delete(c.dataset.f) : filters.add(c.dataset.f); c.classList.toggle('on'); renderBoard(); });
+
+  document.addEventListener('click', async e => {
+    const ack = e.target.closest('[data-ack]');
+    if (ack) { ack.disabled = true; try { await api('ack', { id: ack.dataset.ack, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
+    const op = e.target.closest('[data-open]');
+    if (op) openOrder(op.dataset.open);
+  });
+  function alertBox(err) { console.error(err); }
+
+  // ── order drawer ──
+  async function openOrder(number) {
+    openNumber = number;
+    $('shade').classList.remove('hidden'); $('drawer').classList.remove('hidden');
+    $('dBody').innerHTML = '<div class="empty">Загрузка заказа…</div>';
+    try {
+      const { order } = await api('order', { number });
+      if (openNumber !== number) return;
+      const sm = order.summary || {};
+      const stage = (data.stages.find(s => s.id === order.stage) || {}).label || order.stage;
+      const hist = order.history || {};
+      const pos = (sm.positions || []).map(p => {
+        const h = hist[p.id] || [];
+        return `<div class="pos">
+          <div class="top"><div class="nm">${esc(p.brand || '')} ${esc(p.number || '')}</div><div>${esc(p.status || '—')}</div></div>
+          <div class="sub">${esc(p.description || '')}${p.quantity ? ' · ' + p.quantity + ' шт.' : ''}${p.price ? ' · ' + rub(p.price) : ''}</div>
+          <div class="sub">Поставщик: ${esc(p.supplier || '—')}${p.deadlineMaxHours ? ` · срок до ${Math.ceil(p.deadlineMaxHours / 24)} дн.` : ''} · статус с ${dt(p.statusDate)}</div>
+          ${h.length ? `<div class="tl">${h.map(x => `<div><b>${esc(x.status)}</b> — ${dt(x.at)}</div>`).join('')}</div>` : ''}
+        </div>`;
+      }).join('');
+      const alerts = (order.alerts || []).filter(a => !a.resolved_at);
+      const old = (order.alerts || []).filter(a => a.resolved_at).slice(0, 10);
+      $('dBody').innerHTML = `
+        <div class="dh">Заказ № ${esc(order.number)}</div>
+        <div style="color:var(--text2);margin-top:4px">${esc(stage)} · ${order.health === 'late' ? '🔴 есть проблема' : order.health === 'risk' ? '🟡 под наблюдением' : '🟢 по плану'}${sm.archived ? ' · в архиве ABCP' : ''}</div>
+        <div class="meta">
+          <div><b>Клиент</b>${esc(sm.customer || '—')}</div>
+          <div><b>Телефон</b>${sm.phone ? `<a href="tel:${esc(sm.phone)}" style="color:var(--text)">${esc(sm.phone)}</a>` : '—'}</div>
+          <div><b>Сумма / долг</b>${rub(sm.sum)} / ${sm.debt ? rub(sm.debt) : 'оплачен'}</div>
+          <div><b>Дата заказа</b>${dt(sm.date)}</div>
+          <div><b>Доставка</b>${esc([CARRIER[sm.carrier], sm.deliveryType, sm.deliveryOffice].filter(Boolean).join(' · ') || '—')}</div>
+          <div><b>Адрес</b>${esc(sm.deliveryAddress || '—')}</div>
+        </div>
+        ${sm.comment ? `<div class="note"><small>Комментарий к заказу</small>${esc(sm.comment)}</div>` : ''}
+        <div class="sec"><h3>Предупреждения</h3>${alerts.length ? alerts.map(a => `<div class="alert ${a.kind === 'silent' || a.kind === 'unknown_status' ? 'risk' : ''} ${a.ack_by ? 'acked' : ''}"><div class="main"><div class="t">${esc(a.text)}</div><div class="d">${esc(a.detail || '')}${a.position ? ' · арт. ' + esc(a.position) : ''}${a.ack_by ? ' · ✓ взял: ' + esc(a.ack_by) : ''}</div></div>${a.ack_by ? '' : `<button class="btn small ghost" data-ack="${a.id}">Беру в работу</button>`}</div>`).join('') : '<div class="empty">Нет</div>'}
+          ${old.length ? `<div class="sub" style="color:var(--text2);font-size:12px;margin-top:6px">Решено: ${old.map(a => esc(a.text) + ' (' + dt(a.resolved_at) + ')').join(', ')}</div>` : ''}
+        </div>
+        <div class="sec"><h3>Позиции и история статусов</h3>${pos || '<div class="empty">Нет позиций</div>'}</div>
+        <div class="sec"><h3>Заметки менеджеров</h3>
+          ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
+          <form class="note-form" id="noteForm"><textarea id="noteText" placeholder="Например: клиент просил позвонить перед отправкой"></textarea><button class="btn" type="submit">Добавить</button></form>
+        </div>
+        <div class="sec"><h3>Журнал</h3>${(order.actions || []).map(a => `<div class="sub" style="color:var(--text2);font-size:12px">${dt(a.created_at)} · ${esc(a.actor)} · ${a.action === 'ack' ? 'взял в работу' : a.action === 'note' ? 'заметка' : esc(a.action)}</div>`).join('') || '<div class="hint">Пусто.</div>'}
+          <div class="hint" style="margin-top:8px">В фазе 1 агент только наблюдает: изменения в заказе делаются в ABCP, как обычно.</div></div>`;
+      $('noteForm').onsubmit = async ev => {
+        ev.preventDefault();
+        const text = $('noteText').value.trim(); if (!text) return;
+        await api('note', { number, author, text }); openOrder(number); load().catch(() => {});
+      };
+    } catch (err) { $('dBody').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  }
+  function closeDrawer() { openNumber = null; $('shade').classList.add('hidden'); $('drawer').classList.add('hidden'); }
+  $('dClose').onclick = closeDrawer; $('shade').onclick = closeDrawer;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+  // ── statuses ──
+  async function loadStatuses() {
+    try {
+      const { statuses, stages } = await api('statuses');
+      const lab = Object.fromEntries(stages.map(s => [s.id, s.label]));
+      $('stList').innerHTML = `<table class="st"><tr><th>Статус в ABCP</th><th>Этап на доске</th></tr>${statuses.map(s => `<tr><td>${esc(s.name)}</td><td class="${s.stage === 'other' ? 'st-other' : ''}">${esc(lab[s.stage] || s.stage)}</td></tr>`).join('')}</table>`;
+    } catch (err) { $('stList').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  }
+
+  if (pass) load().then(show).catch(() => logout());
+})();
+</script>
+</body>
+</html>
