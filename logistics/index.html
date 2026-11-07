@@ -114,7 +114,27 @@
   .hint { color:var(--text2); font-size:13px; line-height:1.55; margin-bottom:12px; max-width:800px; }
   .foot { color:var(--text3); font-size:11px; font-family:var(--mono); margin-top:14px; }
 
+  .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:12px; }
+  .chart { background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; min-width:0; }
+  .chart.wide { grid-column:1 / -1; }
+  .chart h3 { font-size:13px; font-weight:800; margin-bottom:10px; }
+  .chart h3 small { color:var(--text2); font-weight:500; margin-left:6px; }
+  .chart svg { display:block; width:100%; height:auto; overflow:visible; }
+  .chart svg text { fill:var(--text2); font-family:var(--font); font-size:12px; }
+  .chart svg text.v { fill:var(--text); font-weight:700; }
+  .hb-row { cursor:pointer; } .hb-row:hover rect.bar { filter:brightness(1.25); }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--text2); margin:-4px 0 6px; }
+  .legend i { display:inline-block; width:12px; height:3px; border-radius:2px; vertical-align:middle; margin-right:6px; }
+  #tip { position:fixed; z-index:30; pointer-events:none; background:#000; border:1px solid var(--border2); border-radius:8px; padding:7px 10px; font-size:12px; color:var(--text); box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  #tip b { font-family:var(--mono); }
+  .more { background:none; border:1px dashed var(--border2); color:var(--text2); border-radius:9px; padding:9px; font-weight:600; font-size:13px; }
+  .col .more { margin-top:2px; font-size:12px; padding:6px; }
+  .alert .kinds { display:flex; gap:5px; flex-wrap:wrap; margin-top:4px; }
+  .k { font-size:11px; font-weight:700; border-radius:5px; padding:2px 6px; background:var(--red-dim); color:#fca5a5; }
+  .k.risk { background:var(--amber-dim); color:#fcd34d; }
+
   @media (max-width:700px) {
+    .charts { grid-template-columns:1fr; }
     main { padding:12px; }
     header { padding:10px 12px; }
     .tabs { margin-left:0; width:100%; }
@@ -141,15 +161,29 @@
   <header>
     <div class="logo"><span class="dot" id="wDot"></span>Логистика <span class="badge-ro">ФАЗА 1 · ТОЛЬКО ЧТЕНИЕ</span></div>
     <div class="tabs">
-      <button class="tab active" data-view="board">Заказы</button>
+      <button class="tab active" data-view="overview">Обзор</button>
+      <button class="tab" data-view="board">Заказы</button>
       <button class="tab" data-view="statuses">Статусы ABCP</button>
       <button class="tab" id="logout">Выйти</button>
     </div>
   </header>
   <main>
-    <section id="v-board">
+    <section id="v-overview">
       <div class="stats" id="stats"></div>
+      <div class="charts">
+        <div class="chart wide"><h3>Заказы по дням: новые и закрытые <small>последние 30 дней</small></h3><div class="legend" id="lgDays"></div><div id="chDays"></div></div>
+        <div class="chart"><h3>Где сейчас заказы <small>открытые, по этапам</small></h3><div id="chStages"></div></div>
+        <div class="chart"><h3>Здоровье открытых заказов</h3><div id="chHealth"></div></div>
+        <div class="chart"><h3>Какие проблемы <small>заказы со свежими проблемами</small></h3><div id="chKinds"></div></div>
+        <div class="chart"><h3>Сколько дней заказ уже открыт</h3><div id="chAge"></div></div>
+        <div class="chart"><h3>Поставщики с опозданиями <small>топ-8, позиций</small></h3><div id="chSuppliers"></div></div>
+        <div class="chart"><h3>Способ доставки <small>открытые заказы</small></h3><div id="chCarrier"></div></div>
+      </div>
+      <div class="foot" id="foot2"></div>
+    </section>
+    <section id="v-board" class="hidden">
       <h2>Нужно внимание <span class="cnt" id="alCnt"></span></h2>
+      <div class="filters" id="alFilters"></div>
       <div class="alerts" id="alerts"></div>
       <h2>Заказы по этапам</h2>
       <div class="filters">
@@ -170,6 +204,7 @@
   </main>
 </div>
 
+<div id="tip" class="hidden"></div>
 <div id="shade" class="hidden"></div>
 <aside id="drawer" class="hidden"><button class="close" id="dClose">×</button><div id="dBody"></div></aside>
 
@@ -203,20 +238,22 @@
     try { await load(); store.set('lg_pass', pass); store.set('lg_name', author); show(); }
     catch (err) { $('lgErr').textContent = err.message; }
   };
-  function show() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); clearInterval(pollT); pollT = setInterval(() => load().catch(() => {}), 30000); }
+  function show() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); if (data) render(); clearInterval(pollT); pollT = setInterval(() => load().catch(() => {}), 30000); }
   function logout() { store.del('lg_pass'); pass = null; clearInterval(pollT); $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
   $('logout').onclick = logout;
 
   // ── tabs ──
   document.querySelectorAll('.tab[data-view]').forEach(b => b.onclick = () => {
     document.querySelectorAll('.tab[data-view]').forEach(x => x.classList.toggle('active', x === b));
+    $('v-overview').classList.toggle('hidden', b.dataset.view !== 'overview');
+    if (b.dataset.view === 'overview' && data) setTimeout(renderCharts);
     $('v-board').classList.toggle('hidden', b.dataset.view !== 'board');
     $('v-statuses').classList.toggle('hidden', b.dataset.view !== 'statuses');
     if (b.dataset.view === 'statuses') loadStatuses();
   });
 
   // ── data ──
-  async function load() { data = await api('list'); render(); }
+  async function load() { data = await api('list', { finishedDays: 30 }); render(); }
 
   function render() {
     const s = data.stats || {}, w = data.watcher || {};
@@ -228,26 +265,178 @@
       ['green', s.finished_day, 'закрыто за сутки'],
     ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${v ?? 0}</div><div class="l">${l}</div></div>`).join('');
 
-    // alerts list
-    const al = [];
-    for (const o of data.orders) for (const a of o.alerts || []) if (a.kind !== 'unknown_status') al.push({ ...a, o });
-    al.sort((a, b) => (a.ack_by ? 1 : 0) - (b.ack_by ? 1 : 0) || new Date(a.since || a.created_at) - new Date(b.since || b.created_at));
-    $('alCnt').textContent = al.length ? `· ${al.length}` : '';
-    $('alerts').innerHTML = al.length ? al.slice(0, 40).map(a => {
-      const risk = a.kind === 'silent' || a.kind === 'unknown_status';
-      const sm = a.o.summary || {};
-      return `<div class="alert ${risk ? 'risk' : ''} ${a.ack_by ? 'acked' : ''}">
-        <div class="main" data-open="${esc(a.o.number)}">
-          <div class="t">${esc(a.text)} · заказ ${esc(a.o.number)}</div>
-          <div class="d">${esc(a.detail || '')}${a.position ? ' · арт. ' + esc(a.position) : ''} · ${esc(sm.customer || '')}${a.ack_by ? ' · ✓ взял: ' + esc(a.ack_by) : ''}</div>
-        </div>
-        ${a.ack_by ? '' : `<button class="btn small ghost" data-ack="${a.id}">Беру в работу</button>`}
-      </div>`;
-    }).join('') : '<div class="empty">✅ Все заказы идут по плану</div>';
-
+    renderAlerts();
+    renderCharts();
     renderBoard();
     const ok = w.lastOk ? `последняя проверка ABCP: ${dt(w.lastOk)}` : 'проверок ещё не было';
-    $('foot').textContent = (data.enabled ? '' : 'Агент выключен (LOGISTICS_ENABLED). ') + ok + (w.lastError ? ` · ошибка: ${w.lastError}` : '') + ' · обновление каждые 30 с';
+    $('foot2').textContent = $('foot').textContent = (data.enabled ? '' : 'Агент выключен (LOGISTICS_ENABLED). ') + ok + (w.lastError ? ` · ошибка: ${w.lastError}` : '') + ' · обновление каждые 30 с';
+  }
+
+
+  // ── «Нужно внимание»: one row per order, grouped by kind, fresh vs old ──
+  const FRESH_DAYS = 14;
+  const SEVERITY = { no_stock: 0, not_ordered: 1, supplier_late: 2, not_shipped: 3, delivery_long: 4, silent: 5 };
+  const KIND_LABEL = { no_stock: 'Нет на складе', not_ordered: 'Не заказан', supplier_late: 'Поставщик опаздывает', not_shipped: 'Пришёл, не отправлен', delivery_long: 'Долго в доставке', silent: 'Нет движения' };
+  let alKind = null, alOld = false, alLimit = 10, colLimit = {};
+  const orderAge = o => { const t = Date.parse(String((o.summary || {}).date || '').replace(' ', 'T') + '+03:00'); return isNaN(t) ? 0 : (Date.now() - t) / 86400000; };
+  function problemOrders() {
+    return data.orders.map(o => {
+      const al = (o.alerts || []).filter(a => a.kind !== 'unknown_status');
+      return al.length ? { o, al, kinds: [...new Set(al.map(a => a.kind))].sort((a, b) => SEVERITY[a] - SEVERITY[b]), old: orderAge(o) > FRESH_DAYS, acked: al.every(a => a.ack_by) } : null;
+    }).filter(Boolean);
+  }
+  function renderAlerts() {
+    const all = problemOrders();
+    const pool = all.filter(x => x.old === alOld);
+    const counts = {};
+    pool.forEach(x => x.kinds.forEach(k => counts[k] = (counts[k] || 0) + 1));
+    const fresh = all.filter(x => !x.old).length, old = all.length - fresh;
+    $('alCnt').textContent = `· ${fresh} свежих заказов${old ? `, ${old} старых` : ''}`;
+    $('alFilters').innerHTML =
+      `<button class="chip ${!alOld ? 'on' : ''}" data-alold="0">Свежие (до ${FRESH_DAYS} дн.) · ${fresh}</button>` +
+      `<button class="chip ${alOld ? 'on' : ''}" data-alold="1">Старые хвосты · ${old}</button><span style="width:10px"></span>` +
+      `<button class="chip ${!alKind ? 'on' : ''}" data-alkind="">Все · ${pool.length}</button>` +
+      Object.keys(SEVERITY).filter(k => counts[k]).map(k => `<button class="chip ${alKind === k ? 'on' : ''}" data-alkind="${k}">${KIND_LABEL[k]} · ${counts[k]}</button>`).join('');
+    const list = pool.filter(x => !alKind || x.kinds.includes(alKind))
+      .sort((a, b) => a.acked - b.acked || SEVERITY[a.kinds[0]] - SEVERITY[b.kinds[0]] || orderAge(b.o) - orderAge(a.o));
+    $('alerts').innerHTML = list.length ? list.slice(0, alLimit).map(x => {
+      const sm = x.o.summary || {};
+      const ids = x.al.filter(a => !a.ack_by).map(a => a.id).join(',');
+      const who = [...new Set(x.al.map(a => a.ack_by).filter(Boolean))].join(', ');
+      const risk = x.kinds.every(k => k === 'silent');
+      return `<div class="alert ${risk ? 'risk' : ''} ${x.acked ? 'acked' : ''}">
+        <div class="main" data-open="${esc(x.o.number)}">
+          <div class="t">Заказ ${esc(x.o.number)} · ${esc(sm.customer || '—')} <span style="color:var(--text2);font-weight:500">· ${Math.floor(orderAge(x.o))} дн. · ${rub(sm.sum)}</span></div>
+          <div class="kinds">${x.kinds.map(k => `<span class="k ${k === 'silent' ? 'risk' : ''}">${KIND_LABEL[k]}</span>`).join('')}${x.al.length > 1 ? `<span class="d" style="margin:0">${x.al.length} поз.</span>` : ''}</div>
+          ${who ? `<div class="d">✓ взял: ${esc(who)}</div>` : ''}
+        </div>
+        ${ids ? `<button class="btn small ghost" data-ack="${ids}">Беру в работу</button>` : ''}
+      </div>`;
+    }).join('') + (list.length > alLimit ? `<button class="more" data-almore="1">Показать ещё 20 (осталось ${list.length - alLimit})</button>` : '')
+      : `<div class="empty">${alOld ? 'Старых хвостов нет' : '✅ Свежих проблем нет'}</div>`;
+  }
+
+  // ── charts (plain SVG, hover tooltip) ──
+  const C = { blue: '#3987e5', orange: '#d95926', good: '#0ca30c', warning: '#fab219', critical: '#d03b3b', grid: 'rgba(255,255,255,.07)' };
+  const tip = $('tip');
+  function showTip(e, html) { tip.innerHTML = html; tip.classList.remove('hidden'); const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8); tip.style.left = x + 'px'; tip.style.top = (e.clientY + 14) + 'px'; }
+  const hideTip = () => tip.classList.add('hidden');
+  const num = n => Number(n).toLocaleString('ru-RU');
+
+  /** Horizontal bars. rows: [{label, value, color?, tip?, click?}] */
+  function hbars(el, rows, color = C.blue, unit = '') {
+    if (!rows.length) { el.innerHTML = '<div class="hint">Нет данных</div>'; return; }
+    const W = Math.max(260, el.clientWidth || 420), rowH = 28, labW = Math.min(160, W * 0.42), max = Math.max(...rows.map(r => r.value), 1);
+    const H = rows.length * rowH;
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${rows.map((r, i) => {
+      const w = Math.max(2, (W - labW - 50) * r.value / max), y = i * rowH;
+      return `<g class="hb-row" data-i="${i}"><rect x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent"/>
+        <text x="${labW - 8}" y="${y + 17}" text-anchor="end">${esc(r.label)}</text>
+        <rect class="bar" x="${labW}" y="${y + 6}" width="${w}" height="14" rx="4" fill="${r.color || color}"/>
+        <text class="v" x="${labW + w + 6}" y="${y + 17}">${num(r.value)}${unit}</text></g>`;
+    }).join('')}</svg>`;
+    el.querySelectorAll('.hb-row').forEach(g => {
+      const r = rows[g.dataset.i];
+      g.onmousemove = e => showTip(e, r.tip || `${esc(r.label)}: <b>${num(r.value)}</b>${unit}`);
+      g.onmouseleave = hideTip;
+      if (r.click) g.onclick = r.click;
+    });
+  }
+
+  /** Two-series line chart over days, crosshair tooltip. */
+  function lines(el, days, series) {
+    const W = Math.max(300, el.clientWidth || 900), H = W < 600 ? 180 : 220, L = 36, R = 10, T = 10, B = 24;
+    const max = Math.max(1, ...series.flatMap(s => s.values));
+    const step = Math.pow(10, Math.floor(Math.log10(max))) * (max / Math.pow(10, Math.floor(Math.log10(max))) > 5 ? 2 : 1);
+    const top = Math.ceil(max / step) * step;
+    const x = i => L + (W - L - R) * i / Math.max(1, days.length - 1), y = v => T + (H - T - B) * (1 - v / top);
+    let g = '';
+    for (let v = 0; v <= top; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="${C.grid}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${num(v)}</text>`;
+    days.forEach((d, i) => { if (i % (W < 600 ? 7 : 5) === 0 || i === days.length - 1) g += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${d.slice(8, 10)}.${d.slice(5, 7)}</text>`; });
+    for (const s of series) {
+      g += `<path d="${s.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+      const li = s.values.length - 1;
+      g += `<circle cx="${x(li)}" cy="${y(s.values[li])}" r="4" fill="${s.color}" stroke="var(--bg2)" stroke-width="2"/>`;
+    }
+    g += `<line id="xh" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="rgba(255,255,255,.25)" visibility="hidden"/><rect id="hit" x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent"/>`;
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${g}</svg>`;
+    const svg = el.querySelector('svg'), xh = svg.querySelector('#xh');
+    svg.querySelector('#hit').onmousemove = e => {
+      const r = svg.getBoundingClientRect(); const px = (e.clientX - r.left) * W / r.width;
+      const i = Math.max(0, Math.min(days.length - 1, Math.round((px - L) / (W - L - R) * (days.length - 1))));
+      xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.setAttribute('visibility', 'visible');
+      showTip(e, `<div style="margin-bottom:3px">${days[i].slice(8, 10)}.${days[i].slice(5, 7)}</div>` + series.map(s => `<div><i style="display:inline-block;width:10px;height:3px;background:${s.color};vertical-align:middle;margin-right:6px"></i>${s.name}: <b>${s.values[i]}</b></div>`).join(''));
+    };
+    svg.querySelector('#hit').onmouseleave = () => { hideTip(); xh.setAttribute('visibility', 'hidden'); };
+  }
+
+  function goBoard(apply) {
+    document.querySelector('.tab[data-view="board"]').click();
+    apply && apply();
+  }
+
+  let rzT; addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => data && !$('v-overview').classList.contains('hidden') && renderCharts(), 150); });
+  function renderCharts() {
+    const open = data.orders.filter(o => !o.finished_at);
+    const prob = problemOrders();
+    const freshProb = prob.filter(x => !x.old);
+    const s = data.stats || {};
+    $('stats').innerHTML = [
+      ['', open.length, 'заказов в работе'],
+      [freshProb.length ? 'red' : 'green', freshProb.length, 'свежих заказов с проблемой'],
+      [freshProb.filter(x => !x.acked).length ? 'amber' : 'green', freshProb.filter(x => !x.acked).length, 'из них никто не взял'],
+      ['', prob.length - freshProb.length, `старых хвостов (> ${FRESH_DAYS} дн.)`],
+      ['green', s.finished_day, 'закрыто за сутки'],
+    ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${num(v ?? 0)}</div><div class="l">${l}</div></div>`).join('');
+
+    // per day, last 30 days (Moscow)
+    const day = t => new Date(t + 3 * 3600000).toISOString().slice(0, 10);
+    const days = []; for (let i = 29; i >= 0; i--) days.push(day(Date.now() - i * 86400000));
+    const idx = Object.fromEntries(days.map((d, i) => [d, i]));
+    const created = days.map(() => 0), closed = days.map(() => 0);
+    for (const o of data.orders) {
+      const c = Date.parse(String((o.summary || {}).date || '').replace(' ', 'T') + '+03:00');
+      if (!isNaN(c) && idx[day(c)] != null) created[idx[day(c)]]++;
+      if (o.finished_at && idx[day(Date.parse(o.finished_at))] != null) closed[idx[day(Date.parse(o.finished_at))]]++;
+    }
+    const ser = [{ name: 'Новые заказы', color: C.blue, values: created }, { name: 'Закрытые', color: C.orange, values: closed }];
+    $('lgDays').innerHTML = ser.map(x => `<span><i style="background:${x.color}"></i>${x.name}</span>`).join('');
+    lines($('chDays'), days, ser);
+
+    // stages
+    hbars($('chStages'), data.stages.filter(st => !['done', 'cancelled'].includes(st.id))
+      .map(st => ({ label: st.label, value: open.filter(o => o.stage === st.id).length, click: () => goBoard(() => document.querySelector('.col-h') && document.getElementById('board').scrollIntoView()) }))
+      .filter(r => r.value || r.label !== 'Другой статус'));
+
+    // health
+    const h = k => open.filter(o => o.health === k).length;
+    hbars($('chHealth'), [
+      { label: '🟢 По плану', value: h('ok'), color: C.good },
+      { label: '🟡 Под наблюдением', value: h('risk'), color: C.warning },
+      { label: '🔴 Есть проблема', value: h('late'), color: C.critical, click: () => goBoard(() => { const c = document.querySelector('.chip[data-f="problems"]'); if (c && !filters.has('problems')) c.click(); }) },
+    ]);
+
+    // kinds (fresh only)
+    hbars($('chKinds'), Object.keys(SEVERITY).map(k => ({ label: KIND_LABEL[k], value: freshProb.filter(x => x.kinds.includes(k)).length,
+      click: () => goBoard(() => { alOld = false; alKind = k; alLimit = 10; renderAlerts(); }) })).filter(r => r.value), C.critical);
+
+    // age of open orders
+    const buckets = [['до 1 дня', 0, 1], ['1–3 дня', 1, 3], ['3–7 дней', 3, 7], ['7–14 дней', 7, 14], ['14–30 дней', 14, 30], ['больше 30', 30, 1e9]];
+    hbars($('chAge'), buckets.map(([label, a, b]) => ({ label, value: open.filter(o => { const d = orderAge(o); return d >= a && d < b; }).length })));
+
+    // suppliers with late positions
+    const sup = {};
+    for (const o of open) for (const a of o.alerts || []) if (a.kind === 'supplier_late') {
+      const p = ((o.summary || {}).positions || []).find(p => p.number === a.position);
+      const name = (p && p.supplier) || 'не указан';
+      sup[name] = (sup[name] || 0) + 1;
+    }
+    hbars($('chSuppliers'), Object.entries(sup).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, value]) => ({ label: label.length > 22 ? label.slice(0, 21) + '…' : label, value, tip: `${esc(label)}: <b>${value}</b> поз. с опозданием` })), C.orange);
+
+    // carriers
+    const car = {};
+    open.forEach(o => { const k = CARRIER[(o.summary || {}).carrier] || 'Не указан'; car[k] = (car[k] || 0) + 1; });
+    hbars($('chCarrier'), Object.entries(car).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value })));
   }
 
   function matches(o) {
@@ -267,7 +456,7 @@
     const cols = (data.stages || []).filter(s => s.id !== 'other' || data.orders.some(o => o.stage === 'other'));
     $('board').innerHTML = cols.map(st => {
       const list = data.orders.filter(o => o.stage === st.id && matches(o));
-      return `<div class="col"><div class="col-h">${esc(st.label)} <span>${list.length}</span></div><div class="col-b">${list.slice(0, 150).map(card).join('') || '<div class="c" style="color:var(--text3);padding:6px">—</div>'}</div></div>`;
+      return `<div class="col"><div class="col-h">${esc(st.label)} <span>${list.length}</span></div><div class="col-b">${list.slice(0, colLimit[st.id] || 30).map(card).join('') || '<div class="c" style="color:var(--text3);padding:6px">—</div>'}${list.length > (colLimit[st.id] || 30) ? `<button class="more" data-colmore="${st.id}">Показать ещё (${list.length - (colLimit[st.id] || 30)})</button>` : ''}</div></div>`;
     }).join('');
   }
 
@@ -289,7 +478,11 @@
 
   document.addEventListener('click', async e => {
     const ack = e.target.closest('[data-ack]');
-    if (ack) { ack.disabled = true; try { await api('ack', { id: ack.dataset.ack, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
+    if (ack) { ack.disabled = true; try { for (const id of ack.dataset.ack.split(',')) await api('ack', { id, author }); await load(); if (openNumber) openOrder(openNumber); } catch (err) { alertBox(err); } return; }
+    const ak = e.target.closest('[data-alkind]'); if (ak) { alKind = ak.dataset.alkind || null; alLimit = 10; renderAlerts(); return; }
+    const ao = e.target.closest('[data-alold]'); if (ao) { alOld = ao.dataset.alold === '1'; alKind = null; alLimit = 10; renderAlerts(); return; }
+    if (e.target.closest('[data-almore]')) { alLimit += 20; renderAlerts(); return; }
+    const cm = e.target.closest('[data-colmore]'); if (cm) { colLimit[cm.dataset.colmore] = (colLimit[cm.dataset.colmore] || 30) + 50; renderBoard(); return; }
     const op = e.target.closest('[data-open]');
     if (op) openOrder(op.dataset.open);
   });
