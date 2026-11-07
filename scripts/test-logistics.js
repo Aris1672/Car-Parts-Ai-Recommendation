@@ -259,4 +259,17 @@ t('suspiciously cheap / other brand offers lose and are flagged', () => {
   assert.ok(sc.find(x => x.supplier === 'X').otherBrand);
   assert.strictEqual(sc[0].supplier, 'Наличие БорисХофы');
 });
+t('lever 772: a suspicious offer is never picked while a normal one exists; «no history» named as the reason', () => {
+  const o = sup.normalizeOffers('31108866772', [
+    { number: '31108866772', brand: 'BMW', price: 8600, priceIn: 9182, deliveryPeriod: 48, distributorId: 1 },
+    { number: '31108866772', brand: 'BMW', price: 19400, priceIn: 20983, deliveryPeriod: 24, distributorId: 2 },
+    { number: '31108866772', brand: 'BMW', price: 22200, priceIn: 19300, deliveryPeriod: 24, distributorId: 3 },
+    { number: '31108866772', brand: 'BMW', price: 22000, priceIn: 22000, deliveryPeriod: 0, distributorId: 4 }],
+    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'Наличие БорисХофы'], ['4', 'Наше наличие']]));
+  const stats = [{ supplier: 'ЦС Автодом Сток', judged: 909, onTimeShare: 0.70, positions: 950, refusedShare: 0.01 }];
+  const sc = sup.scoreOffers(o, stats, 1, 'BMW');
+  assert.ok(!sc[0].suspicious, sc[0].supplier);
+  const why = sup.explainPick(sc, { supplier: 'ЦС Автодом Сток', priceIn: 20983 });
+  if (sc[0].supplier === 'ЦС Автодом Сток') assert.ok(why.some(w => w.includes('нет истории доставок') || w.includes('подозрительно')), why.join(' | '));
+});
 console.log(`test-logistics (suppliers): ok`);
