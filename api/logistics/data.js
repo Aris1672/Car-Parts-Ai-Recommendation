@@ -96,7 +96,7 @@ module.exports = async function handler(req, res) {
         const ordered = live.filter(p => !['new', 'payment', 'problem'].includes(stageOfPos(p))).map(p => ({ number: p.number, brand: p.brand, supplier: p.supplier, status: p.status }));
         const out = await Promise.all(pos.map(async p => {
           try {
-            const all0 = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+            const all0 = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1, false, { supplier: p.supplier, supplierId: p.supplierId });
             // the customer chose the order's offer: slower offers can't be the pick (shown last, marked)
             const okList = all0.filter(o => !decisions.slowerThanPromised(p, o));
             const slow = all0.filter(o => decisions.slowerThanPromised(p, o)).map(o => ({ ...o, slower: true, reasons: [`медленнее срока, который выбрал клиент (до ${Math.ceil((p.deadlineMaxHours || p.deadlineHours) / 24)} дн.)`, ...o.reasons] }));
@@ -129,7 +129,7 @@ module.exports = async function handler(req, res) {
           item.sendable ? decisions.orderParamsFor(item.positions.map(p => p.id)) : Promise.resolve({ ok: false, error: 'нет кода склада поставщика — онлайн-отправка невозможна' }),
           Promise.all(item.positions.map(async p => {
             try {
-              const all = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+              const all = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1, false, { supplier: item.supplier, supplierId: item.supplierId });
               // the customer chose the order's offer (price + delivery): only offers not slower than that promise may be picked
               const list = suppliers.preferCurrent(all.filter(o => !decisions.slowerThanPromised(p, o)), { supplier: item.supplier, supplierId: item.supplierId });
               list.fetchedAt = all.fetchedAt;

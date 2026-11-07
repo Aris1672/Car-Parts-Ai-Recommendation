@@ -409,4 +409,20 @@ t('shadow: picks for paid new positions only, once; manager decision when the po
   assert.ok(shadow.sameSupplier('zlataauto.ru [online]', null, 'Zlataauto.ru', null));
   assert.ok(!shadow.sameSupplier('A', '1', 'A', '2'));
 });
+t('VAG 1T0075111: the manager\'s cheap supplier is not «suspicious»; never recommend 90 % dearer', () => {
+  const raw = [
+    { number: '1T0075111', brand: 'VAG', price: 6000, priceIn: 5866, deliveryPeriod: 72, distributorId: 1 },
+    { number: '1T0075111', brand: 'VAG', price: 10400, priceIn: 11144, deliveryPeriod: 96, distributorId: 2 },
+    { number: '1T0075111', brand: 'VAG', price: 10500, priceIn: 11261, deliveryPeriod: 72, distributorId: 3 },
+    { number: '1T0075111', brand: 'VAG', price: 11000, priceIn: 11775, deliveryPeriod: 48, distributorId: 4 }];
+  const names = new Map([['1', 'VAG Brest 26.11.2025'], ['2', 'froza.ru [online]'], ['3', 'adeo.pro [online]'], ['4', 'autoskyimport.ru [online]']]);
+  const cur = { supplier: 'VAG Brest 26.11.2025', supplierId: '1' };
+  const sc = sup.scoreOffers(sup.normalizeOffers('1T0075111', raw, names), [], 1, 'VAG', cur);
+  assert.ok(!sc.find(o => o.supplier.startsWith('VAG Brest')).suspicious);
+  const kept = sup.preferCurrent(sc, cur);
+  assert.strictEqual(kept[0].supplier, 'VAG Brest 26.11.2025');
+  // without the «current» hint (old behaviour) it would be flagged — and even then preferCurrent never jumps to +90 %
+  const sc2 = sup.scoreOffers(sup.normalizeOffers('1T0075111', raw, names), [], 1, 'VAG');
+  assert.ok(sc2.find(o => o.supplier.startsWith('VAG Brest')).suspicious);
+});
 console.log('test-logistics (shadow): ok');
