@@ -177,7 +177,7 @@ t('offers: own number only, scored by price, days, reliability', () => {
   const s = sup.scoreOffers(offers, stats, 1);
   assert.strictEqual(s[0].supplier, 'Stock');                 // a bit dearer, in stock and reliable beats the cheapest flaky one
   assert.ok(s[0].reasons.includes('в наличии'));
-  assert.ok(s.find(o => o.supplier === 'Flaky').reasons.includes('самая низкая закупка'));
+  assert.ok(s.find(o => o.supplier === 'Flaky').reasons[0].startsWith('дешевле выбора агента на'), s.find(o => o.supplier === 'Flaky').reasons[0]);
   assert.ok(s.find(o => o.supplier === 'Flaky').reasons.some(r => r.startsWith('отказы')));
   assert.ok(s.find(o => o.supplier === 'Slow').reasons.includes('мало истории по поставщику'));
 });
@@ -202,7 +202,10 @@ t('offers compared by purchase price (priceIn), not the profile selling price', 
     { number: '11128571308', price: 49500, priceIn: 43000, deliveryPeriod: 24, distributorId: 2 }], new Map([['1', 'froza'], ['2', 'Мезенцев']]));
   assert.strictEqual(o[0].price, 41735); assert.strictEqual(o[0].sale, 38400);
   const sc = sup.scoreOffers(o, [], 1);
-  assert.ok(sc.find(x => x.supplier === 'froza').reasons.includes('самая низкая закупка'));
+  // no history: 1 day for 1 265 ₽ more beats 4 days
+  assert.strictEqual(sc[0].supplier, 'Мезенцев');
+  assert.strictEqual(sc[0].reasons[0], 'выбор агента');
+  assert.ok(sc[1].reasons[0].startsWith('дешевле выбора агента на 1\u00a0265 ₽, но срок до 4 дн.'), sc[1].reasons[0]);
 });
 t('pick explains itself (order 288688455)', () => {
   const o = sup.normalizeOffers('11128571308', [
@@ -218,5 +221,8 @@ t('pick explains itself (order 288688455)', () => {
   assert.strictEqual(why[0], 'дешевле поставщика из заказа на 1\u00a0515 ₽');
   assert.ok(why[1].startsWith('самый дешёвый вариант (trinity-parts.ru [online], 33\u00a0785 ₽) отброшен — опаздывает в 80% случаев'), why[1]);
   assert.ok(why.includes('новый поставщик — истории доставок ещё нет'));
+  const tr = sc.find(x => x.supplier.startsWith('trinity'));
+  assert.ok(tr.reasons[0].startsWith('дешевле выбора агента на 7\u00a0950 ₽, но опаздывает в 80% случаев'), tr.reasons[0]);
+  assert.ok(sc.find(x => x.supplier.startsWith('zlata')).reasons[0].startsWith('дороже выбора агента на 1\u00a0515 ₽ (4%)'));
 });
 console.log(`test-logistics (suppliers): ok`);
