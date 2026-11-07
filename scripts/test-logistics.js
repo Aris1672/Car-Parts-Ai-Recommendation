@@ -353,4 +353,11 @@ t('write client: switching refuses while writing is switched off', async () => {
   delete process.env.LOGISTICS_SEND_ENABLED;
   await assert.rejects(write.switchPositionSupplier(1, 2, { routeId: '1', itemKey: 'k', priceIn: 10 }), /switched off/);
 });
+t('never switch to an offer slower than the delivery the customer chose', () => {
+  const pos = { deadlineMaxHours: 24 };
+  assert.strictEqual(dec.slowerThanPromised(pos, { supplier: 'A', hoursMax: 24 }), null);
+  assert.strictEqual(dec.slowerThanPromised(pos, { supplier: 'A', hoursMax: 0 }), null);
+  assert.ok(dec.slowerThanPromised(pos, { supplier: 'froza', hoursMax: 96 }).includes('клиент выбрал срок до 1 дн.'));
+  assert.strictEqual(dec.slowerThanPromised({}, { supplier: 'A', hoursMax: 96 }), null);
+});
 console.log('test-logistics (decisions): ok');

@@ -90,10 +90,16 @@ module.exports = async function handler(req, res) {
         const pos = (o.summary.positions || []).filter(p => p.number && !['done', 'cancelled'].includes(stages.stageOfStatus(p.status))).slice(0, 6);
         const out = await Promise.all(pos.map(async p => {
           try {
-            const offers = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+            const all0 = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+            // the customer chose the order's offer: slower offers can't be the pick (shown last, marked)
+            const okList = all0.filter(o => !decisions.slowerThanPromised(p, o));
+            const slow = all0.filter(o => decisions.slowerThanPromised(p, o)).map(o => ({ ...o, slower: true, reasons: [`медленнее срока, который выбрал клиент (до ${Math.ceil((p.deadlineMaxHours || p.deadlineHours) / 24)} дн.)`, ...o.reasons] }));
+            const offers = [...okList, ...slow];
+            offers.fetchedAt = all0.fetchedAt;
             const k = suppliers.nameKey(p.supplier);
             const curOffer = offers.find(x => (p.supplierId && x.supplierId === p.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
-            if (offers[0]) offers[0] = { ...offers[0], pickWhy: suppliers.explainPick(offers, { supplier: p.supplier, supplierId: p.supplierId, priceIn: p.priceIn }) };
+            if (okList.length) offers[0] = { ...offers[0], pickWhy: suppliers.explainPick(okList, { supplier: p.supplier, supplierId: p.supplierId, priceIn: p.priceIn }) };
+            else if (offers[0]) offers[0] = { ...offers[0], noPick: true };
             return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, supplierId: p.supplierId, price: p.price, priceIn: p.priceIn, deadlineMaxHours: p.deadlineMaxHours, offer: curOffer }, offers: offers.slice(0, 40), fetchedAt: offers.fetchedAt };
           }
           catch (err) { return { id: p.id, number: p.number, brand: p.brand, error: err.message }; }
@@ -116,11 +122,14 @@ module.exports = async function handler(req, res) {
           item.sendable ? decisions.orderParamsFor(item.positions.map(p => p.id)) : Promise.resolve({ ok: false, error: 'нет кода склада поставщика — онлайн-отправка невозможна' }),
           Promise.all(item.positions.map(async p => {
             try {
-              const list = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+              const all = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+              // the customer chose the order's offer (price + delivery): only offers not slower than that promise may be picked
+              const list = all.filter(o => !decisions.slowerThanPromised(p, o));
+              list.fetchedAt = all.fetchedAt;
               if (list[0]) list[0] = { ...list[0], pickWhy: suppliers.explainPick(list, { supplier: item.supplier, supplierId: item.supplierId, priceIn: p.priceIn }) };
               const k = suppliers.nameKey(item.supplier);
-              const cur = list.find(x => (item.supplierId && x.supplierId === item.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
-              return { id: p.id, pick: list[0] || null, current: cur, count: list.length, fetchedAt: list.fetchedAt };
+              const cur = all.find(x => (item.supplierId && x.supplierId === item.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
+              return { id: p.id, pick: list[0] || null, current: cur, count: list.length, slower: all.length - list.length, promisedDays: p.deadlineMaxHours ? Math.ceil(p.deadlineMaxHours / 24) : null, fetchedAt: list.fetchedAt };
             } catch (err) { return { id: p.id, error: err.message }; }
           })),
         ]);

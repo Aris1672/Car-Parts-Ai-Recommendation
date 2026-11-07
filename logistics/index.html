@@ -368,7 +368,8 @@
         else line = `<span class="warn">Агент предлагает другого поставщика:</span> <b>${esc(pick.supplier)}</b>, закупка ${rub(pick.priceIn || pick.price)} — ${esc((pick.pickWhy || pick.reasons || []).join(' · '))}.
           <div class="actions" style="margin-top:6px"><button class="btn small ${dec.sendEnabled ? 'green' : ''}" data-switch="${esc(key)}" data-pos="${esc(p.id)}" data-sup="${esc(pick.supplier)}" data-supid="${esc(pick.supplierId || '')}" data-pin="${pick.priceIn || pick.price}">${dec.sendEnabled ? `Сменить поставщика на ${esc(pick.supplier)}` : `Проверить смену на ${esc(pick.supplier)} (тест)`}</button></div>
           <span style="color:var(--text2)">Цена клиента не меняется. Или подтвердите текущего (${esc(item.supplier)}${cur ? `, закупка ${rub(cur.priceIn || cur.price)}` : ', его предложения сейчас нет'}).</span><div id="sw-${esc(p.id)}"></div>`;
-        return `<div class="pp"><b>${esc(p.brand || '')} ${esc(p.number)}</b> × ${p.quantity || 1} — ${esc(p.description || '')}<div style="margin-top:4px">${line}</div></div>`;
+        const promise = o.promisedDays ? `<div style="color:var(--text2);font-size:12px;margin-top:4px">Клиент выбрал срок до ${o.promisedDays} дн. — агент рассматривает только предложения не медленнее${o.slower ? ` (отброшено медленных: ${o.slower})` : ''}.</div>` : '';
+        return `<div class="pp"><b>${esc(p.brand || '')} ${esc(p.number)}</b> × ${p.quantity || 1} — ${esc(p.description || '')}<div style="margin-top:4px">${line}</div>${promise}</div>`;
       }).join('');
       let form = '';
       if (!item.sendable) form = '<div class="res bad">У позиции нет кода склада поставщика — ABCP не позволяет отправить её онлайн. Закажите вручную в ABCP.</div>';
@@ -751,14 +752,15 @@
         const best = p.offers[0], cur = p.current || {};
         const curOffer = cur.offer;
         const same = curOffer && curOffer.supplier === best.supplier;
-        const row = (o, i) => `<div class="offer ${i === 0 ? 'best' : ''}">
-            <div>${i === 0 ? '<div class="pick">Агент выбрал бы</div>' : ''}<b>${esc(o.supplier)}</b>${o.qty ? ` · ${o.qty} шт.` : ''}${o.brand ? ` · <span style="color:${o.otherBrand ? 'var(--red2)' : 'var(--text2)'}">${esc(o.brand)}</span>` : ''}${o.trusted ? ' <span class="tag" style="color:var(--green)">✓ доверенный</span>' : ''}${o.suspicious ? ' <span class="k risk">подозрительно дёшево</span>' : ''}</div>
+        const row = (o, i) => `<div class="offer ${i === 0 && !o.noPick ? 'best' : ''}" ${o.slower ? 'style="opacity:.6"' : ''}>
+            <div>${i === 0 && !o.noPick ? '<div class="pick">Агент выбрал бы</div>' : ''}<b>${esc(o.supplier)}</b>${o.qty ? ` · ${o.qty} шт.` : ''}${o.brand ? ` · <span style="color:${o.otherBrand ? 'var(--red2)' : 'var(--text2)'}">${esc(o.brand)}</span>` : ''}${o.trusted ? ' <span class="tag" style="color:var(--green)">✓ доверенный</span>' : ''}${o.suspicious ? ' <span class="k risk">подозрительно дёшево</span>' : ''}</div>
             <div class="pr">${o.priceIn ? `закупка ${rub(o.priceIn)}` : `${rub(o.price)} <span style="color:var(--text3)">(нет закупки)</span>`}${o.sale ? `<div style="color:var(--text2);font-size:11px">продажа «Опт» ${rub(o.sale)}</div>` : ''}</div>
             <div class="why">${esc((i === 0 && o.pickWhy && o.pickWhy.length ? o.pickWhy : o.reasons).join(' · '))}</div></div>`;
         return `<div class="pos"><div class="top"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div>
             <div class="sub" style="margin:0">${cur.supplier ? `в заказе: ${esc(cur.supplier)}` : ''}</div></div>
           ${cur.supplier ? `<div class="sub">${(() => {
             const paid = cur.priceIn || (curOffer && curOffer.priceIn) || null; // what the shop pays now (order's «Цена поставщика»)
+            if (best.noPick) return `Все предложения медленнее срока, который выбрал клиент — агент оставил бы ${esc(cur.supplier)}`;
             if (same) return `✅ Совпадает с выбором менеджера (${esc(cur.supplier)}${paid ? `, закупка ${rub(paid)}` : ''})`;
             const head = `Менеджер выбрал ${esc(cur.supplier)}${paid ? ` (закупка ${rub(paid)})` : ''} — агент предлагает ${esc(best.supplier)}`;
             if (paid && best.priceIn) {
