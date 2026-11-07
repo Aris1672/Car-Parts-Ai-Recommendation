@@ -450,3 +450,25 @@ t('order 280523680: customer pays 5 900 ₽ -> never pick an 11 144 ₽ offer, e
   assert.notStrictEqual(kept2[0].supplier, 'VAG Brest 26.11.2025');
 });
 console.log('test-logistics (shadow): ok');
+
+t('no exact offers -> replacements / analogs listed (requested brand first), never the exact number', async () => {
+  const abcpMod = require('../lib/abcpOrders');
+  const orig = abcpMod.apiGet;
+  abcpMod.apiGet = async (op, params) => {
+    if (op === 'cp/distributors') return [{ id: 1, name: 'ЦС Автодом Сток' }, { id: 2, name: 'autoeuro.ru [online]' }];
+    assert.strictEqual(params.withOutAnalogs, 0);
+    return [
+      { number: '11247516808', brand: 'BMW', price: 0, distributorId: 1 },                                   // exact, no price -> skipped
+      { number: '11 24 7 852 405', numberFix: '11247852405', brand: 'BMW', description: 'Болт', price: 400, priceIn: 330, deliveryPeriod: 24, distributorId: 1 },
+      { number: '11247852405', brand: 'BMW', price: 420, priceIn: 350, deliveryPeriod: 48, distributorId: 2 },
+      { number: '009110', brand: 'FEBI', price: 200, priceIn: 150, deliveryPeriod: 72, distributorId: 2 }];
+  };
+  try {
+    const r = await sup.replacementsFor('11247516808', 'BMW');
+    assert.strictEqual(r[0].brand, 'BMW'); assert.strictEqual(r[0].offers, 2);
+    assert.deepStrictEqual(r[0].cheapest, { supplier: 'ЦС Автодом Сток', priceIn: 330, days: 1 });
+    assert.strictEqual(r[1].brand, 'FEBI');
+    assert.ok(!r.some(x => x.number === '11247516808'));
+  } finally { abcpMod.apiGet = orig; }
+});
+console.log('test-logistics (replacements): ok');

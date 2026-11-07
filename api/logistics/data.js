@@ -138,10 +138,11 @@ module.exports = async function handler(req, res) {
               if (list[0]) list[0] = { ...list[0], pickWhy: suppliers.explainPick(list, { supplier: item.supplier, supplierId: item.supplierId, priceIn: p.priceIn }) };
               const k = suppliers.nameKey(item.supplier);
               const cur = all.find(x => (item.supplierId && x.supplierId === item.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
+              const repl = all.length ? null : await suppliers.replacementsFor(p.number, p.brand || 'BMW').catch(() => null);
               const fastest = all.length ? [...all].sort((a, b) => (a.hoursMax || a.hours || 0) - (b.hoursMax || b.hours || 0))[0] : null;
               return { id: p.id, pick: list[0] || null, current: cur, count: list.length, total: all.length, slower: all.length - list.length,
                 promisedDays: p.deadlineMaxHours ? Math.ceil(p.deadlineMaxHours / 24) : null, promiseExpired: decisions.promiseExpired(p, od),
-                fastest: fastest ? { supplier: fastest.supplier, days: fastest.daysMax, priceIn: fastest.priceIn || fastest.price } : null, fetchedAt: list.fetchedAt };
+                fastest: fastest ? { supplier: fastest.supplier, days: fastest.daysMax, priceIn: fastest.priceIn || fastest.price } : null, replacements: repl, fetchedAt: list.fetchedAt };
             } catch (err) { return { id: p.id, error: err.message }; }
           })),
         ]);
