@@ -425,4 +425,23 @@ t('VAG 1T0075111: the manager\'s cheap supplier is not «suspicious»; never rec
   const sc2 = sup.scoreOffers(sup.normalizeOffers('1T0075111', raw, names), [], 1, 'VAG');
   assert.ok(sc2.find(o => o.supplier.startsWith('VAG Brest')).suspicious);
 });
+t('order 280523680: customer pays 5 900 ₽ -> never pick an 11 144 ₽ offer, even if the current supplier is late', () => {
+  const raw = [
+    { number: '1T0075111', brand: 'VAG', price: 6800, priceIn: 5866, deliveryPeriod: 360, distributorId: 1 },
+    { number: '1T0075111', brand: 'VAG', price: 10400, priceIn: 11144, deliveryPeriod: 96, distributorId: 2 },
+    { number: '1T0075111', brand: 'VAG', price: 10500, priceIn: 11261, deliveryPeriod: 72, distributorId: 3 }];
+  const names = new Map([['1', 'VAG Brest 26.11.2025'], ['2', 'froza.ru [online]'], ['3', 'adeo.pro [online]']]);
+  const cur = { supplier: 'VAG Brest 26.11.2025', supplierId: '1', priceOut: 5900 };
+  const stats = [{ supplier: 'VAG Brest 26.11.2025', judged: 8, onTimeShare: 0.25, positions: 8, refusedShare: 0 }];
+  const sc = sup.scoreOffers(sup.normalizeOffers('1T0075111', raw, names), stats, 1, 'VAG', cur);
+  const kept = sup.preferCurrent(sc, cur);
+  assert.strictEqual(kept[0].supplier, 'VAG Brest 26.11.2025');
+  assert.ok(kept[0].keptForMargin);
+  const why = sup.explainPick(kept, cur);
+  assert.ok(why[0].includes('дороже цены клиента (5\u00a0900 ₽)'), why[0]);
+  assert.ok(why.some(w => w.includes('часто опаздывает')));
+  // with a customer price that covers the dearer offer, a late current supplier may still be replaced
+  const kept2 = sup.preferCurrent(sc, { ...cur, priceOut: 15000 });
+  assert.notStrictEqual(kept2[0].supplier, 'VAG Brest 26.11.2025');
+});
 console.log('test-logistics (shadow): ok');
