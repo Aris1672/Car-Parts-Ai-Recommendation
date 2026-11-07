@@ -294,8 +294,8 @@
 
   // ── «Нужно внимание»: one row per order, grouped by kind, fresh vs old ──
   const FRESH_DAYS = 14;
-  const SEVERITY = { no_stock: 0, not_ordered: 1, supplier_late: 2, not_shipped: 3, delivery_long: 4, silent: 5 };
-  const KIND_LABEL = { no_stock: 'Нет на складе', not_ordered: 'Не заказан', supplier_late: 'Поставщик опаздывает', not_shipped: 'Пришёл, не отправлен', delivery_long: 'Долго в доставке', silent: 'Нет движения' };
+  const SEVERITY = { forgotten: -1, no_stock: 0, not_ordered: 1, supplier_late: 2, not_shipped: 3, delivery_long: 4, silent: 5 };
+  const KIND_LABEL = { forgotten: 'Забытая позиция', no_stock: 'Нет на складе', not_ordered: 'Не заказан', supplier_late: 'Поставщик опаздывает', not_shipped: 'Пришёл, не отправлен', delivery_long: 'Долго в доставке', silent: 'Нет движения' };
   let alKind = null, alOld = false, alLimit = 10, colLimit = {};
   const orderAge = o => { const t = Date.parse(String((o.summary || {}).date || '').replace(' ', 'T') + '+03:00'); return isNaN(t) ? 0 : (Date.now() - t) / 86400000; };
   function problemOrders() {
