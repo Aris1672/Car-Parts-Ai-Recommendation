@@ -109,6 +109,17 @@ t('forgotten position: siblings ordered, this one still «Заказ приня�
   assert.ok(!s.alertsFor(fresh, now, { ...lim, forgottenHours: 4 }, {}).some(x => x.kind === 'forgotten'));
 });
 
+t('unpaid «Заказ принят» -> «Ждём оплату»; no «поставщик опаздывает» before ordering', () => {
+  const o = s.normalizeOrder({ number: 288590108, date: '2026-11-01 20:39:00', sum: 57600, debt: 57600,
+    positions: [{ id: 1, number: '31316874373', status: 'Заказ принят', statusChangeDate: '2026-11-01 20:39:00', deadlineMax: 24 }] });
+  const d = s.describe(o, now, lim, {});
+  assert.strictEqual(d.stage, 'payment');
+  assert.ok(!d.alerts.some(a => a.kind === 'supplier_late'));
+  const paid = s.describe({ ...o, debt: 0 }, now, lim, {});
+  assert.strictEqual(paid.stage, 'new');
+  assert.deepStrictEqual(paid.alerts.map(a => a.kind), ['not_ordered']);
+});
+
 t('describe: health + finished orders have no alerts', () => {
   const late = s.describe(order([{ id: 1, number: 'A1', status: 'Новый' }]), now, lim, {});
   assert.strictEqual(late.health, 'late');
