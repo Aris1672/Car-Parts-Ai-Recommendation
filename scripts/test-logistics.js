@@ -170,4 +170,18 @@ t('offers: own number only, scored by price, days, reliability', () => {
   assert.ok(s.find(o => o.supplier === 'Flaky').reasons.some(r => r.startsWith('отказы')));
   assert.ok(s.find(o => o.supplier === 'Slow').reasons.includes('мало истории по поставщику'));
 });
+t('unreliable cheapest loses; one offer per supplier; names match across [online]', () => {
+  const offers = sup.normalizeOffers('22118835574', [
+    { number: '22118835574', price: 11700, deliveryPeriod: 72, distributorId: 7 },
+    { number: '22118835574', price: 14000, deliveryPeriod: 96, distributorId: 7 },
+    { number: '22118835574', price: 12300, deliveryPeriod: 24, distributorId: 8 },
+  ], new Map([['7', 'trinity-parts.ru [online]'], ['8', 'ЦС Автодом Сток']]));
+  const s2 = sup.scoreOffers(offers, [
+    { supplier: 'trinity-parts.ru [online]', judged: 5, onTimeShare: 0.2, positions: 5, refusedShare: 0 },
+    { supplier: 'ЦС Автодом Сток', judged: 781, onTimeShare: 0.72, positions: 800, refusedShare: 0.01 },
+  ], 1);
+  assert.strictEqual(s2[0].supplier, 'ЦС Автодом Сток');
+  assert.strictEqual(s2.filter(o => o.supplier.startsWith('trinity')).length, 1);
+  assert.strictEqual(sup.nameKey('germsp.ru [online]'), sup.nameKey('GermSP.ru'));
+});
 console.log(`test-logistics (suppliers): ok`);

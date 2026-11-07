@@ -561,7 +561,7 @@
         <div class="sec"><h3>Позиции и история статусов</h3>${pos || '<div class="empty">Нет позиций</div>'}</div>
         <div class="sec"><h3>Варианты поставщиков</h3>
           <div id="offers"><button class="btn small ghost" id="offersBtn">Показать, что выбрал бы агент</button>
-          <div class="hint" style="margin-top:6px">Только просмотр: агент ищет предложения по каждой позиции и выбирает по цене, сроку и надёжности поставщика. Заказ у поставщика по-прежнему делается в ABCP.</div></div>
+          <div class="hint" style="margin-top:6px">Только просмотр: агент ищет предложения по каждой позиции и выбирает по цене, сроку и надёжности поставщика. Цены — из профиля цен ABCP, это ещё не подтверждённая закупочная цена. Заказ у поставщика по-прежнему делается в ABCP.</div></div>
         </div>
         <div class="sec"><h3>Заметки менеджеров</h3>
           ${(order.notes || []).map(n => `<div class="note"><small>${esc(n.author || '')} · ${dt(n.created_at)}</small>${esc(n.text)}</div>`).join('') || '<div class="hint">Пока нет заметок.</div>'}
@@ -591,15 +591,15 @@
         if (p.error) return `<div class="pos"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div><div class="sub">Ошибка поиска: ${esc(p.error)}</div></div>`;
         if (!p.offers.length) return `<div class="pos"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div><div class="sub">Предложений сейчас нет ни у одного поставщика.</div></div>`;
         const best = p.offers[0], cur = p.current || {};
-        const curOffer = p.offers.find(o => o.supplier === cur.supplier);
-        const same = cur.supplier && best.supplier === cur.supplier;
+        const curOffer = cur.offer;
+        const same = curOffer && curOffer.supplier === best.supplier;
         const row = (o, i) => `<div class="offer ${i === 0 ? 'best' : ''}">
             <div>${i === 0 ? '<div class="pick">Агент выбрал бы</div>' : ''}<b>${esc(o.supplier)}</b>${o.qty ? ` · ${o.qty} шт.` : ''}</div>
-            <div class="pr">${rub(o.price)}${o.priceIn ? `<div style="color:var(--text2);font-size:11px">закупка ${rub(o.priceIn)}</div>` : ''}</div>
+            <div class="pr">${rub(o.price)}${o.priceIn ? `<div style="color:var(--text3);font-size:11px" title="Поле priceIn из ABCP — что именно в нём, ещё уточняем">priceIn ${rub(o.priceIn)} (?)</div>` : ''}</div>
             <div class="why">${esc(o.reasons.join(' · '))}</div></div>`;
         return `<div class="pos"><div class="top"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div>
             <div class="sub" style="margin:0">${cur.supplier ? `в заказе: ${esc(cur.supplier)}` : ''}</div></div>
-          ${cur.supplier ? `<div class="sub">${same ? '✅ Совпадает с выбором менеджера' : curOffer ? `Менеджер выбрал ${esc(cur.supplier)} — агент предлагает ${esc(best.supplier)}${best.price < curOffer.price ? `, дешевле на ${rub(curOffer.price - best.price)}` : ''}` : `Поставщика из заказа (${esc(cur.supplier)}) сейчас нет в предложениях`}</div>` : ''}
+          ${cur.supplier ? `<div class="sub">${same ? '✅ Совпадает с выбором менеджера' : curOffer ? `Менеджер выбрал ${esc(cur.supplier)} — агент предлагает ${esc(best.supplier)}${best.price < curOffer.price ? `, дешевле на ${rub(curOffer.price - best.price)}` : ''}` : `Поставщика из заказа (${esc(cur.supplier)}) нет среди предложений, которые видит профиль цен — сравнить нельзя`}</div>` : ''}
           ${p.offers.slice(0, 4).map(row).join('')}
           ${p.offers.length > 4 ? `<div class="sub">ещё ${p.offers.length - 4} предложений</div>` : ''}</div>`;
       }).join('') : '<div class="hint">Нет открытых позиций для подбора.</div>';

@@ -88,7 +88,12 @@ module.exports = async function handler(req, res) {
         if (!o) return res.status(404).json({ error: 'Заказ не найден' });
         const pos = (o.summary.positions || []).filter(p => p.number && !['done', 'cancelled'].includes(stages.stageOfStatus(p.status))).slice(0, 6);
         const out = await Promise.all(pos.map(async p => {
-          try { return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, price: p.price, deadlineMaxHours: p.deadlineMaxHours }, offers: (await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1)).slice(0, 8) }; }
+          try {
+            const offers = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
+            const k = suppliers.nameKey(p.supplier);
+            const curOffer = offers.find(x => (p.supplierId && x.supplierId === p.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
+            return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, supplierId: p.supplierId, price: p.price, priceIn: p.priceIn, deadlineMaxHours: p.deadlineMaxHours, offer: curOffer }, offers: offers.slice(0, 6) };
+          }
           catch (err) { return { id: p.id, number: p.number, brand: p.brand, error: err.message }; }
         }));
         return res.json({ success: true, positions: out });
