@@ -370,12 +370,15 @@
         const pick = o.pick, cur = o.current;
         const same = pick && cur && pick.supplier === cur.supplier;
         let line;
-        if (!pick) line = '<span class="warn">предложений сейчас нет — проверьте вручную</span>';
+        if (!pick && o.total) line = `<span class="warn">Есть ${o.total} предложений, но все медленнее срока, который выбрал клиент (до ${o.promisedDays} дн.).</span>${o.fastest ? ` Самое быстрое: ${esc(o.fastest.supplier)}, до ${o.fastest.days} дн., закупка ${rub(o.fastest.priceIn)} — согласуйте срок с клиентом.` : ''}`;
+        else if (!pick) line = '<span class="warn">ни у одного поставщика сейчас нет предложений — проверьте вручную</span>';
         else if (same) line = `<span class="ok">✓ Агент согласен с поставщиком из заказа</span> — ${esc(item.supplier)}, закупка ${rub(cur.priceIn || cur.price)}${pick.keptForMargin ? `<div class="warn" style="margin-top:4px">${esc((pick.pickWhy || []).join(' · '))}</div>` : pick.keptCurrent ? ` <span style="color:var(--text2)">(другие варианты лучше меньше чем на 5% — менять не стоит)</span>` : ''}${p.priceIn && (cur.priceIn || cur.price) > p.priceIn + 0.5 ? ` <span class="warn">(сейчас дороже, чем в заказе: было ${rub(p.priceIn)})</span>` : ''}`;
         else line = `<span class="warn">Агент предлагает другого поставщика:</span> <b>${esc(pick.supplier)}</b>, закупка ${rub(pick.priceIn || pick.price)} — ${esc((pick.pickWhy || pick.reasons || []).join(' · '))}.
           <div class="actions" style="margin-top:6px"><button class="btn small ${dec.sendEnabled ? 'green' : ''}" data-switch="${esc(key)}" data-pos="${esc(p.id)}" data-sup="${esc(pick.supplier)}" data-supid="${esc(pick.supplierId || '')}" data-pin="${pick.priceIn || pick.price}">${dec.sendEnabled ? `Сменить поставщика на ${esc(pick.supplier)}` : `Проверить смену на ${esc(pick.supplier)} (тест)`}</button></div>
           <span style="color:var(--text2)">Цена клиента не меняется. Или подтвердите текущего (${esc(item.supplier)}${cur ? `, закупка ${rub(cur.priceIn || cur.price)}` : ', его предложения сейчас нет'}).</span><div id="sw-${esc(p.id)}"></div>`;
-        const promise = o.promisedDays ? `<div style="color:var(--text2);font-size:12px;margin-top:4px">Клиент выбрал срок до ${o.promisedDays} дн. — агент рассматривает только предложения не медленнее${o.slower ? ` (отброшено медленных: ${o.slower})` : ''}.</div>` : '';
+        const promise = !o.promisedDays ? '' : o.promiseExpired
+          ? `<div style="color:var(--amber);font-size:12px;margin-top:4px">Клиент выбрал срок до ${o.promisedDays} дн., но он уже прошёл — агент выбирает лучший вариант из доступных сейчас, медленные тоже.</div>`
+          : `<div style="color:var(--text2);font-size:12px;margin-top:4px">Клиент выбрал срок до ${o.promisedDays} дн. — агент рассматривает только предложения не медленнее${o.slower ? ` (отброшено медленных: ${o.slower})` : ''}.</div>`;
         return `<div class="pp"><b>${esc(p.brand || '')} ${esc(p.number)}</b> × ${p.quantity || 1} — ${esc(p.description || '')}<div style="margin-top:4px">${line}</div>${promise}</div>`;
       }).join('');
       let form = '';

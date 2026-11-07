@@ -98,8 +98,9 @@ module.exports = async function handler(req, res) {
           try {
             const all0 = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1, false, { supplier: p.supplier, supplierId: p.supplierId });
             // the customer chose the order's offer: slower offers can't be the pick (shown last, marked)
-            const okList = all0.filter(o => !decisions.slowerThanPromised(p, o));
-            const slow = all0.filter(o => decisions.slowerThanPromised(p, o)).map(o => ({ ...o, slower: true, reasons: [`медленнее срока, который выбрал клиент (до ${Math.ceil((p.deadlineMaxHours || p.deadlineHours) / 24)} дн.)`, ...o.reasons] }));
+            const od = stages.ts(o.summary.date);
+            const okList = all0.filter(x => !decisions.slowerThanPromised(p, x, od));
+            const slow = all0.filter(x => decisions.slowerThanPromised(p, x, od)).map(o => ({ ...o, slower: true, reasons: [`медленнее срока, который выбрал клиент (до ${Math.ceil((p.deadlineMaxHours || p.deadlineHours) / 24)} дн.)`, ...o.reasons] }));
             const kept = suppliers.preferCurrent(okList, { supplier: p.supplier, supplierId: p.supplierId, priceOut: p.price });
             const offers = [...kept, ...slow];
             offers.fetchedAt = all0.fetchedAt;
@@ -131,12 +132,16 @@ module.exports = async function handler(req, res) {
             try {
               const all = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1, false, { supplier: item.supplier, supplierId: item.supplierId });
               // the customer chose the order's offer (price + delivery): only offers not slower than that promise may be picked
-              const list = suppliers.preferCurrent(all.filter(o => !decisions.slowerThanPromised(p, o)), { supplier: item.supplier, supplierId: item.supplierId, priceOut: p.price });
+              const od = stages.ts(item.date);
+              const list = suppliers.preferCurrent(all.filter(o => !decisions.slowerThanPromised(p, o, od)), { supplier: item.supplier, supplierId: item.supplierId, priceOut: p.price });
               list.fetchedAt = all.fetchedAt;
               if (list[0]) list[0] = { ...list[0], pickWhy: suppliers.explainPick(list, { supplier: item.supplier, supplierId: item.supplierId, priceIn: p.priceIn }) };
               const k = suppliers.nameKey(item.supplier);
               const cur = all.find(x => (item.supplierId && x.supplierId === item.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
-              return { id: p.id, pick: list[0] || null, current: cur, count: list.length, slower: all.length - list.length, promisedDays: p.deadlineMaxHours ? Math.ceil(p.deadlineMaxHours / 24) : null, fetchedAt: list.fetchedAt };
+              const fastest = all.length ? [...all].sort((a, b) => (a.hoursMax || a.hours || 0) - (b.hoursMax || b.hours || 0))[0] : null;
+              return { id: p.id, pick: list[0] || null, current: cur, count: list.length, total: all.length, slower: all.length - list.length,
+                promisedDays: p.deadlineMaxHours ? Math.ceil(p.deadlineMaxHours / 24) : null, promiseExpired: decisions.promiseExpired(p, od),
+                fastest: fastest ? { supplier: fastest.supplier, days: fastest.daysMax, priceIn: fastest.priceIn || fastest.price } : null, fetchedAt: list.fetchedAt };
             } catch (err) { return { id: p.id, error: err.message }; }
           })),
         ]);

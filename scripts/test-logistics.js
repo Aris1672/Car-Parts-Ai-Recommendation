@@ -370,6 +370,11 @@ t('never switch to an offer slower than the delivery the customer chose', () => 
   // whole days, as shown: 24 h is not slower than a 20 h promise (both «1 дн.»)
   assert.strictEqual(dec.slowerThanPromised({ deadlineMaxHours: 20 }, { supplier: 'АвтоЕвро', hoursMax: 24 }), null);
   assert.ok(dec.slowerThanPromised({ deadlineMaxHours: 20 }, { supplier: 'X', hoursMax: 30 }));
+  // promise already broken (1-day promise, order 4 days old): slower offers allowed
+  const t0 = Date.parse('2026-11-08T00:00:00Z');
+  assert.strictEqual(dec.slowerThanPromised({ deadlineMaxHours: 24 }, { supplier: 'froza', hoursMax: 96 }, t0 - 4 * 86400000, t0), null);
+  assert.ok(dec.slowerThanPromised({ deadlineMaxHours: 24 }, { supplier: 'froza', hoursMax: 96 }, t0 - 3600000, t0));
+  assert.ok(dec.promiseExpired({ deadlineMaxHours: 24 }, t0 - 4 * 86400000, t0));
 });
 t('order 288688455: 250 ₽ cheaper but 50 % of 8 vs 78 % of 80 -> keep the current supplier', () => {
   const o = sup.normalizeOffers('11128571308', [
