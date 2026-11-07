@@ -288,7 +288,7 @@
       ['green', s.finished_day, 'закрыто за сутки'],
       ...(() => {
         let n = 0, sum = 0;
-        for (const o of open) for (const a of o.alerts || []) if (a.kind === 'loss') { n++; const m = String(a.detail || '').match(/минус (\d+)/); if (m) sum += +m[1]; }
+        for (const o of data.orders.filter(x => !x.finished_at)) for (const a of o.alerts || []) if (a.kind === 'loss') { n++; const m = String(a.detail || '').match(/минус (\d+)/); if (m) sum += +m[1]; }
         return n ? [['red', `−${num(sum)} ₽`, `в минус: ${n} поз. (закупка дороже цены клиента)`]] : [];
       })(),
     ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${v ?? 0}</div><div class="l">${l}</div></div>`).join('');
@@ -417,10 +417,10 @@
       ['green', s.finished_day, 'закрыто за сутки'],
       ...(() => {
         let n = 0, sum = 0;
-        for (const o of open) for (const a of o.alerts || []) if (a.kind === 'loss') { n++; const m = String(a.detail || '').match(/минус (\d+)/); if (m) sum += +m[1]; }
+        for (const o of data.orders.filter(x => !x.finished_at)) for (const a of o.alerts || []) if (a.kind === 'loss') { n++; const m = String(a.detail || '').match(/минус (\d+)/); if (m) sum += +m[1]; }
         return n ? [['red', `−${num(sum)} ₽`, `в минус: ${n} поз. (закупка дороже цены клиента)`]] : [];
       })(),
-    ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${num(v ?? 0)}</div><div class="l">${l}</div></div>`).join('');
+    ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${typeof v === 'string' ? esc(v) : num(v ?? 0)}</div><div class="l">${l}</div></div>`).join('');
 
     // per day, last 30 days (Moscow)
     const day = t => new Date(t + 3 * 3600000).toISOString().slice(0, 10);
