@@ -235,7 +235,7 @@
   const PAY = { paid: ['💳 Оплачен', 'var(--green)'], partial: ['◐ Частично оплачен', 'var(--amber)'], unpaid: ['⏳ Не оплачен', 'var(--amber)'] };
   const payTag = sm => { const [t, c] = PAY[payOf(sm)]; return `<span class="tag" style="color:${c}">${t}</span>`; };
   const rub = n => n ? Number(n).toLocaleString('ru-RU') + ' ₽' : '—';
-  const dt = s => { if (!s) return '—'; const d = new Date(String(s).includes('T') || String(s).endsWith('Z') ? s : String(s).replace(' ', 'T') + '+03:00'); return isNaN(d) ? s : d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+  const dt = s => { if (!s) return '—'; const ru = String(s).match(/^(\d\d)\.(\d\d)\.(\d{4})[ T](\d\d:\d\d)/); if (ru) return `${ru[1]}.${ru[2]}, ${ru[4]}`; const d = new Date(String(s).includes('T') || String(s).endsWith('Z') ? s : String(s).replace(' ', 'T') + '+03:00'); return isNaN(d) ? s : d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
   const ago = s => { const d = new Date(s); if (isNaN(d)) return ''; const m = Math.round((Date.now() - d) / 60000); return m < 60 ? `${m} мин назад` : m < 1440 ? `${Math.round(m / 60)} ч назад` : `${Math.round(m / 1440)} дн. назад`; };
 
   async function api(action, extra = {}) {

@@ -130,6 +130,15 @@ t('history facts: ordered, arrived, refusals', () => {
   assert.strictEqual(sup.historyFacts([{ status: 'Отказ клиента', at: '2026-10-26 05:49:14' }], {}).refused, false);
 });
 
+t('ABCP history dates «DD.MM.YYYY HH:MM:SS», unsorted input', () => {
+  assert.strictEqual(new Date(s.ts('26.10.2026 05:49:14')).toISOString(), '2026-10-26T02:49:14.000Z');
+  const f = sup.historyFacts([
+    { status: 'Пришло в СЕРВИС Химки', at: '27.10.2026 16:59:52' }, { status: 'Заказ принят', at: '26.10.2026 05:49:14' },
+    { status: 'ЗАКАЗАНО СРОЧНЫМ', at: '26.10.2026 20:26:02' }], {});
+  assert.ok(f.arrivedAt > f.orderedAt);
+  assert.strictEqual(Math.round((f.arrivedAt - f.orderedAt) / 3600000), 21);
+});
+
 t('reliability per supplier', () => {
   const row = (supplier, ordered, arrived, promised, refused = false) => ({ supplier, order_date: ordered, ordered_at: ordered, arrived_at: arrived, promised_hours: promised, refused });
   const r = sup.reliability([
