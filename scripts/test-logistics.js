@@ -204,4 +204,19 @@ t('offers compared by purchase price (priceIn), not the profile selling price', 
   const sc = sup.scoreOffers(o, [], 1);
   assert.ok(sc.find(x => x.supplier === 'froza').reasons.includes('самая низкая закупка'));
 });
+t('pick explains itself (order 288688455)', () => {
+  const o = sup.normalizeOffers('11128571308', [
+    { number: '11128571308', price: 31100, priceIn: 33785, deliveryPeriod: 48, distributorId: 1 },
+    { number: '11128571308', price: 38400, priceIn: 41735, deliveryPeriod: 96, distributorId: 2 },
+    { number: '11128571308', price: 51900, priceIn: 43250, deliveryPeriod: 48, distributorId: 3 }],
+    new Map([['1', 'trinity-parts.ru [online]'], ['2', 'froza.ru [online]'], ['3', 'zlataauto.ru [online]']]));
+  const sc = sup.scoreOffers(o, [
+    { supplier: 'trinity-parts.ru [online]', judged: 5, onTimeShare: 0.2, positions: 5, refusedShare: 0 },
+    { supplier: 'zlataauto.ru [online]', judged: 80, onTimeShare: 0.78, positions: 90, refusedShare: 0.12 }], 1);
+  assert.strictEqual(sc[0].supplier, 'froza.ru [online]');
+  const why = sup.explainPick(sc, { supplier: 'zlataauto.ru [online]', priceIn: 43250 });
+  assert.strictEqual(why[0], 'дешевле поставщика из заказа на 1\u00a0515 ₽');
+  assert.ok(why[1].startsWith('самый дешёвый вариант (trinity-parts.ru [online], 33\u00a0785 ₽) отброшен — опаздывает в 80% случаев'), why[1]);
+  assert.ok(why.includes('новый поставщик — истории доставок ещё нет'));
+});
 console.log(`test-logistics (suppliers): ok`);

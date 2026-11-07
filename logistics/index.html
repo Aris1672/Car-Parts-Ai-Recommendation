@@ -596,7 +596,7 @@
         const row = (o, i) => `<div class="offer ${i === 0 ? 'best' : ''}">
             <div>${i === 0 ? '<div class="pick">Агент выбрал бы</div>' : ''}<b>${esc(o.supplier)}</b>${o.qty ? ` · ${o.qty} шт.` : ''}</div>
             <div class="pr">${o.priceIn ? `закупка ${rub(o.priceIn)}` : `${rub(o.price)} <span style="color:var(--text3)">(нет закупки)</span>`}${o.sale ? `<div style="color:var(--text2);font-size:11px">продажа «Опт» ${rub(o.sale)}</div>` : ''}</div>
-            <div class="why">${esc(o.reasons.join(' · '))}</div></div>`;
+            <div class="why">${esc((i === 0 && o.pickWhy && o.pickWhy.length ? o.pickWhy : o.reasons).join(' · '))}</div></div>`;
         return `<div class="pos"><div class="top"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div>
             <div class="sub" style="margin:0">${cur.supplier ? `в заказе: ${esc(cur.supplier)}` : ''}</div></div>
           ${cur.supplier ? `<div class="sub">${(() => {
