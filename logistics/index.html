@@ -329,14 +329,17 @@
   }
   function renderDecisions() {
     if (!dec) return;
-    $('decCnt').textContent = `· ${dec.total}`;
+    { const f = dec.items.filter(i => (i.ageHours ?? 0) <= 14 * 24).length; $('decCnt').textContent = `· ${f} свежих${dec.total - f ? `, ${dec.total - f} старых` : ''}`; }
     $('decMode').textContent = dec.sendEnabled ? 'ОТПРАВКА ВКЛЮЧЕНА' : 'ТЕСТ: ОТПРАВКА ВЫКЛЮЧЕНА';
     $('decMode').style.color = dec.sendEnabled ? 'var(--green)' : 'var(--amber)';
     $('unclear').innerHTML = (dec.unclear || []).length ? `<div class="res bad" style="margin-bottom:8px"><b>Уточнить у поставщика (${dec.unclear.length}):</b> отправка не подтверждена — заказ мог создаться у поставщика. Проверьте на его стороне, агент сам повторно не отправляет.
         ${dec.unclear.map(u => `<div style="margin-top:6px">Заказ ${esc(u.number)} · ${esc(u.supplier || '')} · поз. ${esc(u.position_id)} · ${esc((u.response && u.response.message) || u.status)}
           <button class="btn small ghost" data-unc="${esc(u.position_id)}" data-ord="1">Заказано</button> <button class="btn small ghost" data-unc="${esc(u.position_id)}" data-ord="0">Не заказано — вернуть в очередь</button></div>`).join('')}</div>` : '';
-    const list = dec.items;
-    $('decList').innerHTML = list.length ? list.slice(0, decLimit).map(i => `
+    const FRESH_H = 14 * 24;
+    const byNew = (a, b) => (a.ageHours ?? 1e9) - (b.ageHours ?? 1e9);
+    const fresh = dec.items.filter(i => (i.ageHours ?? 0) <= FRESH_H).sort(byNew);
+    const old = dec.items.filter(i => (i.ageHours ?? 0) > FRESH_H).sort(byNew);
+    const cardOf = i => `
       <div class="dec ${i.forgotten ? 'forgot' : ''}" id="dec-${esc(i.key)}">
         <div class="row1">
           <div class="t" data-open="${esc(i.number)}" style="cursor:pointer">Заказ ${esc(i.number)} · ${esc(i.customer || '—')} <span style="color:var(--text2);font-weight:500">· ${i.ageHours != null ? (i.ageHours < 48 ? i.ageHours + ' ч' : Math.round(i.ageHours / 24) + ' дн.') : ''} · ${esc(i.supplier)}</span>
@@ -345,8 +348,11 @@
         </div>
         <div class="plist">${i.positions.map(p => `${esc(p.brand || '')} ${esc(p.number || '')} × ${p.quantity || 1}${p.priceIn ? ` · закупка ${rub(p.priceIn)}` : ''}`).join(' · ')} · закупка всего ${rub(i.cost)}, клиенту ${rub(i.sum)}</div>
         <div class="prep ${decOpen[i.key] ? '' : 'hidden'}" id="prep-${esc(i.key)}">${decOpen[i.key] || ''}</div>
-      </div>`).join('') + (list.length > decLimit ? `<button class="more" data-decmore="1">Показать ещё (${list.length - decLimit})</button>` : '')
-      : '<div class="empty">✅ Все оплаченные позиции уже заказаны у поставщиков</div>';
+      </div>`;
+    $('decList').innerHTML = (fresh.length ? fresh.slice(0, decLimit).map(cardOf).join('') + (fresh.length > decLimit ? `<button class="more" data-decmore="1">Показать ещё (${fresh.length - decLimit})</button>` : '')
+        : '<div class="empty">✅ Свежих (до 14 дней) неотправленных позиций нет</div>')
+      + (old.length ? `<details style="margin-top:6px"><summary class="sub" style="cursor:pointer;color:var(--text2)">Старые, больше 14 дней: ${old.length} — скорее всего брошенные заказы, проверьте и закройте в ABCP</summary><div class="alerts" style="margin-top:8px">${old.map(cardOf).join('')}</div></details>` : '')
+      ;
   }
 
   async function prepare(key) {

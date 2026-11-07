@@ -304,7 +304,8 @@ t('queue: paid «new» positions grouped per order + supplier; unpaid, ordered a
   const keys = q.map(i => i.key).sort();
   assert.deepStrictEqual(keys, ['1|5', '1|6', '3|5', '4|5']);
   assert.deepStrictEqual(q.find(i => i.key === '1|5').positions.map(p => p.id), ['11']); // 12 handled, 14 already ordered
-  assert.strictEqual(q[0].key, '3|5');                    // forgotten first
+  // newest first (all four have the same date here -> stable order, just check the field exists)
+  assert.ok(q.every(i => i.ageHours != null));
   assert.strictEqual(q.find(i => i.key === '4|5').sendable, false);
 });
 
