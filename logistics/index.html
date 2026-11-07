@@ -750,9 +750,9 @@
   async function loadOffers(number) {
     $('offers').innerHTML = '<div class="hint">Ищу предложения у поставщиков…</div>';
     try {
-      const { positions } = await api('offers', { number });
+      const { positions, ordered } = await api('offers', { number });
       if (openNumber !== number) return;
-      $('offers').innerHTML = positions.length ? positions.map(p => {
+      $('offers').innerHTML = (positions.length ? positions.map(p => {
         if (p.error) return `<div class="pos"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div><div class="sub">Ошибка поиска: ${esc(p.error)}</div></div>`;
         if (!p.offers.length) return `<div class="pos"><div class="nm">${esc(p.brand || '')} ${esc(p.number)}</div><div class="sub">Предложений сейчас нет ни у одного поставщика.</div></div>`;
         const best = p.offers[0], cur = p.current || {};
@@ -778,7 +778,8 @@
           ${p.offers.slice(0, 4).map(row).join('')}
           <div class="sub" style="color:var(--text3)">${p.offers.length} предложений · данные ABCP на ${new Date(p.fetchedAt || Date.now()).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })}</div>
           ${p.offers.length > 4 ? `<details><summary class="sub" style="cursor:pointer">ещё ${p.offers.length - 4} предложений</summary>${p.offers.slice(4).map((o, i) => row(o, i + 4)).join('')}</details>` : ''}</div>`;
-      }).join('') : '<div class="hint">Нет открытых позиций для подбора.</div>';
+      }).join('') : '<div class="hint">Все позиции уже заказаны у поставщиков — подбирать нечего.</div>')
+        + ((ordered || []).length ? `<div class="hint" style="margin-top:6px">Уже заказаны, варианты не нужны: ${ordered.map(x => `${esc(x.brand || '')} ${esc(x.number)} — ${esc(x.supplier || '?')} («${esc(x.status || '')}»)`).join('; ')}</div>` : '');
     } catch (err) { $('offers').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
   }
 

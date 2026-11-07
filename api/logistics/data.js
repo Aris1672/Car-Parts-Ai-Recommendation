@@ -33,6 +33,7 @@ function roleOf(password) {
   return null;
 }
 
+const stageOfPos = p => stages.stageOfStatus(p.status);
 const clean = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n);
 
 async function liveHistory(summary) {
@@ -87,7 +88,11 @@ module.exports = async function handler(req, res) {
         // Supplier offers for every live position of an order, scored (read-only preview of phase 2).
         const o = await store.getOrder(clean(body.number, 20));
         if (!o) return res.status(404).json({ error: 'Заказ не найден' });
-        const pos = (o.summary.positions || []).filter(p => p.number && !['done', 'cancelled'].includes(stages.stageOfStatus(p.status))).slice(0, 6);
+        // 07.11: offers only for positions not ordered yet (the decision card shows the same ones);
+        // positions already with a supplier are listed without offers.
+        const live = (o.summary.positions || []).filter(p => p.number && !['done', 'cancelled'].includes(stages.stageOfStatus(p.status)));
+        const pos = live.filter(p => ['new', 'payment', 'problem'].includes(stageOfPos(p))).slice(0, 6);
+        const ordered = live.filter(p => !['new', 'payment', 'problem'].includes(stageOfPos(p))).map(p => ({ number: p.number, brand: p.brand, supplier: p.supplier, status: p.status }));
         const out = await Promise.all(pos.map(async p => {
           try {
             const all0 = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1);
@@ -105,7 +110,7 @@ module.exports = async function handler(req, res) {
           }
           catch (err) { return { id: p.id, number: p.number, brand: p.brand, error: err.message }; }
         }));
-        return res.json({ success: true, positions: out });
+        return res.json({ success: true, positions: out, ordered });
       }
       case 'suppliers': {
         const days = Math.min(365, Math.max(14, parseInt(body.days, 10) || 120));
