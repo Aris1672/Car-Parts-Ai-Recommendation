@@ -29,7 +29,7 @@ t('status names -> stages', () => {
   assert.strictEqual(s.stageOfStatus('ЗАКАЗАНО СРОЧНЫМ', m), 'supplier');
   assert.strictEqual(s.stageOfStatus('Заказано из Германии', m), 'supplier');
   assert.strictEqual(s.stageOfStatus('В пути на склад', m), 'transit');
-  assert.strictEqual(s.stageOfStatus('ОПЛАЧЕНО', m), 'new');
+  assert.strictEqual(s.stageOfStatus('ОПЛАЧЕНО', m), 'stock'); // after «Пришло в СЕРВИС» (order 286732694)
   assert.strictEqual(s.stageOfStatus('Уточняем наличие в Польше', m), 'new');
   assert.strictEqual(s.stageOfStatus('Отказ клиента', m), 'cancelled');
   assert.strictEqual(s.stageOfStatus('СПАСИБО ЗА ЗАКАЗ!', m), 'other'); // waits for Михаил
