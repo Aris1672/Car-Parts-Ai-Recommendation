@@ -384,3 +384,22 @@ t('order 288688455: 250 ₽ cheaper but 50 % of 8 vs 78 % of 80 -> keep the curr
   if (sc[0].supplier === 'Иван Мезенцев') assert.ok(why2.some(w => w.startsWith('но вовремя 50% (из 8) против 78% (из 80)')), why2.join(' | '));
 });
 console.log('test-logistics (decisions): ok');
+
+// ─── shadow mode (agent vs manager) ───
+const shadow = require('../lib/logistics/shadow');
+t('shadow: picks for paid new positions only, once; manager decision when the position moves on', () => {
+  const d = (number, positions, extra = {}) => ({ number, stage: extra.stage || 'new', payState: extra.payState || 'paid', alerts: extra.alerts || [], positions });
+  const described = [
+    d('1', [{ id: 'a', status: 'Заказ принят' }, { id: 'b', status: 'Заказано' }]),
+    d('2', [{ id: 'c', status: 'Заказ принят' }], { payState: 'unpaid' }),
+    d('3', [{ id: 'e', status: 'Заказ принят' }], { payState: 'unpaid', alerts: [{ kind: 'forgotten' }] }),
+    d('4', [{ id: 'f', status: 'Выдан' }], { stage: 'done' }),
+  ];
+  assert.deepStrictEqual(shadow.toPick(described, new Set()).map(x => x.p.id), ['a', 'e']);
+  assert.deepStrictEqual(shadow.toPick(described, new Set(['a'])).map(x => x.p.id), ['e']);
+  const moved = [d('1', [{ id: 'a', status: 'ЗАКАЗАНО СРОЧНЫМ' }, { id: 'x', status: 'Отказ клиента' }, { id: 'y', status: 'Заказ принят' }])];
+  assert.deepStrictEqual(shadow.toResolve(moved, new Set(['a', 'x', 'y'])).map(x => `${x.p.id}:${x.outcome}`), ['a:ordered', 'x:cancelled']);
+  assert.ok(shadow.sameSupplier('zlataauto.ru [online]', null, 'Zlataauto.ru', null));
+  assert.ok(!shadow.sameSupplier('A', '1', 'A', '2'));
+});
+console.log('test-logistics (shadow): ok');

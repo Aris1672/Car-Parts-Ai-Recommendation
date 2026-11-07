@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Агент vs менеджер — статистика</title>
+<meta name="theme-color" content="#0a0a0f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+  :root {
+    --bg:#0a0a0f; --bg2:#111118; --bg3:#16161f; --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.12);
+    --red:#cc0000; --red2:#ef4444; --green:#22c55e; --amber:#f59e0b; --blue:#3b82f6;
+    --text:#e8e8f0; --text2:#8888a0; --text3:#4a4a60; --font:'Manrope',sans-serif; --mono:'JetBrains Mono',monospace; --r:12px;
+  }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; min-height:100vh; }
+  button { font-family:var(--font); cursor:pointer; }
+  input, select { font-family:var(--font); font-size:14px; color:var(--text); background:var(--bg3); border:1px solid var(--border2); border-radius:8px; padding:8px 10px; }
+  .hidden { display:none !important; }
+  header { position:sticky; top:0; z-index:5; background:rgba(10,10,15,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); padding:12px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .logo { font-weight:800; font-size:16px; }
+  .badge { font-family:var(--mono); font-size:10px; color:var(--text2); border:1px solid var(--border2); border-radius:6px; padding:2px 6px; }
+  header .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  a.lnk { color:var(--text2); text-decoration:none; font-weight:600; font-size:13px; border:1px solid var(--border2); border-radius:8px; padding:7px 11px; }
+  main { padding:18px; max-width:1500px; margin:0 auto; }
+  .intro { color:var(--text2); line-height:1.6; max-width:900px; margin-bottom:16px; font-size:13px; }
+  .intro b { color:var(--text); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-bottom:14px; }
+  .stat { background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:12px 14px; }
+  .stat .v { font-size:24px; font-weight:800; font-family:var(--mono); }
+  .stat .l { color:var(--text2); font-size:12px; margin-top:3px; line-height:1.4; }
+  .stat.green .v { color:var(--green); } .stat.amber .v { color:var(--amber); } .stat.red .v { color:var(--red2); }
+  .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:12px; margin-bottom:14px; }
+  .chart { background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; min-width:0; }
+  .chart.wide { grid-column:1 / -1; }
+  .chart h3 { font-size:13px; font-weight:800; margin-bottom:4px; }
+  .chart .sub { color:var(--text2); font-size:12px; margin-bottom:10px; line-height:1.45; }
+  .chart svg { display:block; width:100%; height:auto; overflow:visible; }
+  .chart svg text { fill:var(--text2); font-family:var(--font); font-size:12px; }
+  .chart svg text.v { fill:var(--text); font-weight:700; }
+  .hb-row { cursor:default; } .hb-row:hover rect.bar { filter:brightness(1.25); }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--text2); margin:0 0 6px; flex-wrap:wrap; }
+  .legend i { display:inline-block; width:12px; height:3px; border-radius:2px; vertical-align:middle; margin-right:6px; }
+  #tip { position:fixed; z-index:30; pointer-events:none; background:#000; border:1px solid var(--border2); border-radius:8px; padding:7px 10px; font-size:12px; color:var(--text); max-width:360px; }
+  table { width:100%; border-collapse:collapse; }
+  td, th { padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; font-size:13px; vertical-align:top; }
+  th { color:var(--text2); font-weight:700; font-size:12px; }
+  td.num { font-family:var(--mono); text-align:right; white-space:nowrap; }
+  .pill { display:inline-block; font-size:11px; font-weight:700; border-radius:5px; padding:2px 7px; }
+  .pill.ok { background:rgba(34,197,94,.13); color:#86efac; } .pill.wait { background:rgba(245,158,11,.13); color:#fcd34d; } .pill.no { background:rgba(239,68,68,.13); color:#fca5a5; }
+  .empty { color:var(--text2); background:var(--bg2); border:1px dashed var(--border2); border-radius:10px; padding:18px; text-align:center; line-height:1.6; }
+  .small { color:var(--text2); font-size:12px; }
+  .filters { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #login { min-height:80vh; display:flex; align-items:center; justify-content:center; }
+  .login-box { background:var(--bg2); border:1px solid var(--border); border-radius:16px; padding:26px; width:340px; display:flex; flex-direction:column; gap:10px; }
+  .btn { background:var(--red); color:#fff; border:0; border-radius:8px; padding:10px 14px; font-weight:700; }
+  .scroll { overflow-x:auto; }
+  @media (max-width:700px) { main { padding:12px; } .charts { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">📊 Агент vs менеджер</div><span class="badge">ТЕНЕВОЙ РЕЖИМ · ТОЛЬКО НАБЛЮДЕНИЕ</span>
+  <div class="right">
+    <div class="filters"><span class="small">Период</span>
+      <select id="days"><option value="14">14 дней</option><option value="30">30 дней</option><option value="60" selected>60 дней</option><option value="120">120 дней</option></select></div>
+    <a class="lnk" href="/logistics">← Логистика</a>
+  </div>
+</header>
+
+<div id="login" class="hidden">
+  <form class="login-box" id="loginForm"><b>Вход</b><input id="lgPass" type="password" placeholder="Пароль логистики"><button class="btn">Войти</button><div class="small" id="lgErr"></div></form>
+</div>
+
+<main id="app" class="hidden">
+  <p class="intro">Менеджеры работают в ABCP как обычно — <b>ничего нажимать не нужно</b>. Когда появляется оплаченная позиция, которую ещё не заказали, агент <b>сразу записывает, какого поставщика выбрал бы он</b> (по тем же правилам, что в «Нужно ваше решение»: срок не хуже выбранного клиентом, надёжность, порог 5% для смены поставщика). Когда менеджер заказывает позицию в ABCP, агент записывает, <b>что выбрал менеджер</b>. Здесь — сравнение. Когда для какой-то группы заказов совпадение стабильно 95%+ на 20+ решениях, эту группу можно переводить на автопилот.</p>
+
+  <div class="stats" id="tiles"></div>
+  <div class="charts">
+    <div class="chart wide"><h3>Решения по дням</h3><div class="sub">Сколько позиций менеджеры заказали за день и сколько из них совпали с выбором агента</div><div class="legend" id="lgDays"></div><div id="chDays"></div></div>
+    <div class="chart"><h3>Совпадение по сумме позиции</h3><div class="sub">Доля решений, где менеджер выбрал того же поставщика, что и агент</div><div id="chPrice"></div></div>
+    <div class="chart"><h3>Совпадение по типу поставщика</h3><div class="sub">Доверенный (БорисХоф…), с историей у магазина (5+ поставок), новый</div><div id="chType"></div></div>
+    <div class="chart"><h3>Совпадение по поставщику менеджера</h3><div class="sub">Поставщики с 5+ решениями</div><div id="chSup"></div></div>
+    <div class="chart"><h3>Когда не совпали — чей выбор дешевле</h3><div class="sub">Разница закупки по позициям, где агент выбрал бы другого поставщика</div><div id="chDiff"></div></div>
+    <div class="chart wide"><h3>Готовность к автопилоту</h3><div class="sub">Группа «сумма × тип поставщика». Зелёным — 20+ решений и совпадение 95%+: такие заказы агент мог бы оформлять сам.</div><div class="scroll" id="ready"></div></div>
+    <div class="chart wide"><h3>Где агент и менеджер разошлись</h3><div class="sub">Последние расхождения: что выбрал менеджер, что предлагал агент и чем закончилось (поставка по истории статусов)</div><div class="scroll" id="diffs"></div></div>
+  </div>
+  <div class="small" id="foot"></div>
+</main>
+<div id="tip" class="hidden"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const st = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  let pass = st.get('lg_pass');
+  const num = n => Number(n || 0).toLocaleString('ru-RU');
+  const rub = n => `${num(Math.round(n))} ₽`;
+  const pct = (a, b) => (b ? Math.round(a / b * 100) : 0);
+  const C = { blue: '#3987e5', orange: '#d95926', good: '#0ca30c', warning: '#fab219', critical: '#d03b3b', grid: 'rgba(255,255,255,.07)', muted: '#4a4a60' };
+  const tip = $('tip');
+  const showTip = (e, h) => { tip.innerHTML = h; tip.classList.remove('hidden'); tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; };
+  const hideTip = () => tip.classList.add('hidden');
+  const nk = s => String(s || '').toLowerCase().replace(/\[online\]/g, '').replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, '');
+
+  async function api(action, extra = {}) {
+    const r = await fetch('/api/logistics/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pass, action, ...extra }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) { showLogin(); throw new Error('Неверный пароль'); }
+    if (!r.ok) throw new Error(j.error || `Ошибка ${r.status}`);
+    return j;
+  }
+  function showLogin() { $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
+  $('loginForm').onsubmit = async e => { e.preventDefault(); pass = $('lgPass').value; try { await load(); st.set('lg_pass', pass); } catch (err) { $('lgErr').textContent = err.message; } };
+  $('days').onchange = () => load().catch(() => {});
+
+  // ── charts ──
+  function hbars(el, rows, opts = {}) {
+    if (!rows.length) { el.innerHTML = '<div class="small">Пока мало данных</div>'; return; }
+    const W = Math.max(280, el.clientWidth || 420), rowH = 28, labW = Math.min(170, W * 0.42);
+    const max = opts.max || Math.max(...rows.map(r => Math.abs(r.value)), 1);
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${rows.length * rowH}">${rows.map((r, i) => {
+      const w = Math.max(2, (W - labW - 70) * Math.abs(r.value) / max), y = i * rowH;
+      return `<g class="hb-row" data-i="${i}"><rect x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent"/>
+        <text x="${labW - 8}" y="${y + 17}" text-anchor="end">${esc(r.label)}</text>
+        <rect class="bar" x="${labW}" y="${y + 6}" width="${w}" height="14" rx="4" fill="${r.color || C.blue}"/>
+        <text class="v" x="${labW + w + 6}" y="${y + 17}">${esc(r.text != null ? r.text : num(r.value))}</text></g>`;
+    }).join('')}</svg>`;
+    el.querySelectorAll('.hb-row').forEach(g => { const r = rows[g.dataset.i]; g.onmousemove = e => showTip(e, r.tip || `${esc(r.label)}: <b>${esc(r.text != null ? r.text : num(r.value))}</b>`); g.onmouseleave = hideTip; });
+  }
+  function lines(el, days, series) {
+    const W = Math.max(300, el.clientWidth || 900), H = 200, L = 36, R = 10, T = 10, B = 24;
+    const max = Math.max(1, ...series.flatMap(s => s.values));
+    const step = Math.max(1, Math.ceil(max / 4));
+    const top = step * 4;
+    const x = i => L + (W - L - R) * i / Math.max(1, days.length - 1), y = v => T + (H - T - B) * (1 - v / top);
+    let g = '';
+    for (let v = 0; v <= top; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="${C.grid}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    const every = Math.ceil(days.length / (W < 600 ? 5 : 10));
+    days.forEach((d, i) => { if (i % every === 0 || i === days.length - 1) g += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${d.slice(8, 10)}.${d.slice(5, 7)}</text>`; });
+    for (const s of series) {
+      g += `<path d="${s.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+      g += `<circle cx="${x(s.values.length - 1)}" cy="${y(s.values[s.values.length - 1])}" r="4" fill="${s.color}" stroke="var(--bg2)" stroke-width="2"/>`;
+    }
+    g += `<line id="xh" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="rgba(255,255,255,.25)" visibility="hidden"/><rect id="hit" x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent"/>`;
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${g}</svg>`;
+    const svg = el.querySelector('svg'), xh = svg.querySelector('#xh');
+    svg.querySelector('#hit').onmousemove = e => {
+      const r = svg.getBoundingClientRect(); const px = (e.clientX - r.left) * W / r.width;
+      const i = Math.max(0, Math.min(days.length - 1, Math.round((px - L) / (W - L - R) * (days.length - 1))));
+      xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.setAttribute('visibility', 'visible');
+      showTip(e, `${days[i].slice(8, 10)}.${days[i].slice(5, 7)}` + series.map(s => `<div><i style="display:inline-block;width:10px;height:3px;background:${s.color};margin-right:6px;vertical-align:middle"></i>${s.name}: <b>${s.values[i]}</b></div>`).join(''));
+    };
+    svg.querySelector('#hit').onmouseleave = () => { hideTip(); xh.setAttribute('visibility', 'hidden'); };
+  }
+
+  // ── data ──
+  let data = null;
+  async function load() {
+    data = await api('shadowStats', { days: $('days').value });
+    $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+    render();
+  }
+  let rzT; addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => data && render(), 150); });
+
+  const priceBand = r => { const v = Number(r.price_out || 0) * (r.quantity || 1); return v < 5000 ? 'до 5 000 ₽' : v < 20000 ? '5–20 тыс. ₽' : v < 50000 ? '20–50 тыс. ₽' : 'от 50 тыс. ₽'; };
+  const BANDS = ['до 5 000 ₽', '5–20 тыс. ₽', '20–50 тыс. ₽', 'от 50 тыс. ₽'];
+
+  function render() {
+    const rows = data.rows || [];
+    const supStats = new Map((data.suppliers || []).map(s => [nk(s.supplier), s]));
+    const typeOf = r => { if (r.agent_trusted) return 'доверенный'; const s = supStats.get(nk(r.mgr_supplier || r.cur_supplier)); return s && s.judged >= 5 ? 'с историей' : 'новый'; };
+    const decided = rows.filter(r => r.outcome === 'ordered' && r.agent_supplier);
+    const match = r => (r.agent_supplier_id && r.mgr_supplier_id ? String(r.agent_supplier_id) === String(r.mgr_supplier_id) : nk(r.agent_supplier) === nk(r.mgr_supplier));
+    const agree = decided.filter(match), differ = decided.filter(r => !match(r));
+    const waiting = rows.filter(r => !r.outcome).length, cancelled = rows.filter(r => r.outcome === 'cancelled').length;
+    const diffRub = r => ((Number(r.mgr_price_in) || 0) - (Number(r.agent_price_in) || 0)) * (r.quantity || 1);
+    const agentCheaper = differ.filter(r => diffRub(r) > 0), agentDearer = differ.filter(r => diffRub(r) < 0);
+    const saved = agentCheaper.reduce((a, r) => a + diffRub(r), 0), extra = -agentDearer.reduce((a, r) => a + diffRub(r), 0);
+    const onTime = r => { if (!r.arrived_at || !r.order_date || !r.promised_hours) return null; return Date.parse(r.arrived_at) <= Date.parse(r.order_date) + (r.promised_hours + 24) * 3600000; };
+    const judged = decided.map(onTime).filter(v => v != null);
+    const rate = decided.length ? pct(agree.length, decided.length) : null;
+
+    $('tiles').innerHTML = [
+      ['', num(rows.length), 'выборов агента записано'],
+      ['', num(decided.length), `менеджер уже заказал (ещё ждут: ${num(waiting)}${cancelled ? `, отменено: ${num(cancelled)}` : ''})`],
+      [rate == null ? '' : rate >= 95 ? 'green' : rate >= 80 ? 'amber' : 'red', rate == null ? '—' : rate + '%', `совпадение: менеджер выбрал того же поставщика (${num(agree.length)} из ${num(decided.length)})`],
+      [saved ? 'green' : '', saved ? '−' + rub(saved) : '0 ₽', `агент купил бы дешевле в ${num(agentCheaper.length)} случаях (по закупке)`],
+      [extra ? 'amber' : '', extra ? '+' + rub(extra) : '0 ₽', `агент выбрал бы дороже в ${num(agentDearer.length)} случаях — ради срока или надёжности`],
+      ['', judged.length ? pct(judged.filter(Boolean).length, judged.length) + '%' : '—', `заказов менеджера пришли вовремя (из ${num(judged.length)} уже доставленных)`],
+    ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+
+    if (!rows.length) {
+      document.querySelectorAll('.chart > div:last-child').forEach(el => { el.innerHTML = '<div class="small">Данные начнут собираться после первой проверки агента (каждые 2 минуты). Первые решения менеджеров появятся, когда они закажут новые позиции в ABCP.</div>'; });
+      $('lgDays').innerHTML = '';
+      $('foot').textContent = '';
+      return;
+    }
+
+    // per day
+    const day = t => { const ms = typeof t === 'number' ? t : Date.parse(t); return new Date((isNaN(ms) ? Date.now() : ms) + 3 * 3600000).toISOString().slice(0, 10); };
+    const n = Number($('days').value);
+    const days = []; for (let i = n - 1; i >= 0; i--) days.push(day(Date.now() - i * 86400000));
+    const idx = Object.fromEntries(days.map((d, i) => [d, i]));
+    const dAll = days.map(() => 0), dOk = days.map(() => 0);
+    for (const r of decided) { const i = idx[day(r.ordered_at || r.picked_at)]; if (i != null) { dAll[i]++; if (match(r)) dOk[i]++; } }
+    const ser = [{ name: 'Заказано менеджером', color: C.blue, values: dAll }, { name: 'Совпало с агентом', color: C.orange, values: dOk }];
+    $('lgDays').innerHTML = ser.map(s => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join('');
+    lines($('chDays'), days, ser);
+
+    const rateRows = (groups, order) => order.filter(k => groups[k]).map(k => {
+      const g = groups[k], p = pct(g.ok, g.n);
+      return { label: k, value: p, text: `${p}% · ${g.n}`, color: g.n < 5 ? C.muted : p >= 95 ? C.good : p >= 80 ? C.warning : C.critical,
+        tip: `${esc(k)}: совпало <b>${g.ok}</b> из ${g.n} (${p}%)${g.n < 5 ? ' — пока мало решений' : ''}` };
+    });
+    const group = (list, keyFn) => { const m = {}; for (const r of list) { const k = keyFn(r); (m[k] = m[k] || { n: 0, ok: 0 }).n++; if (match(r)) m[k].ok++; } return m; };
+    hbars($('chPrice'), rateRows(group(decided, priceBand), BANDS), { max: 100 });
+    hbars($('chType'), rateRows(group(decided, typeOf), ['доверенный', 'с историей', 'новый']), { max: 100 });
+    const bySup = group(decided, r => r.mgr_supplier || '?');
+    hbars($('chSup'), rateRows(bySup, Object.keys(bySup).filter(k => bySup[k].n >= 5).sort((a, b) => bySup[b].n - bySup[a].n).slice(0, 10)), { max: 100 });
+    hbars($('chDiff'), [
+      { label: 'Агент дешевле', value: saved, text: rub(saved) + ` · ${agentCheaper.length}`, color: C.good, tip: `В ${agentCheaper.length} случаях агент купил бы дешевле, всего на <b>${rub(saved)}</b>` },
+      { label: 'Агент дороже', value: extra, text: rub(extra) + ` · ${agentDearer.length}`, color: C.warning, tip: `В ${agentDearer.length} случаях агент выбрал бы дороже (быстрее или надёжнее), всего на <b>${rub(extra)}</b>` },
+      { label: 'Та же цена', value: differ.length - agentCheaper.length - agentDearer.length, text: num(differ.length - agentCheaper.length - agentDearer.length), color: C.blue },
+    ].filter(r => r.value > 0));
+
+    // readiness table: price band × supplier type
+    const seg = {};
+    for (const r of decided) { const k = `${priceBand(r)}|${typeOf(r)}`; (seg[k] = seg[k] || { n: 0, ok: 0, band: priceBand(r), type: typeOf(r) }).n++; if (match(r)) seg[k].ok++; }
+    const segs = Object.values(seg).sort((a, b) => BANDS.indexOf(a.band) - BANDS.indexOf(b.band) || b.n - a.n);
+    $('ready').innerHTML = segs.length ? `<table><tr><th>Сумма позиции</th><th>Поставщик</th><th>Решений</th><th>Совпало</th><th>Вывод</th></tr>${segs.map(g => {
+      const p = pct(g.ok, g.n);
+      const v = g.n >= 20 && p >= 95 ? '<span class="pill ok">готово к автопилоту</span>' : g.n < 20 ? `<span class="pill wait">мало данных (нужно 20+)</span>` : `<span class="pill no">рано — совпадение ниже 95%</span>`;
+      return `<tr><td>${esc(g.band)}</td><td>${esc(g.type)}</td><td class="num">${g.n}</td><td class="num">${p}%</td><td>${v}</td></tr>`;
+    }).join('')}</table>` : '<div class="small">Пока нет решений менеджеров.</div>';
+
+    // disagreements
+    $('diffs').innerHTML = differ.length ? `<table><tr><th>Дата</th><th>Заказ / деталь</th><th>Менеджер</th><th>Агент</th><th>Разница</th><th>Почему агент так выбрал</th><th>Поставка</th></tr>${differ.slice(0, 60).map(r => {
+      const d = diffRub(r), ot = onTime(r);
+      return `<tr><td class="small">${esc(day(r.ordered_at || r.picked_at).slice(8, 10) + '.' + day(r.ordered_at || r.picked_at).slice(5, 7))}</td>
+        <td><a href="/logistics" style="color:var(--text)">${esc(r.number)}</a><div class="small">${esc(r.brand || '')} ${esc(r.article || '')} × ${r.quantity || 1}</div></td>
+        <td>${esc(r.mgr_supplier || '—')}<div class="small">${r.mgr_price_in ? rub(r.mgr_price_in) : ''}</div></td>
+        <td>${esc(r.agent_supplier || '—')}<div class="small">${r.agent_price_in ? rub(r.agent_price_in) : ''}${r.agent_days != null ? ` · до ${r.agent_days} дн.` : ''}</div></td>
+        <td class="num" style="color:${d > 0 ? 'var(--green)' : d < 0 ? 'var(--amber)' : 'inherit'}">${d > 0 ? '−' + rub(d) : d < 0 ? '+' + rub(-d) : '0'}</td>
+        <td class="small">${esc(r.agent_why || '')}</td>
+        <td>${ot == null ? '<span class="small">ещё не пришло</span>' : ot ? '<span class="pill ok">вовремя</span>' : '<span class="pill no">опоздал</span>'}${r.refused ? ' <span class="pill no">отказ</span>' : ''}</td></tr>`;
+    }).join('')}</table>` : '<div class="small">Расхождений пока нет.</div>';
+    $('foot').textContent = `Данные за ${data.days} дн. · «Разница» = закупка менеджера минус закупка агента × количество; зелёным — агент дешевле.`;
+  }
+
+  if (pass) load().catch(err => { console.error(err); if (/пароль/i.test(err.message)) showLogin(); else { $('app').classList.remove('hidden'); $('tiles').innerHTML = `<div class="empty">Ошибка: ${esc(err.message)}</div>`; } }); else showLogin();
+})();
+</script>
+</body>
+</html>

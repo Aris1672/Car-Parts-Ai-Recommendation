@@ -23,6 +23,7 @@ const watch = require('../../lib/logistics/watch');
 const abcp = require('../../lib/abcpOrders');
 const suppliers = require('../../lib/logistics/suppliers');
 const decisions = require('../../lib/logistics/decisions');
+const shadow = require('../../lib/logistics/shadow');
 
 function roleOf(password) {
   const p = String(password || '');
@@ -163,6 +164,11 @@ module.exports = async function handler(req, res) {
       case 'unclearResolve': {
         await decisions.resolveUnclear(clean(body.positionId, 30), clean(body.author, 60) || role, !!body.ordered);
         return res.json({ success: true });
+      }
+      case 'shadowStats': {
+        const days = Math.min(180, Math.max(7, parseInt(body.days, 10) || 60));
+        const [rows, sup] = await Promise.all([shadow.rows(days), suppliers.supplierStats(120).catch(() => [])]);
+        return res.json({ success: true, days, rows, suppliers: sup, margin: Number(process.env.LOGISTICS_SWITCH_MARGIN) || 0.05 });
       }
       case 'statuses': {
         const list = await abcp.apiGet('cp/statuses');

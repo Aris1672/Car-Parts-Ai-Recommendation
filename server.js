@@ -143,6 +143,11 @@ app.use('/dashboard', express.static(path.join(__dirname, 'dashboard')));
 
 // /logistics -> logistics/index.html: managers' workplace of the logistics
 // agent (phase 1: read-only watcher, see lib/logistics/watch.js).
+// /logistics/stats -> «Агент vs менеджер» (shadow mode statistics)
+app.get('/logistics/stats', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'logistics', 'stats.html'));
+});
 app.get('/logistics', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'logistics', 'index.html'));
