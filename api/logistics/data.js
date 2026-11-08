@@ -140,7 +140,10 @@ module.exports = async function handler(req, res) {
               const cur = all.find(x => (item.supplierId && x.supplierId === item.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
               const repl = all.length ? null : await suppliers.replacementsFor(p.number, p.brand || 'BMW').catch(() => null);
               const fastest = all.length ? [...all].sort((a, b) => (a.hoursMax || a.hours || 0) - (b.hoursMax || b.hours || 0))[0] : null;
-              return { id: p.id, pick: list[0] || null, current: cur, count: list.length, total: all.length, slower: all.length - list.length,
+              // 08.11 (RAF FILTER RSTC067BM): the order's supplier has no offer any more and every offer is above the
+              // customer's price -> no switch to recommend; the card asks to agree the price with the customer.
+              const overPrice = !!(list[0] && p.price && (list[0].priceIn || list[0].price) > p.price + 0.5 && !(cur && cur === list[0]));
+              return { id: p.id, pick: list[0] || null, overPrice, customerPrice: p.price || null, current: cur, count: list.length, total: all.length, slower: all.length - list.length,
                 promisedDays: p.deadlineMaxHours ? Math.ceil(p.deadlineMaxHours / 24) : null, promiseExpired: decisions.promiseExpired(p, od),
                 fastest: fastest ? { supplier: fastest.supplier, days: fastest.daysMax, priceIn: fastest.priceIn || fastest.price } : null, replacements: repl, fetchedAt: list.fetchedAt };
             } catch (err) { return { id: p.id, error: err.message }; }
