@@ -245,7 +245,7 @@ t('pick explains itself (order 288688455)', () => {
     { supplier: 'zlataauto.ru [online]', judged: 80, onTimeShare: 0.78, positions: 90, refusedShare: 0.12 }], 1);
   assert.strictEqual(sc[0].supplier, 'froza.ru [online]');
   const why = sup.explainPick(sc, { supplier: 'zlataauto.ru [online]', priceIn: 43250 });
-  assert.strictEqual(why[0], 'дешевле поставщика из заказа на 1\u00a0515 ₽');
+  assert.strictEqual(why[0], 'дешевле текущего предложения zlataauto.ru [online] (43\u00a0250 ₽) на 1\u00a0515 ₽');
   assert.ok(why[1].startsWith('самый дешёвый вариант (trinity-parts.ru [online], 33\u00a0785 ₽) отброшен — опаздывает в 80% случаев'), why[1]);
   assert.ok(why.includes('новый поставщик — истории доставок ещё нет'));
   const tr = sc.find(x => x.supplier.startsWith('trinity'));
@@ -470,5 +470,23 @@ t('no exact offers -> replacements / analogs listed (requested brand first), nev
     assert.strictEqual(r[1].brand, 'FEBI');
     assert.ok(!r.some(x => x.number === '11247516808'));
   } finally { abcpMod.apiGet = orig; }
+});
+t('Gates T36296: compared with the live price of the order\'s supplier; 7 % cheaper is not «suspicious»', () => {
+  const o = sup.normalizeOffers('T36296', [
+    { number: 'T36296', brand: 'Gates', price: 1100, priceIn: 1143, deliveryPeriod: 72, distributorId: 1 },
+    { number: 'T36296', brand: 'Gates', price: 1200, priceIn: 1223, deliveryPeriod: 48, distributorId: 2 },
+    { number: 'T36296', brand: 'Gates', price: 1500, priceIn: 1469, deliveryPeriod: 24, distributorId: 3 },
+    { number: 'T36296', brand: 'Gates', price: 2100, priceIn: 2050, deliveryPeriod: 24, distributorId: 4 },
+    { number: 'T36296', brand: 'Gates', price: 2200, priceIn: 2150, deliveryPeriod: 24, distributorId: 5 }],
+    new Map([['1', 'АктивГрупп Вероника'], ['2', 'froza.ru [online]'], ['3', 'Рольф Химки нал'], ['4', 'Дилер 1'], ['5', 'Дилер 2']]));
+  const cur = { supplier: 'Рольф Химки нал', supplierId: '3', priceIn: 1189 };
+  const sc = sup.scoreOffers(o, [], 1, 'Gates', cur);
+  assert.ok(!sc.find(x => x.supplier === 'АктивГрупп Вероника').suspicious);
+  const best = sc[0];
+  const why = sup.explainPick(sc, cur);
+  if (best.supplier !== 'Рольф Химки нал') {
+    assert.ok(why[0].startsWith('дешевле текущего предложения Рольф Химки нал (1\u00a0469 ₽) на'), why[0]);
+    assert.ok(why.includes('в заказе записана закупка 1\u00a0189 ₽'), why.join(' | '));
+  }
 });
 console.log('test-logistics (replacements): ok');
