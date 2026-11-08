@@ -290,7 +290,7 @@ t('trusted supplier (БорисХофы, every branch) wins lever 771 without ow
   const sc = sup.scoreOffers(o, [{ supplier: 'ЦС Автодом Сток', judged: 909, onTimeShare: 0.70, positions: 950, refusedShare: 0.01 }], 1, 'BMW');
   assert.strictEqual(sc[0].supplier, 'Наличие БорисХофы');
   const why = sup.explainPick(sc, { supplier: 'ЦС Автодом Сток', priceIn: 20983 });
-  assert.ok(why.includes('доверенный поставщик') && why[0].startsWith('дешевле поставщика из заказа на 1'), why.join(' | '));
+  assert.ok(why.includes('доверенный поставщик') && why[0].startsWith('дешевле текущего предложения ЦС Автодом Сток (20\u00a0983 ₽) на 1'), why.join(' | '));
 });
 console.log(`test-logistics (suppliers): ok`);
 
