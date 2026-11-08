@@ -407,8 +407,12 @@ t('shadow: picks for paid new positions only, once; manager decision when the po
     d('3', [{ id: 'e', status: 'Заказ принят' }], { payState: 'unpaid', alerts: [{ kind: 'forgotten' }] }),
     d('4', [{ id: 'f', status: 'Выдан' }], { stage: 'done' }),
   ];
-  assert.deepStrictEqual(shadow.toPick(described, new Set()).map(x => x.p.id), ['a', 'e']);
+  // all four orders are dated 1970 here -> unpaid «c» is old -> skipped; forgotten «e» kept
+  assert.deepStrictEqual(shadow.toPick(described, new Set()).map(x => x.p.id).sort(), ['a', 'e']);
   assert.deepStrictEqual(shadow.toPick(described, new Set(['a'])).map(x => x.p.id), ['e']);
+  // a FRESH unpaid order (today) is recorded too, newest first
+  const today = { ...described[1], date: new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 19).replace('T', ' ') };
+  assert.deepStrictEqual(shadow.toPick([described[0], today], new Set()).map(x => x.p.id), ['c', 'a']);
   const moved = [d('1', [{ id: 'a', status: 'ЗАКАЗАНО СРОЧНЫМ' }, { id: 'x', status: 'Отказ клиента' }, { id: 'y', status: 'Заказ принят' }])];
   assert.deepStrictEqual(shadow.toResolve(moved, new Set(['a', 'x', 'y'])).map(x => `${x.p.id}:${x.outcome}`), ['a:ordered', 'x:cancelled']);
   assert.ok(shadow.sameSupplier('zlataauto.ru [online]', null, 'Zlataauto.ru', null));
