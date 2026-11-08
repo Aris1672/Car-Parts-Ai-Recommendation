@@ -385,7 +385,7 @@
         return `<div class="pp"><b>${esc(p.brand || '')} ${esc(p.number)}</b> × ${p.quantity || 1} — ${esc(p.description || '')}<div style="margin-top:4px">${line}</div>${promise}</div>`;
       }).join('');
       let form = '';
-      if (!item.sendable) form = '<div class="res bad">У позиции нет кода склада поставщика — ABCP не позволяет отправить её онлайн. Закажите вручную в ABCP.</div>';
+      if (!item.sendable) form = `<div class="res bad">Текущего поставщика (${esc(item.supplier)}) нельзя заказать онлайн — у позиции нет кода его склада. Либо закажите вручную в ABCP, либо смените поставщика на онлайн-склад кнопкой выше — после смены позицию можно будет отправить отсюда.</div>`;
       else if (!params.ok) form = `<div class="res bad">ABCP не отдал параметры заказа: ${esc(params.error)}</div>`;
       else {
         const ops = (params.params && params.params.orderParams) || [];
