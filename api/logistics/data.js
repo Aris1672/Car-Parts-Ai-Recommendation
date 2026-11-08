@@ -108,7 +108,14 @@ module.exports = async function handler(req, res) {
             const curOffer = offers.find(x => (p.supplierId && x.supplierId === p.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
             if (kept.length) offers[0] = { ...offers[0], pickWhy: suppliers.explainPick(kept, { supplier: p.supplier, supplierId: p.supplierId, priceIn: p.priceIn }) };
             else if (offers[0]) offers[0] = { ...offers[0], noPick: true };
-            return { id: p.id, number: p.number, brand: p.brand, current: { supplier: p.supplier, supplierId: p.supplierId, price: p.price, priceIn: p.priceIn, deadlineMaxHours: p.deadlineMaxHours, offer: curOffer }, offers: offers.slice(0, 40), fetchedAt: offers.fetchedAt };
+            // 08.11 (order 286730444): same rules as the decision card — no «agent's pick» above the customer's price
+            const pick = kept[0] || null;
+            const pickIsCurrent = !!(pick && ((p.supplierId && pick.supplierId === p.supplierId) || (k && suppliers.nameKey(pick.supplier) === k)));
+            const overPrice = !!(pick && p.price && (pick.priceIn || pick.price) > p.price + 0.5);
+            if (overPrice && !pickIsCurrent) offers[0] = { ...offers[0], noPick: true };
+            const replacements = all0.length ? null : await suppliers.replacementsFor(p.number, p.brand || 'BMW').catch(() => null);
+            return { id: p.id, number: p.number, brand: p.brand, overPrice, pickIsCurrent, customerPrice: p.price || null, replacements,
+              current: { supplier: p.supplier, supplierId: p.supplierId, price: p.price, priceIn: p.priceIn, deadlineMaxHours: p.deadlineMaxHours, offer: curOffer }, offers: offers.slice(0, 40), fetchedAt: offers.fetchedAt };
           }
           catch (err) { return { id: p.id, number: p.number, brand: p.brand, error: err.message }; }
         }));
