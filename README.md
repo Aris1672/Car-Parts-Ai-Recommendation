@@ -39,7 +39,13 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 09.11.2026) — newest: 09.11 block below («🧹 09.11 — fixes from «Диалоги»»); then 06.11, 05.11, 04.11. — read this block first
+## ▶️ RESUME HERE (state 09.11.2026 evening) — newest: 09.11 blocks below («❓ 09.11 — BMW short forms + «Это она?»», «🧹 09.11 — fixes from «Диалоги»»); then 06.11, 05.11, 04.11. — read this block first
+
+**09.11 evening — the vague-request flow, ✅ confirmed live by the owner (230i F22 `WBA2H71010VF78880`, «Датчик температуры»):**
+1. Vague request with name variants → the question is a code rule (`variantQuestion`): one button per catalog name («Датчик температуры испарителя / головки блока цил. / охл.жидкости / масла», «… (без уточнения)», «Все варианты»).
+2. Button pick → `wholeUnitReply`: text «Вот схема узла … отмечена поз. 18 — «…». Если это она — нажмите первую кнопку…», then ONE big picture (`<<<UNIT_DIAGRAM>>>`, chat width ≤ 760 px, ≤ 75% of the chat height, red marker, tap = full image), then buttons: only positions of the same kind (main word, picked first) + «Другая деталь на схеме» (all positions); any typed number works.
+3. Position button / number → that part's diagram card with the live price.
+Precise requests («датчик температуры охлаждающей жидкости», BMW short forms via `CATALOG_ABBREVIATIONS`) get the card directly; an unsure single match gets «Это она?» (Да / Нет, другая позиция → the same whole-unit view). Sensors have their own BMW main-group rule (not 83 fluids). Owner's direction: this is «the right way to go» for parts customers can't name precisely.
 
 **09.11 in short:** `bot-reviews` up to `2026-11-09_1325` handled (#326 T-Map sensor) (✗ 288, 311, 320 fixed in `42c9832`): bare «диск» next to «колесный диск» dropped (`dropGenericKeywords`); brand + digit article («Liqui moly 4087») via ABCP `search/brands` with the named brand (`articleInMessage` returns `{ code, brandHint }`); no «в наличии (1 шт.)» / «менеджер закажет второй» in the text. To retest live: «Liqui moly 4087», Mercedes CLA VIN → «Колесный диск» → «альтернативы?», «Передние тормозные диски BMW 320i F30».
 
