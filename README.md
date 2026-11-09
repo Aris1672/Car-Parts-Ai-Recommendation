@@ -39,7 +39,10 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 07.11.2026 night) — newest: 06.11 blocks below; then 05.11, 04.11. — read this block first
+## ▶️ RESUME HERE (state 09.11.2026) — newest: 09.11 block below («🧹 09.11 — fixes from «Диалоги»»); then 06.11, 05.11, 04.11. — read this block first
+
+**09.11 in short:** `bot-reviews` up to `2026-11-09_1241` handled (✗ 288, 311, 320 fixed in `42c9832`): bare «диск» next to «колесный диск» dropped (`dropGenericKeywords`); brand + digit article («Liqui moly 4087») via ABCP `search/brands` with the named brand (`articleInMessage` returns `{ code, brandHint }`); no «в наличии (1 шт.)» / «менеджер закажет второй» in the text. To retest live: «Liqui moly 4087», Mercedes CLA VIN → «Колесный диск» → «альтернативы?», «Передние тормозные диски BMW 320i F30».
+
 
 **06.11 in short (all on `main`, owner tested live on 230i F22 `WBA2H71010VF78880` and X5 E70 40d `X4XZW61140L560928`, 5-part list «прокладка впускного коллектора, фланец системы охлаждения, масляный фильтр, поддон АКПП с фильтром, свечи» → 5 cards on both cars):**
 - **Names table `HUMAN_NAMES`** (lib/laximo.js) = the owner's «everyday word = BMW catalog name» pairs, one entry each: `housing` (корпус масляного фильтра = «Масляный фильтр»), `seal` (прокладка X = «Уплотнение X»; main noun «коллектор» is the key; no such row → `kitFallback` «Монтажный комплект турбонагнетателя»), `flange` (фланец = «Соединительный патрубок»). **New pair from the owner → one more entry + a test in `scripts/test-cards.js`.**
@@ -47,7 +50,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 - **Lists of parts (2+ keywords):** no AI «вариант 1 / 2» question; a part whose only rows came from a BMW quick group comes back if the AI filter drops them all (`viaGroup`); every found part gets a card even if the AI forgets it (`ensureCardPerKeyword`).
 - **Articles:** «5JA071497N 8Z8» / «5JA 071 497 N 8Z8» → one VAG number.
 - **Thinking mode:** owner asked 06.11 -- not switched on (slow: 20 s+ per step, more cost; errors were code-level). To try: `LLM_ANSWER_THINKING=enabled` in Coolify.
-- **Dialog reviews:** `bot-reviews` files up to `2026-11-06_2239` handled (see `reviews/STATUS.md`). X7 G07 «рычаг» (#232–237) rechecked by the owner: correct.
+- **Dialog reviews:** `bot-reviews` files up to `2026-11-09_1241` handled (09.11) (see `reviews/STATUS.md`). X7 G07 «рычаг» (#232–237) rechecked by the owner: correct.
 - **Open ideas (not asked yet):** one card when a number is superseded («(СМ.31108866771)» in the price list); «рычаг» also finds «тяга»; task 4 -- cards built by code, the AI writes only 1–3 sentences (the lasting fix for answer text that contradicts the cards).
 
 **Where we are:** everything below is on `main` and deployed (owner redeploys in Coolify by hand). Done 03.11: tyres/rims/wheels from the catalogue (confirmed live), external code review + TASK ORDER, task 1 (repo root no longer served, old secrets removed), task 2 (one normaliser `lib/normalize.js` + `npm test`, confirmed live), Laximo direct API **access confirmed from our server** (`scripts/check-laximo-api.js`), **VIN search too**: `--vin X4XZW61140L560928` → `BMW X5 40dX (catalog BMW202601, vehicleid 2050271679)` (one car from the quota). Use this VIN for the `--dump` run (already counted, so no new car).
