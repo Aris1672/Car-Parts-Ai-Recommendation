@@ -25,3 +25,7 @@
 | 267, 268, 269 | 2026-11-06_2239 | «5JA071497N 8Z8» → «не нашёл артикул 5JA071497N» | screenshot: VAG 5JA071497N8Z8 21 700 ₽ | ✅ fixed | `b56f5fe` spaced VAG number / suffix joined |
 | 270, 271 | 2026-11-06_2239 | ✓ (X5 E70: kit 11652456238 shown for the gasket) | — | ok | — |
 | 232–237 | 2026-11-06_2239 | X7 G07 30dX, «Рычаг» → generation / model / axle / side questions → 4 front-left arms | owner rechecked 06.11: correct (#236 ✗ withdrawn) | ok | — (open ideas: one card for a superseded number «см. …»; «рычаг» incl. «тяга») |
+| 320 | 2026-11-09_1241 | Mercedes CLA, «А какие есть алтернативы?» → brake / CD / DVD discs with the wheel rim | — | ✅ fixed | `42c9832` bare «диск» next to «колесный диск» dropped |
+| 311 | 2026-11-09_1241 | «Liqui moly 4087» → empty «Вот что нашлось» | «LiquiMoly Очист.кондиционера Klima Anlagen Rein. (0,25л)» | ✅ fixed | `42c9832` brand + digit number → ABCP search/brands, named brand |
+| 288 | 2026-11-09_1241 | «в наличии (1 шт.)», «менеджер закажет второй» | «the product page has several offers» | ✅ fixed | `42c9832` prompt: no stock quantity, quantity set in the cart; also bare «диск» dropped |
+| 272–319 (except 288, 311) | 2026-11-09_1241 | ✓ / test turns | — | ok | — |
