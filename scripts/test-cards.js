@@ -198,3 +198,14 @@ console.log('test-cards: all ok');
   a.deepStrictEqual(m['масляный фильтр'], ['фильтр'], 'no abbreviation -> unchanged');
   console.log('test-cards: catalog abbreviations ok');
 }
+{
+  const kw = 'датчик температуры охлаждающей жидкости';
+  a.ok(chat.rowMatchesRequest(kw, 'Датчик температуры охл.жидкости / масла'), 'short form matches');
+  a.ok(!chat.rowMatchesRequest(kw, 'Датчик температуры головки блока цил.'));
+  a.ok(chat.sameKindOtherVariant(kw, 'Датчик температуры головки блока цил.'), 'same kind, other variant -> ask');
+  a.ok(!chat.sameKindOtherVariant('передние колодки', 'Ремкомплект накладок'), 'synonym -> no question');
+  a.ok(!chat.sameKindOtherVariant('глушитель', 'Глушитель задний'), 'one word -> no question');
+  const st = chat.confirmStateOf([{ role: 'assistant', content: 'Это она?\n<<<CONFIRM_STATE>>>\n{"oem":"13628649765","schema":{"vid":"1"}}\n<<<END_CONFIRM_STATE>>>' }, { role: 'user', content: 'Да, это она' }]);
+  a.strictEqual(st.oem, '13628649765');
+  console.log('test-cards: «Это она?» rules ok');
+}

@@ -1733,6 +1733,119 @@ function sanitizeContactPhone(extracted) {
   }
 }
 
+// ─── «ЭТО ОНА?» — UNSURE MATCH → DIAGRAM QUESTION (owner 09.11) ──────────────
+// When the found catalog row's name doesn't contain every main word of the request
+// («датчик температуры охлаждающей жидкости» → «Датчик температуры головки блока
+// цил.»), the bot doesn't guess: it shows that row's diagram card with the marker and
+// asks «Это она?» [Да, это она] [Нет, другая позиция]. «Нет» → the whole unit
+// diagram + one button per position; a position number → that part's card.
+// State travels in the reply (<<<CONFIRM_STATE>>>, hidden by the widget, kept in history).
+const CONFIRM_YES = 'Да, это она';
+const CONFIRM_NO = 'Нет, другая позиция';
+const CONFIRM_STOP = new Set(['для', 'bmw', 'бмв', 'передн', 'задн', 'левый', 'правый', 'левая', 'правая', 'левое', 'правое', 'комплект', 'оригинал', 'новый', 'нужен', 'нужна']);
+/** Main word stems of a request (BMW short forms applied). Pure. */
+function requestStems(kw) {
+  return laximo.catalogShortForm(String(kw || '').toLowerCase().replace(/ё/g, 'е'))
+    .split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3)
+    .map(w => w.slice(0, Math.min(5, Math.max(3, w.length - 2))))
+    .filter(w => ![...CONFIRM_STOP].some(x => w.startsWith(x.slice(0, 4))));
+}
+/** Does the row name contain every main word of the request? Pure. */
+function rowMatchesRequest(kw, name) {
+  const n = String(name || '').toLowerCase().replace(/ё/g, 'е');
+  const st = requestStems(kw);
+  return st.length > 0 && st.every(x => n.includes(x));
+}
+/**
+ * Same kind of part, different variant: the main noun (first word) matches but a
+ * qualifier doesn't («датчик температуры охлаждающей жидкости» vs «Датчик
+ * температуры головки блока цил.»). Plain synonyms («колодки» vs «накладки»,
+ * «стойка» vs «амортизатор») don't count -- the catalog search handles those. Pure.
+ */
+function sameKindOtherVariant(kw, name) {
+  const n = String(name || '').toLowerCase().replace(/ё/g, 'е');
+  const st = requestStems(kw);
+  return st.length >= 2 && n.includes(st[0]) && !st.every(x => n.includes(x));
+}
+function confirmStateOf(messages) {
+  const last = [...(messages || [])].reverse().find(m => m.role === 'assistant');
+  const m = last && String(last.content || '').match(/<<<CONFIRM_STATE>>>([\s\S]*?)<<<END_CONFIRM_STATE>>>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1].trim()); } catch (e) { return null; }
+}
+const confirmBlock = st => `\n<<<CONFIRM_STATE>>>\n${JSON.stringify(st)}\n<<<END_CONFIRM_STATE>>>`;
+async function confirmCards(entries, st) {
+  const live = await abcpPrices.livePrices(entries.map(e => e.oem), 'BMW', 6).catch(() => ({}));
+  return entries.map(e => diagramCardFor({ oem: e.oem, name: e.name, position: e.position, unit: st.unit, schema: st.schema }, live[laximo.normalizeOem(e.oem)], st.car));
+}
+async function confirmQuestionIfUnsure(laximoResult, extracted, messages) {
+  const kws = (extracted.partKeywords || []).filter(Boolean);
+  if (kws.length !== 1 || !laximoResult.vehicle || laximoResult.clarify || laximoResult.needsChoice) return null;
+  if (confirmStateOf(messages)) return null; // just answered one -- no second question in a row
+  const parts = (laximoResult.parts || []).filter(p => p && p.oem && !p.crossSell);
+  if (!parts.length || parts.some(p => p.fixedName || rowMatchesRequest(kws[0], p.name))) return null;
+  const cand = parts.find(p => p.schema && p.schema.vid && sameKindOtherVariant(kws[0], p.name));
+  if (!cand) return null;
+  const v = laximoResult.vehicle;
+  const car = `${v.brand || 'BMW'} ${v.name || ''}${v.options && v.options['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim();
+  const st = { oem: laximo.normalizeOem(cand.oem), name: cand.name, position: cand.position || null, unit: cand.unit || (cand.schema && cand.schema.unit) || null,
+    schema: { number: cand.schema.number || cand.oem, catalog: cand.schema.catalog, vid: cand.schema.vid, ssd: cand.schema.ssd, ...(cand.schema.unit ? { unit: cand.schema.unit } : {}) },
+    car, ask: kws[0] };
+  const [card] = await confirmCards([{ oem: cand.oem, name: cand.name, position: st.position }], st);
+  console.log(`[confirm] «${kws[0]}» ≠ «${cand.name}» (${st.oem}, ${st.unit || '?'}) -- asking «Это она?»`);
+  return `Точного совпадения с «${kws[0]}» в каталоге нет. Похоже, это «${cand.name}»${st.unit ? ` из узла «${st.unit}»` : ''} — на схеме в карточке она отмечена. Это она?`
+    + `\n<<<PRODUCTS>>>\n${JSON.stringify([card])}\n<<<END_PRODUCTS>>>`
+    + `\n<<<BUTTONS>>>\n${JSON.stringify([CONFIRM_YES, CONFIRM_NO])}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+}
+async function confirmFollowUp(messages) {
+  const st = confirmStateOf(messages);
+  if (!st || !st.schema) return null;
+  const u = String(lastUserMessage(messages) || '').trim();
+  if (/^да\b|^это\s+она|^она\b|^верно|^подходит/i.test(u)) {
+    const cards = await confirmCards([{ oem: st.oem, name: st.name, position: st.position }], st);
+    console.log(`[confirm] yes: ${st.oem}`);
+    return `Отлично — «${st.name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
+      + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+  }
+  let rows = Array.isArray(st.positions) ? st.positions : null;
+  const loadRows = async () => {
+    if (rows) return rows;
+    const d = await laximo.getPartDiagram({ oem: st.oem, schema: st.schema }).catch(() => null);
+    st.image = d && d.image || st.image || null;
+    const seen = new Set();
+    rows = ((d && d.unitParts) || []).filter(r => r && r.oem && r.position).map(r => ({ position: String(r.position), oem: laximo.normalizeOem(r.oem), name: r.name || '' }))
+      .filter(r => { const k = `${r.position}|${r.oem}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    st.positions = rows;
+    return rows;
+  };
+  const posButtons = rs => [...new Map(rs.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+  const num = u.match(/^(?:поз\S*\s*)?(\d{1,3})\b/i);
+  if (/^нет\b|^друг|^не\s+она|^не\s+то/i.test(u) && !num) {
+    const rs = await loadRows();
+    if (!rs.length) { console.log('[confirm] no: unit rows not available -- normal path'); return null; }
+    console.log(`[confirm] no: whole unit «${st.unit}», ${rs.length} row(s)`);
+    const whole = { article: '', name: st.unit || 'Схема узла', brand: 'BMW', category: 'схема узла', compatibility: st.car, price: 0, stock: 0, url: null, picture: null, best_for: '',
+      diagram: { image: st.image || null, whole: true, unit: st.unit || null } };
+    return `Вот вся схема узла${st.unit ? ` «${st.unit}»` : ''}. Нажмите номер нужной позиции ниже или напишите его числом.`
+      + (st.image ? `\n<<<PRODUCTS>>>\n${JSON.stringify([whole])}\n<<<END_PRODUCTS>>>` : '')
+      + `\n<<<BUTTONS>>>\n${JSON.stringify(posButtons(rs))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+  }
+  if (num) {
+    const rs = await loadRows();
+    const hit = rs.filter(r => r.position === String(Number(num[1])) || r.position === num[1]);
+    if (!hit.length) {
+      if (!rs.length) return null;
+      return `На схеме нет позиции ${num[1]}. Выберите номер из списка ниже.`
+        + `\n<<<BUTTONS>>>\n${JSON.stringify(posButtons(rs))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+    }
+    const cards = await confirmCards(hit, st);
+    console.log(`[confirm] position ${num[1]}: ${hit.map(h => h.oem).join(', ')}`);
+    return `Позиция ${num[1]} — «${hit[0].name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
+      + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+  }
+  return null; // something else -- normal path
+}
+
 // ─── ANY ARTICLE (ABCP site search) ─────────────────────────────────────────
 // One code with letters and digits (6–20 chars, dashes/spaces ignored), not a
 // VIN, not a pure-digit number (BMW 11-digit numbers, order numbers, phones have
@@ -3284,6 +3397,16 @@ console.log(JSON.stringify(extracted, null, 2));
       return res.status(200).json({ reply });
     }
 
+    // «Это она?» follow-ups (owner 09.11): «Да» / «Нет, другая позиция» / a position number.
+    {
+      const reply = await confirmFollowUp(messages);
+      if (reply) {
+        Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).json({ reply });
+      }
+    }
+
     // A non-BMW article typed alone («CS010502PN», Диалоги ✗ 06.11): the site's
     // own search (ABCP) -> brand, name, cheapest offer. BMW / MINI numbers keep
     // their catalog path below.
@@ -3443,6 +3566,15 @@ console.log(JSON.stringify(extracted, null, 2));
       Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
       res.setHeader('Content-Type', 'application/json');
       return res.status(200).json({ reply, ...(catalogOutcome ? { catalog: catalogOutcome } : {}) });
+    }
+    // Unsure catalog match (owner 09.11): the diagram with the marked part + «Это она?».
+    if (laximoResult && !workshopTopic && !compat && !isServiceRequest(messages, extracted)) {
+      const reply = await confirmQuestionIfUnsure(laximoResult, extracted, messages).catch(err => { console.error('[confirm] failed:', err.message); return null; });
+      if (reply) {
+        Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).json({ reply, ...(catalogOutcome ? { catalog: catalogOutcome } : {}) });
+      }
     }
     let vinVehicleForPrompt = 'Нет данных (клиент не назвал VIN).';
     const laximoDownReason = !LAXIMO_ENABLED ? 'disabled' : await laximo.unavailableReason().catch(() => null);
@@ -4344,6 +4476,9 @@ module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
 module.exports.kitItemAsked = kitItemAsked;
 module.exports.articleInMessage = articleInMessage;
+module.exports.rowMatchesRequest = rowMatchesRequest;
+module.exports.sameKindOtherVariant = sameKindOtherVariant;
+module.exports.confirmStateOf = confirmStateOf;
 module.exports.dropGenericKeywords = dropGenericKeywords;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;

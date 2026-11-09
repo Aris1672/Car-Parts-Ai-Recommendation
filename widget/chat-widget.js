@@ -2666,6 +2666,7 @@
           : Number(p.days) > 0 ? `<span style="color:#1a8f3c">Срок ~${Number(p.days)} дн.</span>`
           : '<span style="color:#c00">Под заказ</span>';
 
+      const unitOnly = p.category === 'схема узла'; // «Нет, другая позиция» (09.11): the whole unit picture, no price
       card.innerHTML = `
         ${isDiagram ? diagramCardHtml(p.diagram)
           : p.picture
@@ -2678,7 +2679,7 @@
           <div class="pc-product-meta">${escHtml(p.brand || '')}${p.category ? ' · ' + escHtml(p.category) : ''}</div>
           ${p.compatibility ? `<div class="pc-product-meta">Подходит: ${escHtml(p.compatibility)}</div>` : ''}
           <div class="pc-product-price">${priceNum > 0 ? (isDiagram && p.priceFrom ? 'от ' : '') + priceNum.toLocaleString('ru-RU') + ' ₽' : ''}</div>
-          <div class="pc-product-stock">${stockLabel}</div>
+          <div class="pc-product-stock">${unitOnly ? 'Нажмите на схему, чтобы увеличить' : stockLabel}</div>
           ${p.best_for ? `<div class="pc-product-bestfor">${escHtml(p.best_for)}</div>` : ''}
         </div>
         ${p.url ? `<a class="pc-product-link" href="${escHtml(p.url)}" target="_blank" rel="noopener">Подробнее →</a>` : ''}
@@ -2787,6 +2788,8 @@
       text = text.replace(/<<<PRODUCTS>>>[\s\S]*?<<<END_PRODUCTS>>>/, '').trim();
     }
 
+    // «Это она?» state (09.11): server data for the next turn -- hidden, kept in the history.
+    text = text.replace(/<<<CONFIRM_STATE>>>[\s\S]*?<<<END_CONFIRM_STATE>>>/g, '').trim();
     const btnMatch = text.match(/<<<BUTTONS>>>([\s\S]*?)<<<END_BUTTONS>>>/);
     if (btnMatch) {
       try { buttons = JSON.parse(btnMatch[1].trim()); } catch(e) {}
