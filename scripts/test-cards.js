@@ -219,8 +219,22 @@ console.log('test-cards: all ok');
   const rows = ['Датчик температуры', 'Датчик температуры', 'Датчик температуры', 'Датчик температуры испарителя', 'Датчик температуры головки блока цил.', 'Датчик температуры охл.жидкости / масла', 'Датчик давления масла'].map(name => ({ name }));
   const q = chat.variantQuestion(rows, ['датчик температуры'], 'Датчик температуры VIN: WBA2H71010VF78880');
   a.ok(q && q.options.length === 4, JSON.stringify(q));
-  a.deepStrictEqual(q.options[3].rows, [1, 2, 3]);
+  a.deepStrictEqual(q.options.find(o => /без уточнения/.test(o.label)).rows, [1, 2, 3]);
   a.strictEqual(chat.variantQuestion(rows, ['датчик температуры'], 'Датчик температуры головки блока цил.'), null, 'picked qualifier -> no question');
   a.strictEqual(chat.variantQuestion(rows, ['датчик температуры', 'головка'], 'x'), null, 'two parts');
   console.log('test-cards: variant question ok');
+}
+{
+  const sv = [{ name: 'Серводвигатель' }, { name: 'Жгут проводов серводвигателя Valvetronic' }];
+  const q = chat.variantQuestion(sv, ['серводвигатель'], 'Серводвигатель VIN: WBA2H71010VF78880');
+  a.ok(q && q.options.length === 2 && q.options[0].label === 'Серводвигатель', JSON.stringify(q));
+  a.strictEqual(chat.variantQuestion(sv, ['серводвигатель'], 'жгут серводвигателя'), null, 'customer named «жгут»');
+  const L = require('../lib/laximo.js');
+  a.ok(L.groupsForKeyword('серводвигатель').includes('11'));
+  console.log('test-cards: servomotor variants ok');
+}
+{
+  const sv = [{ name: 'Серводвигатель' }, { name: 'Жгут проводов серводвигателя Valvetronic' }];
+  a.strictEqual(chat.variantQuestion(sv, ['серводвигатель'], 'Серводвигатель VIN: WBA2H71010VF78880 | Серводвигатель'), null, 'tapped plain option');
+  console.log('test-cards: tapped option ok');
 }

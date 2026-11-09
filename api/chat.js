@@ -1214,25 +1214,35 @@ function distinctPartNames(parts) {
     .replace(/ (л|п|лев[а-яё]*|прав[а-яё]*)(?= )/g, ' ')
     .replace(/\s+/g, ' ').trim()).filter(Boolean)).size;
 }
-/** Pure: { question, options } when the rows are variants of one asked name, else null. */
+/**
+ * Pure: { question, options } when the rows are variants of one asked name, else null.
+ * Variants = different catalog names that all contain the request's words: «Датчик
+ * температуры испарителя / головки блока цил. / …» (09.11), «Серводвигатель» + «Жгут
+ * проводов серводвигателя Valvetronic» (09.11, 230i). Asked when there are 2–8 such
+ * names and the customer named none of the extra words; more than 8 -> the AI filter.
+ */
 function variantQuestion(rows, keywords, customerText) {
   const kws = (keywords || []).filter(Boolean);
   if (kws.length !== 1) return null;
   const low = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
   const kw = low(kws[0]);
-  if (kw.split(' ').length < 2) return null; // «датчик» alone: too broad for name variants
+  const kwStems = kw.split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3).map(w => w.slice(0, Math.max(4, Math.min(7, w.length - 2))));
+  if (!kwStems.length) return null;
   const said = low(customerText);
-  const groups = new Map(); // name -> row numbers
-  rows.forEach((p, i) => { const n = low(p.name); if (n.startsWith(kw)) { if (!groups.has(n)) groups.set(n, []); groups.get(n).push(i + 1); } });
-  const qualified = [...groups.keys()].filter(n => n.length > kw.length + 2);
-  if (groups.size < 2 || !qualified.length) return null;
-  // The customer already named a qualifier («…охлаждающей жидкости», a picked button) -> no question.
-  const stems = n => n.slice(kw.length).split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3).map(w => w.slice(0, 4));
-  if (qualified.some(n => stems(n).some(st => said.includes(st)))) return null;
+  const groups = new Map(); // catalog name -> row numbers
+  rows.forEach((p, i) => { const n = low(p.name); if (kwStems.every(st => n.includes(st))) { if (!groups.has(n)) groups.set(n, []); groups.get(n).push(i + 1); } });
+  if (groups.size < 2 || groups.size > 8) return null;
+  // Extra words of a name (not the request's own words); the customer named one -> precise, no question.
+  const extra = n => n.split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3 && !kwStems.some(st => w.startsWith(st.slice(0, 4)))).map(w => w.slice(0, 4));
+  if ([...groups.keys()].some(n => extra(n).some(st => said.includes(st)))) return null;
+  // A tapped option is an answer: the plain name «Серводвигатель» has no extra words.
+  const saidParts = said.split(' | ').map(x => x.replace(/\s*\(без уточнения\)\s*$/, '').trim());
+  if (saidParts.some(x => groups.has(x))) return null;
   const cap = n => n.charAt(0).toUpperCase() + n.slice(1);
-  const options = [...groups.entries()].filter(([n]) => qualified.includes(n)).slice(0, 6).map(([n, r]) => ({ label: cap(n).slice(0, 60), rows: r }));
-  const plain = groups.get(kw);
-  if (plain) options.push({ label: `${cap(kw)} (без уточнения)`, rows: plain });
+  const plainName = n => !extra(n).length;
+  const options = [...groups.entries()]
+    .sort((a, b) => (plainName(b[0]) - plainName(a[0])) || a[0].length - b[0].length)
+    .map(([n, r]) => ({ label: (plainName(n) && kw.split(' ').length > 1 ? `${cap(n)} (без уточнения)` : cap(n)).slice(0, 60), rows: r }));
   return { question: `Какой ${kw} нужен?`, options };
 }
 
