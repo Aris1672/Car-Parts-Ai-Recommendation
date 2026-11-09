@@ -238,3 +238,14 @@ console.log('test-cards: all ok');
   a.strictEqual(chat.variantQuestion(sv, ['серводвигатель'], 'Серводвигатель VIN: WBA2H71010VF78880 | Серводвигатель'), null, 'tapped plain option');
   console.log('test-cards: tapped option ok');
 }
+{
+  const L = require('../lib/laximo.js');
+  a.ok(L.namedLikeRequest('датчик температуры охлаждающей жидкости', { name: 'Датчик температуры охл.жидкости / масла' }));
+  a.ok(L.namedLikeRequest('серводвигатель', { name: 'Серводвигатель' }));
+  a.ok(!L.namedLikeRequest('колодки', { name: 'Ремкомплект накладок' }));
+  a.ok(!L.namedLikeRequest('датчик температуры охлаждающей жидкости', { name: 'Датчик температуры головки блока цил.' }));
+  const g = L.resolveGroups({ 'датчик температуры охлаждающей жидкости': ['17', '83'] }, ['датчик температуры охлаждающей жидкости']);
+  const set = g['датчик температуры охлаждающей жидкости'];
+  a.ok(set.has('13') && set.has('17') && set.has('83'), 'fixed rule + AI groups together');
+  console.log('test-cards: soft group check ok');
+}
