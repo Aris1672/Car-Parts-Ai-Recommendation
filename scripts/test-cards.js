@@ -49,19 +49,19 @@ console.log('test-cards: all ok');
 }
 {
   const f = chat.articleInMessage;
-  a.strictEqual(f('CS010502PN'), 'CS010502PN');
-  a.strictEqual(f('CS-010502-PN'), 'CS010502PN');
-  a.strictEqual(f('есть артикул CS010502PN?'), 'CS010502PN');
+  a.strictEqual(f('CS010502PN').code, 'CS010502PN');
+  a.strictEqual(f('CS-010502-PN').code, 'CS010502PN');
+  a.strictEqual(f('есть артикул CS010502PN?').code, 'CS010502PN');
   a.strictEqual(f('WBS11CS0609158489', { vin: 'WBS11CS0609158489' }), null, 'VIN');
   a.strictEqual(f('WBS11CS0609158489'), null, 'VIN without extraction');
   a.strictEqual(f('11427826799'), null, 'BMW number keeps its path');
   a.strictEqual(f('288183838'), null, 'order number');
   a.strictEqual(f('X5 G05 40i'), null);
   a.strictEqual(f('Колодки BMW X5 G05 M50dX'), null, 'model codes are not articles');
-  a.strictEqual(f('5JA071497N 8Z8'), '5JA071497N8Z8', 'VAG colour suffix (Диалоги #267)');
-  a.strictEqual(f('5JA 071 497 N 8Z8'), '5JA071497N8Z8');
-  a.strictEqual(f('5JA071497N8Z8'), '5JA071497N8Z8');
-  a.strictEqual(f('5JA071497N 2 шт'), '5JA071497N', 'a quantity is not a suffix');
+  a.strictEqual((f('5JA071497N 8Z8') || {}).code, '5JA071497N8Z8', 'VAG colour suffix (Диалоги #267)');
+  a.strictEqual((f('5JA 071 497 N 8Z8') || {}).code, '5JA071497N8Z8');
+  a.strictEqual((f('5JA071497N8Z8') || {}).code, '5JA071497N8Z8');
+  a.strictEqual((f('5JA071497N 2 шт') || {}).code, '5JA071497N', 'a quantity is not a suffix');
   a.strictEqual(f('BMW X5 E70 2010'), null);
   console.log('test-cards: article detection ok');
 }
@@ -163,4 +163,18 @@ console.log('test-cards: all ok');
   const b = L.applyHumanNames([{ oem: '11627617523', name: 'Уплотнение выпускного коллектора', query: kw }, { oem: '11652456238', name: 'Монтажный комплект турбонагнетателя', query: kw }], [kw]);
   a.deepStrictEqual(b.map(r => r.oem), ['11627617523']);
   console.log('test-cards: gasket in the turbo mounting kit ok');
+}
+{
+  const f = chat.articleInMessage;
+  a.deepStrictEqual(f('Liqui moly 4087'), { code: '4087', brandHint: 'Liqui moly' });
+  a.strictEqual(f('4087'), null, 'digits alone: no brand');
+  a.strictEqual(f('заказ 266736654', { orderStatusQuestion: true }), null);
+  a.strictEqual(f('BMW 11427826799'), null, '11-digit BMW number keeps its path');
+  const e = { partKeywords: ['колесный диск', 'диск'], partSearchNames: { 'колесный диск': ['диск'], 'диск': ['диск'] } };
+  chat.dropGenericKeywords(e); a.deepStrictEqual(e.partKeywords, ['колесный диск']);
+  const e2 = { partKeywords: ['передние тормозные диски', 'диск'] };
+  chat.dropGenericKeywords(e2); a.deepStrictEqual(e2.partKeywords, ['передние тормозные диски']);
+  const e3 = { partKeywords: ['масляный фильтр', 'воздушный фильтр'] };
+  chat.dropGenericKeywords(e3); a.strictEqual(e3.partKeywords.length, 2, 'two real parts stay');
+  console.log('test-cards: brand+number, generic keywords ok');
 }

@@ -181,6 +181,8 @@ const SYSTEM_PROMPT = `Ты — профессиональный ИИ-консу
 **Этап 2 — если пользователь НЕ знает допуск производителя:**
 В текущей версии агента общий (запасной) подбор по типу топлива/наддуву/пробегу ещё не реализован. Если пользователь не знает допуск — вежливо объясни, что для точного подбора масла нужен допуск производителя (можно посмотреть в руководстве по эксплуатации или на крышке маслозаливной горловины), и предложи связаться с менеджером для помощи с подбором, используя сценарий ЭСКАЛАЦИИ (см. ниже). НЕ угадывай подходящее масло по типу топлива/наддуву самостоятельно — это будет добавлено отдельно.
 
+**Наличие — без количества (Диалоги ✗ 09.11):** НЕ пиши «в наличии (1 шт.)», «осталось N шт.» — в данных одно предложение из прайса, а на странице товара обычно несколько предложений с разными ценами и сроками. Пиши «есть в наличии» / «под заказ» и «все предложения — на странице товара». Если нужно 2 шт. (пара дисков, колодки на ось) — клиент сам укажет количество в корзине; НЕ пиши «менеджер закажет второй».
+
 **Не пиши «менеджер уточнит сроки / наличие / цену»** (06.11), когда есть карточки или «Открыть деталь»: цена, наличие и сроки уже видны в карточке и на странице товара.
 
 **Корпус масляного фильтра (06.11):** в каталоге BMW «Масляный фильтр» в узле «…теплообменник» (поз. 1) — это КОРПУС в сборе с теплообменником, а то, что люди называют «масляный фильтр», — «К-т сменного элемента масляного фильтра». Если клиент просил корпус, в данных он уже назван «Корпус масляного фильтра в сборе с теплообменником»: так и объясни одной фразой (дорогой узел, меняется при неисправности, а не на ТО). Если просил «масляный фильтр» — это сменный элемент.
@@ -1638,6 +1640,26 @@ const QUALIFIER_FAMILIES = [
   [/^задн/, /зад/], [/^передн/, /перед/], [/^лев/, /лев/], [/^прав/, /прав/],
   [/^верхн/, /верх/], [/^нижн/, /низ|нижн/], [/^впуск/, /впуск|всас/], [/^выпуск/, /выпуск|выхлоп/],
 ];
+/**
+ * A bare keyword that is only the last word of a longer keyword («диск» next to
+ * «колесный диск» / «передние тормозные диски») is dropped: searched on its own it
+ * brings every «диск» of the car (brake, CD, DVD…). Mutates `extracted`. Pure otherwise.
+ */
+function dropGenericKeywords(extracted) {
+  const kws = Array.isArray(extracted && extracted.partKeywords) ? extracted.partKeywords : null;
+  if (!kws || kws.length < 2) return extracted;
+  const stem = w => String(w || '').toLowerCase().replace(/ё/g, 'е').trim().replace(/(и|ы|а|я|ов|ей|ам|ах|ой|ий|ый|ая|ое|ие|ые)$/, '');
+  const words = k => String(k || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const drop = kws.filter(k => words(k).length === 1 &&
+    kws.some(o => o !== k && words(o).length > 1 && words(o).some(w => stem(w) === stem(k))));
+  if (!drop.length) return extracted;
+  extracted.partKeywords = kws.filter(k => !drop.includes(k));
+  if (extracted.partSearchNames) drop.forEach(k => { delete extracted.partSearchNames[k]; });
+  if (extracted.partGroups) drop.forEach(k => { delete extracted.partGroups[k]; });
+  console.log(`[extract] generic keyword(s) ${drop.map(k => `«${k}»`).join(', ')} dropped -- part of ${extracted.partKeywords.map(k => `«${k}»`).join(', ')}`);
+  return extracted;
+}
+
 function dropInventedQualifiers(extracted, messages) {
   if (!extracted || !Array.isArray(extracted.partKeywords)) return;
   const said = (messages || []).filter(m => m && m.role === 'user')
@@ -1720,7 +1742,7 @@ function articleInMessage(text, extracted) {
   // VAG numbers written with spaces («5JA 071 497 N 8Z8», «5JA071497N 8Z8»; Диалоги ✗ 06.11
   // #267: only «5JA071497N» was searched and not found -- the article is 5JA071497N8Z8).
   const vag = t.toUpperCase().match(/^\s*([0-9A-Z]{3})[\s.-]?(\d{3})[\s.-]?(\d{3})(?:[\s.-]?([A-Z]{1,2}))?(?:[\s.-]?([0-9A-Z]{3}))?\s*$/);
-  if (vag && /[A-Z]/.test(vag.slice(1).join(''))) return vag.slice(1).filter(Boolean).join('');
+  if (vag && /[A-Z]/.test(vag.slice(1).join(''))) return { code: vag.slice(1).filter(Boolean).join(''), brandHint: null };
   const raw = t.split(/[\s,;]+/).map(x => x.replace(/[^A-Za-z0-9-]/g, '')).filter(Boolean).map(x => x.toUpperCase().replace(/-/g, ''));
   // A short suffix right after a code (colour / version: «8Z8», «GRU», «041») belongs to it.
   const joined = [];
@@ -1731,14 +1753,23 @@ function articleInMessage(text, extracted) {
   }
   const tokens = joined.filter(isCode);
   const vin = String((extracted && extracted.vin) || '').toUpperCase();
+  if (!tokens.length) {
+    // «Liqui moly 4087» (Диалоги ✗ 09.11): brand words + a digit-only number (4–14 digits).
+    if (extracted && (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true' || extracted.vin)) return null;
+    const nums = t.split(/[\s,;]+/).map(x => x.replace(/[^0-9-]/g, '').replace(/-/g, '')).filter(x => x.length >= 4 && x.length <= 14 && x.length !== 11 && !/^(19|20)\d{2}$/.test(x)); // not a year
+    const rest = t.replace(/[0-9-]+/g, ' ').replace(/[^A-Za-zА-Яа-яЁё ]/g, ' ').trim();
+    if (/\b(bmw|бмв|mini|мини)\b/i.test(rest)) return null; // car words, not a parts brand
+    if (nums.length === 1 && /[A-Za-z]{3,}/.test(rest) && rest.split(/\s+/).length <= 4) return { code: nums[0], brandHint: rest };
+    return null;
+  }
   const cand = tokens.filter(x => x !== vin && !(x.length === 17 && /^[A-HJ-NPR-Z0-9]{17}$/.test(x) && /^[A-Z]{3}/.test(x) && /^(WBA|WBS|WBY|WMW|X4X|X4M|WBX|LBV|5UX|4US|5YM|WMZ|SAJ|WAU|WDD|WDB|WVW)/.test(x)));
   if (cand.length !== 1) return null;
   if (t.replace(/[\s-]/g, '').length > 40 && !/артикул|номер|код/i.test(t)) return null;
-  return cand[0];
+  return { code: cand[0], brandHint: null };
 }
 
 /** Reply with one card for a non-BMW article, or null (BMW/MINI number, ABCP off). */
-async function articleLookupReply(code, carBrand, codeOnly = true) {
+async function articleLookupReply(code, carBrand, codeOnly = true, brandHint = null) {
   if (!abcpOrders.enabled()) return null;
   let list;
   try {
@@ -1747,6 +1778,12 @@ async function articleLookupReply(code, carBrand, codeOnly = true) {
     list = (Array.isArray(res) ? res : Object.values(res || {})).filter(x => x && x.brand);
   } catch (err) {
     if (err.abcpCode == 301) list = []; else { console.error('[article] search/brands failed:', err.message); return null; }
+  }
+  if (brandHint) {
+    // Only the brand the customer named; none of them -> not an article of that brand, normal path.
+    const hint = BRAND_KEY(brandHint);
+    list = list.filter(x => { const b = BRAND_KEY(x.brand); return b.length >= 3 && (hint.includes(b) || b.includes(hint)); });
+    if (!list.length) { console.log(`[article] ${code}: no brand «${brandHint}» at the suppliers -- normal path`); return null; }
   }
   if (list.some(x => /^(bmw|mini)$/i.test(String(x.brand).trim()))) return null; // original number: catalog path
   if (!list.length) {
@@ -3187,6 +3224,7 @@ async function handleChat(req, res) {
     extracted.contactEmail = typedContacts.email;
     sanitizeContactPhone(extracted);
     dropInventedQualifiers(extracted, messages); // «Глушитель» must not become «задний глушитель» (live 28.10)
+    dropGenericKeywords(extracted); // «колесный диск» + «диск» -> brake / CD discs (Диалоги ✗ 09.11)
     // Keys / coding = workshop services: no catalog work at all (see workshopServiceTopic).
     const workshopTopic = extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true' ? null : workshopServiceTopic(messages);
     if (workshopTopic) {
@@ -3238,11 +3276,12 @@ console.log(JSON.stringify(extracted, null, 2));
     // own search (ABCP) -> brand, name, cheapest offer. BMW / MINI numbers keep
     // their catalog path below.
     {
-      const art = articleInMessage(lastUserMessage(messages), extracted);
+      const found = articleInMessage(lastUserMessage(messages), extracted);
+      const art = found && found.code, brandHint = found && found.brandHint;
       if (art) {
         progress.step(`Ищу артикул ${art} у поставщиков…`);
-        const codeOnly = String(lastUserMessage(messages) || '').replace(/[^A-Za-zА-Яа-яЁё0-9]/g, '').length <= art.length + 8;
-        const reply = await articleLookupReply(art, (extracted.brand || '').toUpperCase(), codeOnly);
+        const codeOnly = !brandHint && String(lastUserMessage(messages) || '').replace(/[^A-Za-zА-Яа-яЁё0-9]/g, '').length <= art.length + 8;
+        const reply = await articleLookupReply(art, (extracted.brand || '').toUpperCase(), codeOnly, brandHint);
         if (reply) {
           Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
           res.setHeader('Content-Type', 'application/json');
@@ -4293,6 +4332,7 @@ module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
 module.exports.kitItemAsked = kitItemAsked;
 module.exports.articleInMessage = articleInMessage;
+module.exports.dropGenericKeywords = dropGenericKeywords;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;
 module.exports.ensureCardPerKeyword = ensureCardPerKeyword;
