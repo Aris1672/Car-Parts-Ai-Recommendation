@@ -1141,6 +1141,8 @@ const PART_FILTER_TIMEOUT_MS = Number(process.env.PART_FILTER_TIMEOUT_MS || 3000
 const CLARIFY_LEAD = 'Уточните, какая именно деталь нужна';
 const CLARIFY_ALL = 'Все варианты';
 const AXLE_LEAD = 'Для какой оси подобрать';
+// Pads and discs: bought per axle -- the axle is always asked when the customer named none.
+const BRAKE_AXLE_KW = /колод|наклад|тормозн\S*\s+диск|диск\S*\s+тормоз|^диск[и]?$/i;
 // Equipment question (30.10): the catalog's own option that decides between
 // parts, e.g. «Спортивные тормоза M (S2NHA)» -- asked with Есть / Нет / Не знаю.
 const EQUIP_LEAD = 'По оригинальному каталогу BMW подбор зависит от комплектации';
@@ -1532,6 +1534,22 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       if (!askedBefore) {
         result.clarify = { question: eqQ.label, options: [{ label: 'Есть', rows: [] }, { label: 'Нет', rows: [] }], lead: EQUIP_LEAD, allLabel: EQUIP_UNKNOWN };
         console.log(`[laximo] equipment question: ${eqQ.label}`);
+      }
+    }
+    // Pads / discs with no axle named (owner 09.11: «any car has a front and a rear axle»):
+    // ask «Передние / Задние» first, whatever the catalog group listed -- for the 225xe the
+    // pads group had only the rear set, so the axle question never came (#423-#429).
+    if (!result?.clarify && plainPartSearch && result?.parts?.length) {
+      const kws = extracted.partKeywords || [];
+      const lastA = String((([...(messages || [])].reverse().find(m => m.role === 'assistant')) || {}).content || '');
+      const recentUser = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').slice(-3).map(m => m.content).join(' | ');
+      const axleSaid = /(^|[^а-яё])(передн|задн|перед|зад)/i.test(`${kws.join(', ')} | ${recentUser}`);
+      if (kws.some(k => BRAKE_AXLE_KW.test(k)) && !axleSaid && ![CLARIFY_LEAD, AXLE_LEAD, SIDE_LEAD].some(l => lastA.includes(l))) {
+        const rows = result.parts;
+        const idx = pred => rows.map((p, i) => (pred(p) ? i + 1 : 0)).filter(Boolean);
+        result.clarify = { question: `${AXLE_LEAD} ${axleQuestionParts(kws)}`, lead: AXLE_LEAD, allLabel: AXLE_BOTH, options: [
+          { label: 'Передние', rows: idx(p => p.axle !== 'задняя ось') }, { label: 'Задние', rows: idx(p => p.axle !== 'передняя ось') }] };
+        console.log(`[laximo] brake axle question (fixed rule) "${kws.join(', ')}"`);
       }
     }
     if (!result?.clarify && plainPartSearch && result?.parts?.length && (result.broad || distinctPartNames(result.parts) >= 2 || (result.parts.some(p => sideOf(p) === 'L') && result.parts.some(p => sideOf(p) === 'R')) || sideAnswerFrom(messages) || (lastAssistantText.includes(VARIANT_LEAD) && sameNameVersions(result.parts)))) {
@@ -2672,7 +2690,24 @@ const STALL_RE = /(сейчас|минут|секунд|момент)\S*\s+(пр
 
 const MANAGER_DETAILS_RE = /менеджер\S*[^.!?\n]{0,40}(уточн|подтверд|сообщ|подскаж|расскаж|проверит)\S*[^.!?\n]{0,40}(срок|налич|цен|стоимост|достав)|(срок|налич|цен|стоимост|достав)\S*[^.!?\n]{0,40}(уточн|подтверд|сообщ|подскаж)\S*[^.!?\n]{0,30}менеджер/i;
 /** Drops sentences «менеджер уточнит сроки / наличие / цену» from the prose (not from blocks). Pure. */
+// «снят с производства — менеджер подберёт актуальную замену» under a card (Диалоги 09.11
+// #421, #423, #427, #429): the card says it is discontinued and the catalog's replacement
+// is a card of its own -- the clause goes, the «снят с производства» part stays.
+const MANAGER_REPLACEMENT_RE = new RegExp([
+  String.raw`\s*[(,;—–-]?\s*(?:а\s+|но\s+)?менеджер\S*\s+(?:подбер|подскаж|уточн|найд|предлож)\S*\s+(?:[^.!?()\n]{0,30}?)(?:замен|аналог|номер)[^.!?()\n]*\)?`,
+  String.raw`\s*[(,;—–-]?\s*(?:а\s+|но\s+)?(?:актуальн|точн|нов)\S*\s+(?:замен|аналог|номер)\S*\s+(?:подскаж|подбер|уточн)\S*\s+менеджер\S*\)?`,
+].join('|'), 'gi');
+function dropManagerReplacementClause(text) {
+  let n = 0;
+  const out = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>)/).map((part, i) => i % 2 ? part
+    : part.replace(MANAGER_REPLACEMENT_RE, () => { n++; return ''; }).replace(/\(\s*\)/g, '').replace(/\s+([.,;!?])/g, '$1').replace(/([,;—–-])\s*\./g, '.').replace(/[ \t]{2,}/g, ' ')
+      .split('\n').map(l => { const d = (l.match(/\(/g) || []).length - (l.match(/\)/g) || []).length; return d > 0 ? l.replace(/([.!?]?)\s*$/, ')'.repeat(d) + '$1') : l; }).join('\n')).join('');
+  if (n) console.log(`[chat] ${n} «менеджер подберёт замену» clause(s) removed`);
+  return n ? out : text;
+}
+
 function dropManagerDetailsLine(text) {
+  text = dropManagerReplacementClause(text);
   let n = 0;
   const out = String(text || '').split(/(<<<[A-Z_]+>>>[\s\S]*?<<<END_[A-Z_]+>>>|<<<MANAGER_BUTTON>>>|<<<CONTACT_FORM>>>)/).map((part, i) => i % 2 ? part
     : part.split('\n').map(line => line.split(/(?<=[.!?…])\s+/).filter(x => { const hit = MANAGER_DETAILS_RE.test(x); if (hit) n++; return !hit; }).join(' ')).join('\n').replace(/\n{3,}/g, '\n\n')).join('');
@@ -4584,6 +4619,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // 25.10 showed 3 cards for a ~10-item service set). Max 12 cards.
     if (kitCards && kitCards.length) {
       text = mergeServiceCards(text, kitCards);
+      text = dropManagerReplacementClause(text); // «а менеджер подскажет новый номер» (Диалоги 09.11 #408, #414)
       // Every position is a card with a price (or the manager is named on the card
       // itself): «… подберёт / закажет менеджер» sentences are wrong here (live 30.10).
       const MGR_RE = /(подбер|закаж|уточн)\S*[^.!?\n]{0,30}менеджер|менеджер[^.!?\n]{0,30}(подбер|закаж)/i;
@@ -4714,6 +4750,7 @@ module.exports.catalogOilApprovals = catalogOilApprovals;
 module.exports.dropGenericKeywords = dropGenericKeywords;
 module.exports.narrowToNamedParts = narrowToNamedParts;
 module.exports.dropCardClaims = dropCardClaims;
+module.exports.dropManagerReplacementClause = dropManagerReplacementClause;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;
 module.exports.ensureCardPerKeyword = ensureCardPerKeyword;

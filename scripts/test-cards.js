@@ -345,3 +345,30 @@ console.log('test-cards: side-question guard compiled');
   a.strictEqual(none.length, 0);
   console.log('test-cards: plain «тормозные колодки» -> both axles ok');
 })().catch(e => { console.error(e); process.exit(1); });
+(async () => {
+  const lx = require('../lib/laximo');
+  // live 09.11 #427: the rear set's own unit is the rear wheel; «Сервисное обслуживание тормозов» has both axles
+  const rows = [{ oem: '34216859917', name: 'Рем.к-т торм.накладок, безасбестовых', axle: 'задняя ось',
+    schema: { number: '34216859917', unit: 'Тормозной механизм заднего колеса' }, units: ['Тормозной механизм заднего колеса', 'Сервисное обслуживание тормозов'] }];
+  const calls = [];
+  const fake = async p => { calls.push(p.schema.unit); return p.schema.unit === 'Сервисное обслуживание тормозов'
+    ? { unitName: 'Сервисное обслуживание тормозов', unitParts: [{ oem: '34118867481', name: 'Ремонтный комплект тормозных накладок' }, { oem: '34216859917', name: 'Рем.к-т торм.накладок, безасбестовых' }] }
+    : { unitName: 'Тормозной механизм заднего колеса', unitParts: [{ oem: '34216859917', name: 'Рем.к-т торм.накладок, безасбестовых' }] }; };
+  const out = await lx.axleUnitRows(['тормозные колодки'], rows, fake);
+  a.deepStrictEqual(out.map(r => r.oem), ['34118867481']);
+  a.deepStrictEqual(calls, ['Тормозной механизм заднего колеса', 'Сервисное обслуживание тормозов']);
+  // only the wear sensor knows the front unit
+  const r2 = [{ oem: '34216859917', name: 'Рем.к-т торм.накладок, безасбестовых', axle: 'задняя ось', schema: { number: '34216859917', unit: 'Тормозной механизм заднего колеса' } }];
+  const sensor = [{ oem: '34356888167', name: 'Датчик износа тормозных накладок Л Пд', axle: 'передняя ось', schema: { number: '34356888167', unit: 'Тормозной механизм переднего колеса' } }];
+  const fake2 = async p => p.schema.unit === 'Тормозной механизм переднего колеса'
+    ? { unitParts: [{ oem: '34118867481', name: 'Ремонтный комплект тормозных накладок' }, { oem: '34116867311', name: 'Направляющая тормозных колодок Л' }] } : { unitParts: [] };
+  a.deepStrictEqual((await lx.axleUnitRows(['тормозные колодки'], r2, fake2, sensor)).map(r => r.oem), ['34118867481']);
+  console.log('test-cards: front pads via the service unit / the sensor unit ok');
+})().catch(e => { console.error(e); process.exit(1); });
+{
+  const d = chat.dropManagerReplacementClause;
+  a.strictEqual(d('- Ремонтный комплект тормозных накладок (снят с производства — актуальную замену подскажет менеджер)'), '- Ремонтный комплект тормозных накладок (снят с производства)');
+  a.strictEqual(d('Учтите: ремонтный комплект тормозных накладок снят с производства — менеджер подберёт актуальную замену.'), 'Учтите: ремонтный комплект тормозных накладок снят с производства.');
+  a.strictEqual(d('Если нужно, менеджер свяжется с вами.'), 'Если нужно, менеджер свяжется с вами.');
+  console.log('test-cards: «менеджер подберёт замену» clause ok');
+}
