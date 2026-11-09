@@ -29,3 +29,5 @@
 | 311 | 2026-11-09_1241 | «Liqui moly 4087» → empty «Вот что нашлось» | «LiquiMoly Очист.кондиционера Klima Anlagen Rein. (0,25л)» | ✅ fixed | `42c9832` brand + digit number → ABCP search/brands, named brand |
 | 288 | 2026-11-09_1241 | «в наличии (1 шт.)», «менеджер закажет второй» | «the product page has several offers» | ✅ fixed | `42c9832` prompt: no stock quantity, quantity set in the cart; also bare «диск» dropped |
 | 272–319 (except 288, 311) | 2026-11-09_1241 | ✓ / test turns | — | ok | — |
+| 326 | 2026-11-09_1325 | «Датчик абсолютного давления и температуры воздуха» 230i → 14 sensors | «= Датчик T-Map» | ✅ fixed | `98bd4fd` one keyword, catalog «Датчик T-Map» only |
+| 323–325 | 2026-11-09_1325 | ✓ (325: «- —» leftovers cleaned in `98bd4fd`) | — | ok | — |
