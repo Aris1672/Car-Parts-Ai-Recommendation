@@ -1782,8 +1782,31 @@ async function confirmCards(entries, st) {
 }
 async function confirmQuestionIfUnsure(laximoResult, extracted, messages) {
   const kws = (extracted.partKeywords || []).filter(Boolean);
-  if (kws.length !== 1 || !laximoResult.vehicle || laximoResult.clarify || laximoResult.needsChoice) return null;
+  if (!laximoResult.vehicle || laximoResult.clarify || laximoResult.needsChoice) return null;
   if (confirmStateOf(messages)) return null; // just answered one -- no second question in a row
+  // Vague request («датчик температуры»), then a pick from our clarify buttons (owner 09.11):
+  // the customer chose by a catalog name he may not know -> the whole unit diagram with the
+  // picked part marked and one button per position (picked first), so he points at the part.
+  const prevBot = String(([...(messages || [])].reverse().find(m => m.role === 'assistant') || {}).content || '');
+  const picked = String(lastUserMessage(messages) || '').trim();
+  if (prevBot.startsWith(CLARIFY_LEAD) && picked && picked !== CLARIFY_ALL && !/^все\s+вариант/i.test(picked)) {
+    const norm = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+    const parts = (laximoResult.parts || []).filter(p => p && p.oem && p.schema && p.schema.vid && !p.crossSell);
+    const cand = parts.find(p => norm(p.name) === norm(picked)) || (parts.length === 1 ? parts[0] : null);
+    if (cand) {
+      const v = laximoResult.vehicle;
+      const car = `${v.brand || 'BMW'} ${v.name || ''}${v.options && v.options['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim();
+      const st = { oem: laximo.normalizeOem(cand.oem), name: cand.name, position: cand.position || null, unit: cand.unit || (cand.schema && cand.schema.unit) || null,
+        schema: { number: cand.schema.number || cand.oem, catalog: cand.schema.catalog, vid: cand.schema.vid, ssd: cand.schema.ssd, ...(cand.schema.unit ? { unit: cand.schema.unit } : {}) }, car, ask: picked };
+      const reply = await wholeUnitReply(st, '');
+      if (reply) {
+        const pos = st.position ? `поз. ${st.position}` : 'выбранная деталь';
+        console.log(`[confirm] clarify pick «${picked}» -> whole unit, ${pos}`);
+        return `Вот схема узла${st.unit ? ` «${st.unit}»` : ''} для вашего ${car}. На ней отмечена ${pos} — «${cand.name}». Если это она — нажмите первую кнопку; если нужна другая деталь на схеме — нажмите её номер.` + reply;
+      }
+    }
+  }
+  if (kws.length !== 1) return null;
   const parts = (laximoResult.parts || []).filter(p => p && p.oem && !p.crossSell);
   if (!parts.length || parts.some(p => p.fixedName || rowMatchesRequest(kws[0], p.name))) return null;
   const cand = parts.find(p => p.schema && p.schema.vid && sameKindOtherVariant(kws[0], p.name));
@@ -1798,6 +1821,25 @@ async function confirmQuestionIfUnsure(laximoResult, extracted, messages) {
   return `Точного совпадения с «${kws[0]}» в каталоге нет. Похоже, это «${cand.name}»${st.unit ? ` из узла «${st.unit}»` : ''} — на схеме в карточке она отмечена. Это она?`
     + `\n<<<PRODUCTS>>>\n${JSON.stringify([card])}\n<<<END_PRODUCTS>>>`
     + `\n<<<BUTTONS>>>\n${JSON.stringify([CONFIRM_YES, CONFIRM_NO])}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+}
+/** Whole unit diagram (picked part marked) + one button per position (picked one first). */
+async function wholeUnitReply(st, lead) {
+  const d = await laximo.getPartDiagram({ oem: st.oem, schema: st.schema }).catch(() => null);
+  if (!d || !d.image) return null;
+  const seen = new Set();
+  const rows = ((d.unitParts) || []).filter(r => r && r.oem && r.position).map(r => ({ position: String(r.position), oem: laximo.normalizeOem(r.oem), name: r.name || '' }))
+    .filter(r => { const k = `${r.position}|${r.oem}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  if (!rows.length) return null;
+  st.image = d.image; st.positions = rows;
+  const mine = rows.find(r => r.oem === st.oem);
+  if (mine) st.position = mine.position;
+  const label = r => `${r.position} — ${r.name}`.slice(0, 60);
+  const buttons = [...new Map([...(mine ? [mine] : []), ...rows].map(r => [r.position, label(r)])).values()].slice(0, 30);
+  const whole = { article: '', name: st.unit || d.unitName || 'Схема узла', brand: 'BMW', category: 'схема узла', compatibility: st.car, price: 0, stock: 0, url: null, picture: null, best_for: '',
+    diagram: { image: d.image, whole: true, unit: st.unit || d.unitName || null, ...(d.box ? { box: d.box } : {}) } };
+  console.log(`[confirm] whole unit «${whole.name}», ${rows.length} row(s), marked ${st.position || '-'}`);
+  return `${lead}\n<<<PRODUCTS>>>\n${JSON.stringify([whole])}\n<<<END_PRODUCTS>>>`
+    + `\n<<<BUTTONS>>>\n${JSON.stringify(buttons)}\n<<<END_BUTTONS>>>` + confirmBlock(st);
 }
 async function confirmFollowUp(messages) {
   const st = confirmStateOf(messages);
@@ -1823,6 +1865,8 @@ async function confirmFollowUp(messages) {
   const posButtons = rs => [...new Map(rs.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
   const num = u.match(/^(?:поз\S*\s*)?(\d{1,3})\b/i);
   if (/^нет\b|^друг|^не\s+она|^не\s+то/i.test(u) && !num) {
+    const r = await wholeUnitReply(st, '');
+    if (r) return `Вот вся схема узла${st.unit ? ` «${st.unit}»` : ''}. Нажмите номер нужной позиции ниже или напишите его числом.` + r;
     const rs = await loadRows();
     if (!rs.length) { console.log('[confirm] no: unit rows not available -- normal path'); return null; }
     console.log(`[confirm] no: whole unit «${st.unit}», ${rs.length} row(s)`);
