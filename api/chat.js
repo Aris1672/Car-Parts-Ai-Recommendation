@@ -1800,7 +1800,7 @@ async function confirmQuestionIfUnsure(laximoResult, extracted, messages) {
         schema: { number: cand.schema.number || cand.oem, catalog: cand.schema.catalog, vid: cand.schema.vid, ssd: cand.schema.ssd, ...(cand.schema.unit ? { unit: cand.schema.unit } : {}) }, car, ask: picked };
       const reply = await wholeUnitReply(st, '');
       if (reply) {
-        const pos = st.position ? `поз. ${st.position}` : 'выбранная деталь';
+        const pos = st.position ? `поз. ${String(st.position).replace(/^0+(?=\d)/, '')}` : 'выбранная деталь';
         console.log(`[confirm] clarify pick «${picked}» -> whole unit, ${pos}`);
         return `Вот схема узла${st.unit ? ` «${st.unit}»` : ''} для вашего ${car}. На ней отмечена ${pos} — «${cand.name}». Если это она — нажмите первую кнопку; если нужна другая деталь на схеме — нажмите её номер.` + reply;
       }
@@ -1827,7 +1827,8 @@ async function wholeUnitReply(st, lead) {
   const d = await laximo.getPartDiagram({ oem: st.oem, schema: st.schema }).catch(() => null);
   if (!d || !d.image) return null;
   const seen = new Set();
-  const rows = ((d.unitParts) || []).filter(r => r && r.oem && r.position).map(r => ({ position: String(r.position), oem: laximo.normalizeOem(r.oem), name: r.name || '' }))
+  const pos = x => { const t = String(x).trim(); return /^\d+$/.test(t) ? String(Number(t)) : t; }; // «04» -> «4»
+  const rows = ((d.unitParts) || []).filter(r => r && r.oem && r.position).map(r => ({ position: pos(r.position), oem: laximo.normalizeOem(r.oem), name: r.name || '' }))
     .filter(r => { const k = `${r.position}|${r.oem}`; if (seen.has(k)) return false; seen.add(k); return true; });
   if (!rows.length) return null;
   st.image = d.image; st.positions = rows;
@@ -1835,10 +1836,10 @@ async function wholeUnitReply(st, lead) {
   if (mine) st.position = mine.position;
   const label = r => `${r.position} — ${r.name}`.slice(0, 60);
   const buttons = [...new Map([...(mine ? [mine] : []), ...rows].map(r => [r.position, label(r)])).values()].slice(0, 30);
-  const whole = { article: '', name: st.unit || d.unitName || 'Схема узла', brand: 'BMW', category: 'схема узла', compatibility: st.car, price: 0, stock: 0, url: null, picture: null, best_for: '',
-    diagram: { image: d.image, whole: true, unit: st.unit || d.unitName || null, ...(d.box ? { box: d.box } : {}) } };
-  console.log(`[confirm] whole unit «${whole.name}», ${rows.length} row(s), marked ${st.position || '-'}`);
-  return `${lead}\n<<<PRODUCTS>>>\n${JSON.stringify([whole])}\n<<<END_PRODUCTS>>>`
+  // A big picture of its own, not a product card (owner 09.11): only the image + the marker.
+  const big = { image: d.image, unit: st.unit || d.unitName || null, ...(d.box ? { box: d.box } : {}) };
+  console.log(`[confirm] whole unit «${big.unit || '?'}», ${rows.length} row(s), marked ${st.position || '-'}`);
+  return `${lead}\n<<<UNIT_DIAGRAM>>>\n${JSON.stringify(big)}\n<<<END_UNIT_DIAGRAM>>>`
     + `\n<<<BUTTONS>>>\n${JSON.stringify(buttons)}\n<<<END_BUTTONS>>>` + confirmBlock(st);
 }
 async function confirmFollowUp(messages) {

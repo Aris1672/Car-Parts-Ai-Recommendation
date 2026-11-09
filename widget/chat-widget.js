@@ -566,6 +566,10 @@
     .pc-product-code { font-size: 10px; color: var(--pc-red); font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; }
     .pc-product-name { font-size: 12px; font-weight: 700; color: var(--pc-dark); line-height: 1.3; }
     .pc-product-meta { font-size: 11px; color: #888; }
+    .pc-unit-diagram { margin: 6px 0 10px; max-width: 760px; width: 100%; }
+    .pc-unit-frame { position: relative; background: #fff; border-radius: 14px; border: 1px solid #e6ebf2; overflow: hidden; line-height: 0; }
+    .pc-unit-frame img { width: 100%; height: auto; display: block; cursor: zoom-in; }
+    .pc-unit-mark { position: absolute; display: none; border: 3px solid #e1251b; border-radius: 6px; box-shadow: 0 0 0 3px rgba(225,37,27,.25); pointer-events: none; }
     .pc-product-price { font-size: 15px; font-weight: 800; color: var(--pc-dark); margin-top: 4px; }
     .pc-product-stock { font-size: 11px; color: #1a9a40; }
     .pc-product-bestfor { font-size: 11px; color: #999; font-style: italic; margin-top: 2px; }
@@ -994,6 +998,7 @@
         case 'bot':      addBotBubble(entry.payload); break;
         case 'user':     addUserBubble(entry.payload); break;
         case 'products': addProductCarousel(entry.payload); break;
+        case 'unitdiagram': addUnitDiagram(entry.payload); break;
         case 'buttons':  addButtonsBubble(entry.payload); break;
         case 'manager':  addManagerButton(); break;
         case 'partlinks': addPartLinks(entry.payload); break;
@@ -2413,6 +2418,26 @@
     return `<div class="pc-kit"><div class="pc-kit-title">Состав ТО по каталогу BMW</div>${rows}</div>`;
   }
 
+  // Whole unit diagram (09.11, owner): as wide as the chat, only the picture and the red
+  // marker of the picked position; tap = the full image in a new tab.
+  function addUnitDiagram(d) {
+    const wrap = document.createElement('div');
+    wrap.className = 'pc-unit-diagram';
+    wrap.innerHTML = `<div class="pc-unit-frame"><img alt="${escHtml(d.unit || 'Схема BMW')}" src="${escHtml(diagramSrc(d.image))}"><div class="pc-unit-mark"></div></div>`;
+    const img = wrap.querySelector('img'), mark = wrap.querySelector('.pc-unit-mark');
+    img.addEventListener('load', () => {
+      const b = d.box, nw = img.naturalWidth, nh = img.naturalHeight;
+      if (b && b.x != null && nw && nh) {
+        const pad = 0.4; // % of the picture around the label
+        mark.style.left = `${b.x / nw * 100 - pad}%`; mark.style.top = `${b.y / nh * 100 - pad}%`;
+        mark.style.width = `${(b.w || 12) / nw * 100 + pad * 2}%`; mark.style.height = `${(b.h || 16) / nh * 100 + pad * 2}%`;
+        mark.style.display = 'block';
+      }
+      const c = document.getElementById('pc-messages'); if (c) c.scrollTop = c.scrollHeight;
+    });
+    img.addEventListener('click', () => window.open(diagramSrc(d.image), '_blank', 'noopener'));
+    appendMsg(wrap);
+  }
   function addDiagram(d) {
     if (!d || !d.image) return;
     const src = `${BASE_URL}/api/laximo-image?u=${encodeURIComponent(d.image)}`;
@@ -2790,6 +2815,10 @@
 
     // «Это она?» state (09.11): server data for the next turn -- hidden, kept in the history.
     text = text.replace(/<<<CONFIRM_STATE>>>[\s\S]*?<<<END_CONFIRM_STATE>>>/g, '').trim();
+    // Whole unit diagram (09.11): one big picture with the marker, not a product card.
+    let unitDiagram = null;
+    const ud = text.match(/<<<UNIT_DIAGRAM>>>([\s\S]*?)<<<END_UNIT_DIAGRAM>>>/);
+    if (ud) { try { unitDiagram = JSON.parse(ud[1].trim()); } catch (e) {} text = text.replace(/<<<UNIT_DIAGRAM>>>[\s\S]*?<<<END_UNIT_DIAGRAM>>>/g, '').trim(); }
     const btnMatch = text.match(/<<<BUTTONS>>>([\s\S]*?)<<<END_BUTTONS>>>/);
     if (btnMatch) {
       try { buttons = JSON.parse(btnMatch[1].trim()); } catch(e) {}
@@ -2829,7 +2858,7 @@
     // bubble. Collapse any run of blank lines to a single blank line.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
-    return { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams };
+    return { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -2899,7 +2928,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams } = parseBotResponse(raw);
+      const { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -2919,6 +2948,7 @@
           .replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/g, '')
           .replace(/<<<PART_LINKS>>>[\s\S]*?<<<END_PART_LINKS>>>/g, '')
           .replace(/<<<DIAGRAM>>>[\s\S]*?<<<END_DIAGRAM>>>/g, '[схема показана]')
+          .replace(/<<<UNIT_DIAGRAM>>>[\s\S]*?<<<END_UNIT_DIAGRAM>>>/g, '[схема узла показана]')
           .replace(/<<<MANAGER_BUTTON>>>/g, '')
           .replace(/<<<AUTO_MANAGER_HANDOFF>>>/g, '')
           .replace(/<<<CONTACT_FORM>>>/g, '')
@@ -2949,6 +2979,10 @@
       if (restLinks.length > 0) {
         addPartLinks(restLinks);
         displayLog.push({ type: 'partlinks', payload: restLinks });
+      }
+      if (unitDiagram && unitDiagram.image) {
+        addUnitDiagram(unitDiagram);
+        displayLog.push({ type: 'unitdiagram', payload: unitDiagram });
       }
       if (products && products.length > 0) {
         addProductCarousel(products);
