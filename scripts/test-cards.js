@@ -329,3 +329,19 @@ a.strictEqual(chat.dropCardClaims('Цена и срок указаны в кар
   console.log('test-cards: axle answer after ТО follow-up ok');
 }
 console.log('test-cards: side-question guard compiled');
+(async () => {
+  const lx = require('../lib/laximo');
+  const rows = [{ oem: '34216859917', name: 'Рем.к-т торм.накладок, безасбестовых', axle: 'задняя ось', schema: { number: '34216859917', unit: 'Сервисное обслуживание тормозов' } }];
+  const fake = async () => ({ unitName: 'Сервисное обслуживание тормозов', unitParts: [
+    { oem: '34116865713', name: 'Тормозной диск вентилируемый', position: '01' },
+    { oem: '34118867481', name: 'Ремонтный комплект тормозных накладок', position: '02' },
+    { oem: '34356888167', name: 'Датчик износа тормозных накладок Л Пд', position: '03' },
+    { oem: '34216859917', name: 'Рем.к-т торм.накладок, безасбестовых', position: '05' },
+    { oem: '34206864449', name: 'Фиксирующая пружина', position: '07' },
+  ] });
+  const out = await lx.axleUnitRows(['тормозные колодки'], rows, fake);
+  a.deepStrictEqual(out.map(r => r.oem + ' ' + r.axle), ['34118867481 передняя ось']);
+  const none = await lx.axleUnitRows(['тормозные диски'], rows, fake);
+  a.strictEqual(none.length, 0);
+  console.log('test-cards: plain «тормозные колодки» -> both axles ok');
+})().catch(e => { console.error(e); process.exit(1); });
