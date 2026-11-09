@@ -540,6 +540,7 @@ function clearCaches() {
 // fluids. Detected on the last two customer messages (the last one may be just
 // a VIN), or on the extraction's ТО expansion of partKeywords.
 function isServiceRequest(messages, extracted) {
+  if (extracted && extracted.namedFollowUp) return false;
   const users = (messages || []).filter(m => m && m.role === 'user').slice(-2)
     .map(m => (typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.map(c => c.text || '').join(' ') : ''))).join(' \n ');
   if (/(^|[^А-ЯЁа-яё])ТО([^А-ЯЁа-яё]|$)/.test(users)) return true;  // upper-case only ("то" is a common word)
@@ -1693,6 +1694,29 @@ const QUALIFIER_FAMILIES = [
  * brings every «диск» of the car (brake, CD, DVD…). Mutates `extracted`. Pure otherwise.
  */
 const TMAP_ASK = /датчик\S*\s+(абсолютн\S*\s+давлен|давлен\S*\s+и\s+температур)|t-?map|т-?мап/i;
+
+/**
+ * A follow-up that names parts («и тормозные колодки/диски» after the ТО kit, «а масло?»):
+ * the request reading carried the earlier parts over (all 9 ТО positions + pads) -> the
+ * ТО kit again and no axle buttons (Диалоги ✗ 09.11 #393, #396, #380). When the last
+ * message names some of the keywords, only those stay. Not for a new ТО request. Mutates.
+ */
+function narrowToNamedParts(extracted, messages) {
+  const kws = Array.isArray(extracted && extracted.partKeywords) ? extracted.partKeywords : null;
+  const users = (messages || []).filter(m => m && m.role === 'user');
+  if (!kws || kws.length < 2 || users.length < 2) return extracted;
+  const last = String(lastUserMessage(messages) || '').toLowerCase().replace(/ё/g, 'е');
+  if (SERVICE_UNIT_RE.test(last) || /(^|[^а-я])то([^а-я]|$)|техобслуж|обслуживан/.test(last)) return extracted;
+  const stems = k => String(k).toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).filter(w => w.length >= 4).map(w => w.slice(0, 5));
+  const named = kws.filter(k => { const st = stems(k); return st.length && st.every(x => last.includes(x)); });
+  if (!named.length || named.length === kws.length) return extracted;
+  const drop = kws.filter(k => !named.includes(k));
+  extracted.partKeywords = named;
+  extracted.namedFollowUp = true; // isServiceRequest: the ТО word in the previous message no longer counts
+  drop.forEach(k => { if (extracted.partSearchNames) delete extracted.partSearchNames[k]; if (extracted.partGroups) delete extracted.partGroups[k]; });
+  console.log(`[extract] follow-up names only ${named.join(', ')} -- earlier parts dropped (${drop.length})`);
+  return extracted;
+}
 
 function dropGenericKeywords(extracted) {
   const kws = Array.isArray(extracted && extracted.partKeywords) ? extracted.partKeywords : null;
@@ -3485,6 +3509,7 @@ async function handleChat(req, res) {
     sanitizeContactPhone(extracted);
     dropInventedQualifiers(extracted, messages); // «Глушитель» must not become «задний глушитель» (live 28.10)
     dropGenericKeywords(extracted); // «колесный диск» + «диск» -> brake / CD discs (Диалоги ✗ 09.11)
+    narrowToNamedParts(extracted, messages); // «и тормозные колодки/диски» after the ТО kit: only those (Диалоги ✗ 09.11 #393, #396)
     // «Задние тормозные колодки» -> the AI also gave «задние накладки» as a keyword (the prompt
     // asks for the synonym): searched alone it hit «Накладки порога» -> a jack-point pad (#376).
     // The synonym belongs to the pads' search names, not a part of its own.
@@ -4651,6 +4676,7 @@ module.exports.confirmStateOf = confirmStateOf;
 module.exports.parseConfirmAnswer = parseConfirmAnswer;
 module.exports.catalogOilApprovals = catalogOilApprovals;
 module.exports.dropGenericKeywords = dropGenericKeywords;
+module.exports.narrowToNamedParts = narrowToNamedParts;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;
 module.exports.ensureCardPerKeyword = ensureCardPerKeyword;

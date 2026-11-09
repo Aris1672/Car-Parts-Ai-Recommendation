@@ -275,3 +275,22 @@ console.log('test-cards: all ok');
   a.deepStrictEqual(ap, ['BMW Longlife-17 FE+', 'BMW Longlife-04', 'BMW Longlife-12 FE']);
   console.log('test-cards: catalog oil approvals ok');
 }
+{
+  const n = chat.narrowToNamedParts;
+  const to = ['масляный фильтр', 'воздушный фильтр', 'салонный фильтр', 'микрофильтр', 'свеча', 'щетка', 'жидкость', 'антифриз', 'CHF', 'тормозные колодки', 'тормозные диски'];
+  const m = t => [{ role: 'user', content: 'ТО для моей машины' }, { role: 'assistant', content: 'набор ТО' }, { role: 'user', content: t }];
+  const e = { partKeywords: to.slice() }; n(e, m('и тормозные колодки/диски'));
+  a.deepStrictEqual(e.partKeywords, ['тормозные колодки', 'тормозные диски']);
+  const e2 = { partKeywords: to.slice(0, 9) }; n(e2, m('ТО для моей машины'));
+  a.strictEqual(e2.partKeywords.length, 9, 'a new ТО request keeps the kit');
+  const e3 = { partKeywords: ['моторное масло', 'тормозные колодки'] }; n(e3, m('а для задних?'));
+  a.strictEqual(e3.partKeywords.length, 2, 'nothing named -> unchanged');
+  console.log('test-cards: follow-up narrowing ok');
+}
+{
+  const m = [{ role: 'user', content: 'ТО для моей машины' }, { role: 'assistant', content: 'набор ТО' }, { role: 'user', content: 'и тормозные колодки/диски' }];
+  const e = { partKeywords: ['масляный фильтр', 'воздушный фильтр', 'салонный фильтр', 'тормозные колодки', 'тормозные диски'] };
+  chat.narrowToNamedParts(e, m);
+  a.strictEqual(chat.isServiceRequest(m, e), false, 'brakes after ТО -> not the kit path');
+  console.log('test-cards: brakes after ТО ok');
+}
