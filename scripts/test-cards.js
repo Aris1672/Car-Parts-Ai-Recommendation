@@ -186,3 +186,15 @@ console.log('test-cards: all ok');
   a.ok(!L.humanNameFor('датчик давления масла') || L.humanNameFor('датчик давления масла').label !== 'tmap');
   console.log('test-cards: T-Map ok');
 }
+{
+  const L = require('../lib/laximo.js');
+  a.strictEqual(L.catalogShortForm('датчик температуры охлаждающей жидкости'), 'датчик температуры охл.жидкости');
+  a.strictEqual(L.catalogShortForm('датчик температуры о.ж'), 'датчик температуры охл.жидкости');
+  a.strictEqual(L.catalogShortForm('датчик температуры головки блока цилиндров'), 'датчик температуры головки блока цил.');
+  const n = L.normalizeSearchNames({ 'датчик температуры охлаждающей жидкости': ['датчик температуры'] }, ['датчик температуры охлаждающей жидкости']);
+  a.strictEqual(n['датчик температуры охлаждающей жидкости'][0], 'датчик температуры охл.жидкости');
+  a.ok(n['датчик температуры охлаждающей жидкости'].includes('датчик температуры'));
+  const m = L.normalizeSearchNames({ 'масляный фильтр': ['фильтр'] }, ['масляный фильтр']);
+  a.deepStrictEqual(m['масляный фильтр'], ['фильтр'], 'no abbreviation -> unchanged');
+  console.log('test-cards: catalog abbreviations ok');
+}
