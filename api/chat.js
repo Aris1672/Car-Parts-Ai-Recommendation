@@ -1300,7 +1300,14 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
   }
   const sideSaid = sideAns || /(^|[^а-яё])(лев|прав|обе\s+сторон|оба|с\s+обеих)/i.test(`${asked} | ${lastUser}`);
   const hasL = rows.some(p => sideOf(p) === 'L'), hasR = rows.some(p => sideOf(p) === 'R');
-  if ((opts.allowSideAsk ?? opts.allowAsk) && !sideSaid && hasL && hasR) {
+  // Only when the sided rows ARE the asked part: «Направляющая тормозных колодок Л / П» next to
+  // the pads made the bot ask «Левая / Правая» for pads (live 09.11 #416, #420). A row named
+  // as a fitting part (направляющая, кронштейн, болт…) counts only if that part was asked.
+  const OTHER_HEAD = /^(направляющ|кронштейн|держател|болт|винт|гайк|крышк|пружин|фиксатор|скоб|заглушк|кожух|щит|уплотн|прокладк)/;
+  const firstWordAsked = p => { const w = String(p.name || '').toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).find(Boolean) || '';
+    return !OTHER_HEAD.test(w) || (extracted.partKeywords || []).some(k => OTHER_HEAD.test(String(k).toLowerCase()) && String(k).toLowerCase().startsWith(w.slice(0, 5))); };
+  const sidedAsked = rows.some(p => sideOf(p) && firstWordAsked(p));
+  if ((opts.allowSideAsk ?? opts.allowAsk) && !sideSaid && hasL && hasR && sidedAsked) {
     const idx = pred => rows.map((p, i) => (pred(p) ? i + 1 : 0)).filter(Boolean);
     const options = [
       { label: SIDE_LEFT, rows: idx(p => sideOf(p) !== 'R') },

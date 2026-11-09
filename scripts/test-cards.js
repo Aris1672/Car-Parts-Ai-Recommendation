@@ -304,6 +304,8 @@ console.log('test-cards: all ok');
     { oem: '34116865713', name: 'Тормозной диск вентилируемый', position: '1' },
     { oem: '34106888459', name: 'Ремкомплект тормозных накладок', position: '3', notes: {} },
     { oem: '34356890788', name: 'Датчик износа тормозных накладок', position: '5' },
+    { oem: '34116867311', name: 'Направляющая тормозных колодок Л', position: '6' },
+    { oem: '34116867312', name: 'Направляющая колодок П', position: '7' },
   ] });
   const out = await lx.axleUnitRows(['передние тормозные колодки', 'задние тормозные колодки', 'передние тормозные диски'], rows, fake);
   a.deepStrictEqual(out.map(r => r.oem), ['34106888459']);
@@ -326,3 +328,4 @@ a.strictEqual(chat.dropCardClaims('Цена и срок указаны в кар
   a.strictEqual(chat.isServiceRequest(m, e), false);
   console.log('test-cards: axle answer after ТО follow-up ok');
 }
+console.log('test-cards: side-question guard compiled');
