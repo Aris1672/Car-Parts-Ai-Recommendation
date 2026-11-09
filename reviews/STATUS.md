@@ -38,3 +38,6 @@
 | 340–361 | 2026-11-09_1651 | 230i `WBA2H71010VF78880`: «Датчик температуры» / «… охлаждающей жидкости» → variant buttons → whole unit diagram → position card (поз. 4, 18, 2) | owner's live tests 09.11 (✓) | ✅ done | `0c94902` variant question, `6c7451c`…`c5e60b0` unit diagram, `8983853` same-kind buttons, `62b592d` soft group check |
 | 362–371 | 2026-11-09_1651 | 230i: «Серводвигатель» → (362 before the fix: harness only) → variants «Серводвигатель / Жгут проводов…» → cylinder head поз. 3 → «Да 3» (365, 368 before the fix: normal path) / «да» (371) → 11 37 8 652 738 | owner's live tests 09.11 (✓) | ✅ done | `958bec1` variants by contained name + actuator groups, `4a8abb5` typed answers |
 | 372 | 2026-11-09_1651 | «Датчик положения распредвала» 230i | ✓ | ok | — |
+| 375 | 2026-11-09_1734 | 225xe `WBA6Y310707F26748` «Моторное масло» → «знаете ли допуск?» though the catalog lists LL17FE+ 0W20 | — | ✅ fixed | `310078e` approval from the catalog rows, prompt: don't ask |
+| 376 | 2026-11-09_1734 | 225xe «Задние тормозные колодки» → + «Опора подъемной платформы» (keyword «задние накладки» → «Накладки порога») | — | ✅ fixed | `310078e` «накладки» only as the pads' search word |
+| 373, 374 | 2026-11-09_1734 | ТО 225xe | ✓ | ok | — |
