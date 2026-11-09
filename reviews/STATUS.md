@@ -31,3 +31,5 @@
 | 272–319 (except 288, 311) | 2026-11-09_1241 | ✓ / test turns | — | ok | — |
 | 326 | 2026-11-09_1325 | «Датчик абсолютного давления и температуры воздуха» 230i → 14 sensors | «= Датчик T-Map» | ✅ fixed | `98bd4fd` one keyword, catalog «Датчик T-Map» only |
 | 323–325 | 2026-11-09_1325 | ✓ (325: «- —» leftovers cleaned in `98bd4fd`) | — | ok | — |
+| 329, 331 (and 327, 330) | 2026-11-09_1502 | «Датчик температуры о.ж» 230i → «ничего не найдено» | — | ✅ fixed | `76fbbe1` sensor keyword matched the fluids group rule (83), group check dropped 13 62 7 580 635 (group 13); sensors get their own group rule. Short form «охл.жидкости» (`44e3970`) was searched correctly |
+| 328 | 2026-11-09_1502 | A2903303600 | — | ok | — |
