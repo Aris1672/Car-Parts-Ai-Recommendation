@@ -45,3 +45,8 @@
 | 377–380 | 2026-11-09_1750 | 225xe ТО, моторное масло (approval from the catalog, `310078e` confirmed), axle question | ✓ | ok | — |
 | 393, 396 | 2026-11-09_1758 | 225xe «и тормозные колодки/диски» after the ТО kit → the 9 ТО keywords carried over, kit cards repeated, AI axle question without buttons | ✗ | ✅ fixed | `51078a0` a follow-up naming parts keeps only those; the kit path skipped → code axle question with buttons |
 | 391, 392, 394, 395 | 2026-11-09_1758 | 225xe ТО, oil, pads | ✓ | ok | — |
+| 400 | 2026-11-09_1810 | 225xe «Передние и задние» pads + discs → front pads missing again («no front brakr pads») | ✗ | ✅ fixed | `51f618a` pads still missing for an axle → taken from that axle's brake unit (the front disc's unit «Тормозной механизм переднего колеса») |
+| 382–386 | 2026-11-09_1810 | X5 G05 40i «Колпак ступицы колеса неподв.» → the hub group «Ступица колеса, составляющие» gave hubs, axle question, «колпаков в каталоге нет», hub cards | — | ✅ fixed | `51f618a` «колпак» counts as a component → no rows in the hub group → word search «колпак» (group 36) |
+| 401 | 2026-11-09_1810 | «нужен комплект, который не крутится» → «показал в карточках ниже» with no cards | ✗ | ✅ fixed | `51f618a` card/«есть» sentences dropped when no card came + an honest line |
+| 402 | 2026-11-09_1810 | «не вижу карточки» → generation asked again (X5 G05 fell out of the last 10 messages) | — | ✅ fixed | `51f618a` widget sends the customer's older messages as one short first message |
+| 397–399 | 2026-11-09_1810 | 225xe ТО → «тормозные колодки/диски» → axle buttons | ✓ | ok | — |
