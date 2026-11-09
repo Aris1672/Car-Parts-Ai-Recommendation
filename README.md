@@ -111,7 +111,7 @@ Background: on this car the quick group «Колодки тормозные ди
 - **Follow-ups after a ТО answer** (`narrowToNamedParts`): «и тормозные колодки/диски» after the ТО kit, and the axle answer after it («Передние и задние» names no part → the parts of the message that asked) keep only those parts; `extracted.namedFollowUp` makes `isServiceRequest` false → no kit cards again.
 - **«менеджер подберёт / подскажет актуальную замену», «а менеджер подскажет новый номер»** removed as a clause (`dropManagerReplacementClause`), the «снят с производства» part stays; also in the ТО kit reply.
 - **No «в карточках ниже» without cards** (`dropCardClaims`): card / «есть … нашёл» sentences go, an honest line «… найти не удалось. Пришлите VIN или фото детали» instead (#401).
-- **Hub caps** («Колпак ступицы колеса»): «колпак» is in `COMPONENT_RE` → the hub group «Ступица колеса, составляющие» (hubs only) is skipped, word search «колпак» in group 36. Not yet retested live.
+- **Hub caps** («Колпак ступицы колеса»): «колпак» is in `COMPONENT_RE` → the hub group «Ступица колеса, составляющие» (hubs only) is skipped, word search «колпак» in group 36. ✅ Confirmed live by the owner (X5 G05).
 - **Widget history**: only the last 10 messages go to the agent; the customer's older messages now go along as one short first message «(Ранее в этом диалоге клиент писал: … | …)» (`withEarlierCustomerText`), so the car named early («X5 G05») is not asked again (#402).
 - Retest set: «Тормозные колодки» → VIN → «Передние» / «Задние»; «ТО для моей машины» → «и тормозные колодки/диски» → «Передние и задние».
 
