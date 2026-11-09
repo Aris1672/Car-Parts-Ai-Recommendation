@@ -1214,6 +1214,28 @@ function distinctPartNames(parts) {
     .replace(/ (л|п|лев[а-яё]*|прав[а-яё]*)(?= )/g, ' ')
     .replace(/\s+/g, ' ').trim()).filter(Boolean)).size;
 }
+/** Pure: { question, options } when the rows are variants of one asked name, else null. */
+function variantQuestion(rows, keywords, customerText) {
+  const kws = (keywords || []).filter(Boolean);
+  if (kws.length !== 1) return null;
+  const low = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+  const kw = low(kws[0]);
+  if (kw.split(' ').length < 2) return null; // «датчик» alone: too broad for name variants
+  const said = low(customerText);
+  const groups = new Map(); // name -> row numbers
+  rows.forEach((p, i) => { const n = low(p.name); if (n.startsWith(kw)) { if (!groups.has(n)) groups.set(n, []); groups.get(n).push(i + 1); } });
+  const qualified = [...groups.keys()].filter(n => n.length > kw.length + 2);
+  if (groups.size < 2 || !qualified.length) return null;
+  // The customer already named a qualifier («…охлаждающей жидкости», a picked button) -> no question.
+  const stems = n => n.slice(kw.length).split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3).map(w => w.slice(0, 4));
+  if (qualified.some(n => stems(n).some(st => said.includes(st)))) return null;
+  const cap = n => n.charAt(0).toUpperCase() + n.slice(1);
+  const options = [...groups.entries()].filter(([n]) => qualified.includes(n)).slice(0, 6).map(([n, r]) => ({ label: cap(n).slice(0, 60), rows: r }));
+  const plain = groups.get(kw);
+  if (plain) options.push({ label: `${cap(kw)} (без уточнения)`, rows: plain });
+  return { question: `Какой ${kw} нужен?`, options };
+}
+
 async function aiFilterParts(parts, extracted, messages, opts = {}) {
   if (!LLM_API_KEY || !parts.length) return parts;
   const rows = parts.slice(0, PART_FILTER_MAX_ROWS);
@@ -1240,6 +1262,17 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
     console.log(`[laximo] axle question "${asked}": front ${options[0].rows.length}, rear ${options[1].rows.length} row(s)`);
     const extra = partsMeta(parts);
     return Object.assign(rows.slice(), extra, { clarify: { question, options, lead: AXLE_LEAD, allLabel: AXLE_BOTH } });
+  }
+  // Variants of one part name (Диалоги 09.11, 230i «Датчик температуры»): the same request
+  // once got the question, once only the 3 rows named exactly «Датчик температуры» -- the
+  // AI filter decides differently each time. Fixed rule: rows named «<keyword> …» with
+  // different qualifiers and the customer named none of them -> ask, one button per name.
+  if (opts.allowAsk) {
+    const vq = variantQuestion(rows, extracted.partKeywords, lastUser);
+    if (vq) {
+      console.log(`[laximo] variant question "${asked}": ${vq.options.map(o => `${o.label} [${o.rows.join(',')}]`).join(' | ')}`);
+      return Object.assign(rows.slice(), partsMeta(parts), { clarify: vq });
+    }
   }
   // Left / right (owner 04.11): same part for both sides, customer named no side -> ask.
   // After the answer the side is applied in code (the AI filter keeps both sides otherwise).
@@ -4517,6 +4550,7 @@ module.exports.isNonServicePart = isNonServicePart;
 module.exports.asksForNonServicePart = asksForNonServicePart;
 module.exports.filterCatalogByPartKeyword = filterCatalogByPartKeyword;
 module.exports.aiFilterParts = aiFilterParts;
+module.exports.variantQuestion = variantQuestion;
 module.exports.extractVehicleInfo = extractVehicleInfo;
 module.exports.distinctPartNames = distinctPartNames;
 module.exports.dropInventedQualifiers = dropInventedQualifiers;

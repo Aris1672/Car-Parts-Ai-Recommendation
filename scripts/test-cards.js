@@ -215,3 +215,12 @@ console.log('test-cards: all ok');
   if (g) { a.ok(g.includes('13') && !g.includes('83'), 'sensor -> engine electronics, not fluids'); }
   console.log('test-cards: sensor groups ok');
 }
+{
+  const rows = ['Датчик температуры', 'Датчик температуры', 'Датчик температуры', 'Датчик температуры испарителя', 'Датчик температуры головки блока цил.', 'Датчик температуры охл.жидкости / масла', 'Датчик давления масла'].map(name => ({ name }));
+  const q = chat.variantQuestion(rows, ['датчик температуры'], 'Датчик температуры VIN: WBA2H71010VF78880');
+  a.ok(q && q.options.length === 4, JSON.stringify(q));
+  a.deepStrictEqual(q.options[3].rows, [1, 2, 3]);
+  a.strictEqual(chat.variantQuestion(rows, ['датчик температуры'], 'Датчик температуры головки блока цил.'), null, 'picked qualifier -> no question');
+  a.strictEqual(chat.variantQuestion(rows, ['датчик температуры', 'головка'], 'x'), null, 'two parts');
+  console.log('test-cards: variant question ok');
+}
