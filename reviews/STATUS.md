@@ -41,3 +41,5 @@
 | 375 | 2026-11-09_1734 | 225xe `WBA6Y310707F26748` «Моторное масло» → «знаете ли допуск?» though the catalog lists LL17FE+ 0W20 | — | ✅ fixed | `310078e` approval from the catalog rows, prompt: don't ask |
 | 376 | 2026-11-09_1734 | 225xe «Задние тормозные колодки» → + «Опора подъемной платформы» (keyword «задние накладки» → «Накладки порога») | — | ✅ fixed | `310078e` «накладки» only as the pads' search word |
 | 373, 374 | 2026-11-09_1734 | ТО 225xe | ✓ | ok | — |
+| 381 | 2026-11-09_1750 | 225xe «Передние и задние» pads + discs → front pads missing («подберёт менеджер»), rear disc / sensor without cards, «— (…)» lines | — | ✅ fixed | `fa3e7d2` one-axle group → word search for the other axle; axle-aware card check; text rules |
+| 377–380 | 2026-11-09_1750 | 225xe ТО, моторное масло (approval from the catalog, `310078e` confirmed), axle question | ✓ | ok | — |
