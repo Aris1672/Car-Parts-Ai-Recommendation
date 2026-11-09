@@ -52,3 +52,6 @@
 | 397–399 | 2026-11-09_1810 | 225xe ТО → «тормозные колодки/диски» → axle buttons | ✓ | ok | — |
 | 406, 410 | 2026-11-09_1818 | 225xe ТО → «и тормозные колодки/диски» → «Передние и задние» → the ТО kit again (13 cards), no brake cards / «в данных нет позиций» | ✗ | ✅ fixed | `6453e18` a short axle answer takes the parts from the message that asked for them; the kit path skipped |
 | 403–405, 407–409 | 2026-11-09_1818 | 225xe ТО, axle buttons for the brakes (`51078a0` confirmed) | ✓ | ok | — |
+| 416, 420 | 2026-11-09_1856 | 225xe «Передние и задние» pads + discs → «Левая / Правая / Обе» question | ✗ | ✅ fixed | `4dac256` caused by `51f618a`: the front-unit fallback also took «Направляющая тормозных колодок Л / П»; now only the pad set, and fitting parts never trigger the side question |
+| 417, 421 | 2026-11-09_1856 | «Обе стороны» → front discs missing (#417) / guide rails as cards (#421) | ✗ | ✅ fixed | `4dac256` same cause; front pads 34118867481 now found from the front brake unit |
+| 411–415, 418, 419 | 2026-11-09_1856 | part number 51317389423, ТО, axle buttons | ✓ | ok | — |
