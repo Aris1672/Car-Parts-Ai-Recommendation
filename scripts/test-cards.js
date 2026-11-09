@@ -294,3 +294,27 @@ console.log('test-cards: all ok');
   a.strictEqual(chat.isServiceRequest(m, e), false, 'brakes after ТО -> not the kit path');
   console.log('test-cards: brakes after ТО ok');
 }
+(async () => {
+  const lx = require('../lib/laximo');
+  const rows = [
+    { oem: '34216859917', name: 'Рем.к-т торм.накладок, безасбестовых', axle: 'задняя ось', schema: { number: '34216859917', unit: 'Тормозной механизм заднего колеса' } },
+    { oem: '34116865713', name: 'Тормозной диск вентилируемый', axle: 'передняя ось', schema: { number: '34116865713', catalog: 'BMW', unit: 'Тормозной механизм переднего колеса' } },
+  ];
+  const fake = async p => ({ unitName: 'Тормозной механизм переднего колеса', unitParts: [
+    { oem: '34116865713', name: 'Тормозной диск вентилируемый', position: '1' },
+    { oem: '34106888459', name: 'Ремкомплект тормозных накладок', position: '3', notes: {} },
+    { oem: '34356890788', name: 'Датчик износа тормозных накладок', position: '5' },
+  ] });
+  const out = await lx.axleUnitRows(['передние тормозные колодки', 'задние тормозные колодки', 'передние тормозные диски'], rows, fake);
+  a.deepStrictEqual(out.map(r => r.oem), ['34106888459']);
+  a.strictEqual(out[0].axle, 'передняя ось'); a.strictEqual(out[0].schema.number, '34106888459');
+  console.log('test-cards: front pads from the front brake unit ok');
+})().catch(e => { console.error(e); process.exit(1); });
+{
+  const t = 'Понял вас. По оригинальному каталогу для вашего BMW X5 40i есть фирменные неподвижные колпаки ступицы — они как раз не вращаются.\n\nПодходящие варианты для вашей машины показал в карточках ниже — выберите нужный комплект.';
+  const out = chat.dropCardClaims(t, { partKeywords: ['колпак ступицы'] });
+  a.ok(!/карточк/.test(out) && /не удалось/.test(out), out);
+  a.strictEqual(chat.dropCardClaims('Всё в карточках ниже.\n<<<PRODUCTS>>>\n[]\n<<<END_PRODUCTS>>>'), 'Всё в карточках ниже.\n<<<PRODUCTS>>>\n[]\n<<<END_PRODUCTS>>>');
+  console.log('test-cards: no false card claims ok');
+}
+a.strictEqual(chat.dropCardClaims('Цена и срок указаны в карточке товара на сайте.', { partKeywords: ['фильтр'] }), 'Цена и срок указаны в карточке товара на сайте.');

@@ -961,6 +961,16 @@
   const EXPIRY_MS    = 45 * 60 * 1000; // 45 minutes of inactivity -- matches typical "session" semantics
   let displayLog = []; // [{type: 'dateSep'|'bot'|'user'|'products'|'buttons'|'manager'|'partlinks'|'diagram', payload}]
 
+  function withEarlierCustomerText(all, n) {
+    const tail = all.slice(-n);
+    const older = all.slice(0, -n).filter(m => m && m.role === 'user' && typeof m.content === 'string')
+      .map(m => m.content.replace(/\s+/g, ' ').trim().slice(0, 200)).filter(Boolean).slice(-8);
+    if (!older.length || !tail.length) return tail;
+    const note = `(Ранее в этом диалоге клиент писал: ${older.join(' | ')})`;
+    if (tail[0].role === 'user') return [{ ...tail[0], content: `${note}\n${typeof tail[0].content === 'string' ? tail[0].content : ''}` }, ...tail.slice(1)];
+    return [{ role: 'user', content: note }, ...tail];
+  }
+
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -2900,7 +2910,10 @@
     addTypingIndicator();
     setWide(false);
 
-    const trimmedMessages = messages.slice(-10);
+    // Only the last 10 messages go to the agent; the car named earlier («X5 G05» as a
+    // button answer) fell out and the agent asked for the generation again (Диалоги ✗
+    // 09.11 #402). The customer's older messages go along as one short first message.
+    const trimmedMessages = withEarlierCustomerText(messages, 10);
 
     startLiveSteps();
     let gotStep = false;

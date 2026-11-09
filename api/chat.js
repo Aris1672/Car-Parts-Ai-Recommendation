@@ -1718,6 +1718,24 @@ function narrowToNamedParts(extracted, messages) {
   return extracted;
 }
 
+/**
+ * «Подходящие варианты показал в карточках ниже» with no card at all (Диалоги ✗ 09.11 #401:
+ * the AI filter kept 0 rows, the customer answered «не вижу карточки»). Sentences about
+ * cards go; an honest line replaces them. Pure; exported for tests.
+ */
+const CARD_CLAIM_RE = /карточк\S*\s+ниже|ниже\s+в\s+карточк|(показал|привел|привёл|подобрал)[^.!?\n]{0,40}(ниже|в\s+карточк)/i;
+const FOUND_CLAIM_RE = /(^|[\s(«])(есть|нашел|нашёл|нашлись|подобрал|подходящ)/i;
+function dropCardClaims(text, extracted) {
+  const t = String(text || '');
+  if (!((extracted && extracted.partKeywords) || []).length) return t;
+  if (/<<<(PRODUCTS|DIAGRAM|UNIT_DIAGRAM|PART_LINKS|BUTTONS)>>>/.test(t) || !CARD_CLAIM_RE.test(t)) return t;
+  const kept = t.split('\n').map(line => line.split(/(?<=[.!?…])\s+/).filter(x => !CARD_CLAIM_RE.test(x) && !FOUND_CLAIM_RE.test(x)).join(' ')).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const part = ((extracted && extracted.partKeywords) || [])[0];
+  const honest = `К сожалению, ${part ? `«${part}» ` : 'эту деталь '}в оригинальном каталоге для вашей машины точно найти не удалось. Пришлите, пожалуйста, VIN или фото детали — проверю ещё раз.`;
+  console.log('[chat] the reply named cards but none came -- card sentences dropped');
+  return kept ? `${kept}\n\n${honest}` : honest;
+}
+
 function dropGenericKeywords(extracted) {
   const kws = Array.isArray(extracted && extracted.partKeywords) ? extracted.partKeywords : null;
   if (!kws || kws.length < 2) return extracted;
@@ -4609,6 +4627,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
       text = `${text}\n<<<PART_LINKS>>>\n${JSON.stringify(allLinkCodes)}\n<<<END_PART_LINKS>>>`;
     }
 
+    text = dropCardClaims(text, extracted);
     Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
     res.setHeader('Content-Type', 'application/json');
     return res.status(200).json({ reply: text, ...(catalogOutcome ? { catalog: catalogOutcome } : {}) });
@@ -4677,6 +4696,7 @@ module.exports.parseConfirmAnswer = parseConfirmAnswer;
 module.exports.catalogOilApprovals = catalogOilApprovals;
 module.exports.dropGenericKeywords = dropGenericKeywords;
 module.exports.narrowToNamedParts = narrowToNamedParts;
+module.exports.dropCardClaims = dropCardClaims;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;
 module.exports.ensureCardPerKeyword = ensureCardPerKeyword;
