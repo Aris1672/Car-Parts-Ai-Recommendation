@@ -43,3 +43,5 @@
 | 373, 374 | 2026-11-09_1734 | ТО 225xe | ✓ | ok | — |
 | 381 | 2026-11-09_1750 | 225xe «Передние и задние» pads + discs → front pads missing («подберёт менеджер»), rear disc / sensor without cards, «— (…)» lines | — | ✅ fixed | `fa3e7d2` one-axle group → word search for the other axle; axle-aware card check; text rules |
 | 377–380 | 2026-11-09_1750 | 225xe ТО, моторное масло (approval from the catalog, `310078e` confirmed), axle question | ✓ | ok | — |
+| 393, 396 | 2026-11-09_1758 | 225xe «и тормозные колодки/диски» after the ТО kit → the 9 ТО keywords carried over, kit cards repeated, AI axle question without buttons | ✗ | ✅ fixed | `51078a0` a follow-up naming parts keeps only those; the kit path skipped → code axle question with buttons |
+| 391, 392, 394, 395 | 2026-11-09_1758 | 225xe ТО, oil, pads | ✓ | ok | — |
