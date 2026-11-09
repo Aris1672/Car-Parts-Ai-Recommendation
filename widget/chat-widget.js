@@ -2427,10 +2427,10 @@
     wrap.className = 'pc-unit-diagram';
     wrap.innerHTML = `<div class="pc-unit-frame"><img alt="${escHtml(d.unit || 'Схема BMW')}" src="${escHtml(diagramSrc(d.image))}"><div class="pc-unit-mark"></div></div>`;
     const img = wrap.querySelector('img'), mark = wrap.querySelector('.pc-unit-mark');
-    // ≈55% of the chat window's height (phones: full width is already short enough).
+    // ≈75% of the chat window's height (phones: full width is already short enough).
     const capHeight = () => {
       const c = document.getElementById('pc-messages');
-      const h = c && c.clientHeight ? Math.round(c.clientHeight * 0.55) : 420;
+      const h = c && c.clientHeight ? Math.round(c.clientHeight * 0.75) : 560; // 75% (owner 09.11, fewer buttons below now)
       img.style.maxHeight = `${Math.max(220, h)}px`;
     };
     capHeight();
