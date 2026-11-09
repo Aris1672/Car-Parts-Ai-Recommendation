@@ -1744,6 +1744,7 @@ function sanitizeContactPhone(extracted) {
 // State travels in the reply (<<<CONFIRM_STATE>>>, hidden by the widget, kept in history).
 const CONFIRM_YES = 'Да, это она';
 const CONFIRM_NO = 'Нет, другая позиция';
+const CONFIRM_OTHER = 'Другая деталь на схеме';
 const CONFIRM_STOP = new Set(['для', 'bmw', 'бмв', 'передн', 'задн', 'левый', 'правый', 'левая', 'правая', 'левое', 'правое', 'комплект', 'оригинал', 'новый', 'нужен', 'нужна']);
 /** Main word stems of a request (BMW short forms applied). Pure. */
 function requestStems(kw) {
@@ -1835,7 +1836,13 @@ async function wholeUnitReply(st, lead) {
   const mine = rows.find(r => r.oem === st.oem);
   if (mine) st.position = mine.position;
   const label = r => `${r.position} — ${r.name}`.slice(0, 60);
-  const buttons = [...new Map([...(mine ? [mine] : []), ...rows].map(r => [r.position, label(r)])).values()].slice(0, 30);
+  // Only positions of the same kind as the request (owner 09.11: «датчик температуры» ->
+  // the sensors, not 21 bolts / bushings); «Другая деталь на схеме» shows them all.
+  const head = (requestStems(st.ask || st.name)[0]) || '';
+  const sameKind = r => head && String(r.name || '').toLowerCase().replace(/ё/g, 'е').includes(head);
+  const shown = st.allPositions || !head ? rows : rows.filter(r => r === mine || sameKind(r));
+  const buttons = [...new Map([...(mine ? [mine] : []), ...shown].map(r => [r.position, label(r)])).values()].slice(0, 30);
+  if (shown.length < rows.length) buttons.push(CONFIRM_OTHER);
   // A big picture of its own, not a product card (owner 09.11): only the image + the marker.
   const big = { image: d.image, unit: st.unit || d.unitName || null, ...(d.box ? { box: d.box } : {}) };
   console.log(`[confirm] whole unit «${big.unit || '?'}», ${rows.length} row(s), marked ${st.position || '-'}`);
@@ -1851,6 +1858,11 @@ async function confirmFollowUp(messages) {
     console.log(`[confirm] yes: ${st.oem}`);
     return `Отлично — «${st.name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
       + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+  }
+  if (u.toLowerCase() === CONFIRM_OTHER.toLowerCase() || /^друг\S*\s+детал/i.test(u)) {
+    st.allPositions = true;
+    const r = await wholeUnitReply(st, '');
+    if (r) { console.log('[confirm] all positions of the unit'); return 'Все позиции схемы — нажмите номер нужной детали или напишите его числом.' + r; }
   }
   let rows = Array.isArray(st.positions) ? st.positions : null;
   const loadRows = async () => {
