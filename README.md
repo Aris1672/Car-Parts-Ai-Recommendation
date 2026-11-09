@@ -41,6 +41,11 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## ▶️ RESUME HERE (state 09.11.2026 late evening) — newest: «🛑 09.11 night — brakes per axle + follow-ups» below; then the other 09.11 blocks («🛢», «❓», «🧹»); then 06.11, 05.11, 04.11. — read this block first
 
+**09.11 late — category chips multi-select + «Колодки + диски» + no-car reply (to retest after redeploy):**
+- Widget (`addButtonsBubble(items, { multi: true })`, homepage category menus only): a chip tap ticks it (✓); «Подобрать выбранное (N)» sends ONE list message («Тормозные колодки, тормозные диски») → the existing list flow (card per part). «Другое — опишу сам», «Всё для ТО» and the new shortcut chip «Колодки + диски» (`COMBO_PADS_DISCS`, sends «Тормозные колодки и тормозные диски») act at once. Hint «Можно выбрать несколько». Old saved chats replay fine (payload array or `{items, multi}`).
+- Server (`noCarReply`, api/chat.js): parts named but no VIN / brand / model / article → fixed reply «Подберу … по оригинальному каталогу. Пришлите VIN … или модель», plus «Ось … выберете кнопкой» for axle parts. The AI no longer asks the axle in text before the car; the axle buttons («Передние / Задние / Передние и задние») come from the existing code question once the car is known. Tyres keep the AI answer (summer / winter). Log `[nocar] …`. Test in `scripts/test-cards.js`.
+- Retest: homepage «Тормозная система» → tick «Тормозные колодки» + «Тормозные диски» → «Подобрать выбранное (2)» → reply asks only for the car → send a VIN → axle buttons → «Передние и задние» → 4 cards. Also «Колодки + диски» in one tap.
+
 **09.11 evening — the vague-request flow, ✅ confirmed live by the owner (230i F22 `WBA2H71010VF78880`, «Датчик температуры»):**
 1. Vague request with name variants → the question is a code rule (`variantQuestion`): one button per catalog name («Датчик температуры испарителя / головки блока цил. / охл.жидкости / масла», «… (без уточнения)», «Все варианты»).
 2. Button pick → `wholeUnitReply`: text «Вот схема узла … отмечена поз. 18 — «…». Если это она — нажмите первую кнопку…», then ONE big picture (`<<<UNIT_DIAGRAM>>>`, chat width ≤ 760 px, ≤ 75% of the chat height, red marker, tap = full image), then buttons: only positions of the same kind (main word, picked first) + «Другая деталь на схеме» (all positions); any typed number works.

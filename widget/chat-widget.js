@@ -94,10 +94,15 @@
   // (no AI call) and sub-choice buttons; a chosen button goes to the AI as a
   // normal question. Without the inline chat the card stays a plain link.
   const CATEGORY_OTHER_BTN = 'Другое — опишу сам'; // focuses the input instead of sending
+  // Shortcut chip (owner 09.11): the most common brake job in one tap. Sends at once.
+  const COMBO_PADS_DISCS = 'Колодки + диски';
+  const CHIP_SEND_TEXT = { [COMBO_PADS_DISCS]: 'Тормозные колодки и тормозные диски' };
+  // Category chips that are never ticked: they act at once.
+  const CHIP_INSTANT = new Set([COMBO_PADS_DISCS, 'Всё для ТО']);
   const CATEGORY_VIN_ASK = 'Чтобы подобрать точно для вашей машины, пришлите VIN (17 символов из СТС) или модель — например, X5 G05 30d.';
   const CATEGORIES = {
     brakes:     { name: 'Тормозная система', q: 'Что нужно для тормозной системы?',
-                  items: ['Тормозные колодки', 'Тормозные диски', 'Тормозной суппорт', 'Датчик износа колодок', 'Тормозная жидкость', CATEGORY_OTHER_BTN] },
+                  items: [COMBO_PADS_DISCS, 'Тормозные колодки', 'Тормозные диски', 'Тормозной суппорт', 'Датчик износа колодок', 'Тормозная жидкость', CATEGORY_OTHER_BTN] },
     suspension: { name: 'Подвеска', q: 'Что нужно для подвески?',
                   items: ['Амортизаторы', 'Рычаги', 'Стойки стабилизатора', 'Сайлентблоки', 'Шаровые опоры', 'Пружины', CATEGORY_OTHER_BTN] },
     engine:     { name: 'Двигатель', q: 'Что нужно для двигателя?',
@@ -416,6 +421,13 @@
     }
     .pc-btn:hover { border-color: var(--pc-red); background: #f0f4ff; color: var(--pc-red); transform: translateY(-1px); }
     .pc-btn:active { transform: translateY(0); }
+    /* Multi-select category chips (09.11): tap ticks, «Подобрать выбранное (N)» sends all. */
+    .pc-multi-hint { width: 100%; font-size: 12px; color: #888; margin: 0 0 1px 2px; }
+    .pc-btn.pc-btn-on { border-color: var(--pc-red); background: var(--pc-red); color: #fff; }
+    .pc-btn.pc-btn-on::before { content: '✓ '; }
+    .pc-btn.pc-btn-on:hover { color: #fff; background: var(--pc-red); }
+    .pc-btn-go { border-color: var(--pc-red); background: #f0f4ff; color: var(--pc-red); font-weight: 600; }
+    .pc-buttons-wrap.pc-done .pc-btn { opacity: .55; pointer-events: none; }
 
     /* ── Manager CTA button ── */
     .pc-manager-btn-wrap { padding: 4px 0; }
@@ -1011,7 +1023,7 @@
         case 'user':     addUserBubble(entry.payload); break;
         case 'products': addProductCarousel(entry.payload); break;
         case 'unitdiagram': addUnitDiagram(entry.payload); break;
-        case 'buttons':  addButtonsBubble(entry.payload); break;
+        case 'buttons':  Array.isArray(entry.payload) ? addButtonsBubble(entry.payload) : addButtonsBubble(entry.payload.items, { multi: entry.payload.multi }); break;
         case 'manager':  addManagerButton(); break;
         case 'partlinks': addPartLinks(entry.payload); break;
         case 'diaglink': addDiagramLink(entry.payload); break;
@@ -1957,8 +1969,8 @@
     addBotBubble(text);
     displayLog.push({ type: 'bot', payload: text });
     if (cat.items.length) {
-      addButtonsBubble(cat.items);
-      displayLog.push({ type: 'buttons', payload: cat.items });
+      addButtonsBubble(cat.items, { multi: true });
+      displayLog.push({ type: 'buttons', payload: { items: cat.items, multi: true } });
     }
     saveState();
     setTimeout(() => document.getElementById('pc-input').focus({ preventScroll: true }), 400);
@@ -2313,16 +2325,50 @@
     return final.body || {};
   }
 
-  function addButtonsBubble(buttons) {
+  // opts.multi (category chips, 09.11): part chips toggle; «Подобрать выбранное (N)»
+  // sends them as ONE list message («Тормозные колодки, тормозные диски») -> the
+  // bot's list flow (one card per part). «Другое» and CHIP_INSTANT act at once.
+  function addButtonsBubble(buttons, opts = {}) {
     const el   = document.createElement('div');
     el.className = 'pc-msg pc-msg-bot';
     const wrap = document.createElement('div');
     wrap.className = 'pc-buttons-wrap';
+    const picked = [];
+    let goBtn = null;
+    if (opts.multi) {
+      const hint = document.createElement('div');
+      hint.className = 'pc-multi-hint';
+      hint.textContent = 'Можно выбрать несколько';
+      wrap.appendChild(hint);
+      goBtn = document.createElement('button');
+      goBtn.className = 'pc-btn pc-btn-go';
+      goBtn.style.display = 'none';
+      goBtn.addEventListener('click', () => {
+        if (!picked.length || isLoading) return;
+        const text = picked.map((l, i) => (i ? l.charAt(0).toLowerCase() + l.slice(1) : l)).join(', ');
+        wrap.classList.add('pc-done');
+        doSend(text);
+      });
+    }
     buttons.forEach(label => {
       const btn = document.createElement('button');
       btn.className = 'pc-btn';
       btn.textContent = label;
       btn.addEventListener('click', () => {
+        if (opts.multi && label !== CATEGORY_OTHER_BTN && !CHIP_INSTANT.has(label)) {
+          const i = picked.indexOf(label);
+          if (i >= 0) picked.splice(i, 1); else picked.push(label);
+          btn.classList.toggle('pc-btn-on', i < 0);
+          goBtn.textContent = `Подобрать выбранное (${picked.length})`;
+          goBtn.style.display = picked.length ? '' : 'none';
+          return;
+        }
+        if (opts.multi && CHIP_INSTANT.has(label)) {
+          if (isLoading) return;
+          wrap.classList.add('pc-done');
+          doSend(CHIP_SEND_TEXT[label] || label);
+          return;
+        }
         if (label === '🔄 Повторить запрос') {
           doSend(lastUserText);
         } else if (label === CATEGORY_OTHER_BTN) {
@@ -2338,6 +2384,7 @@
       });
       wrap.appendChild(btn);
     });
+    if (goBtn) wrap.appendChild(goBtn);
     el.appendChild(wrap);
     appendMsg(el);
   }

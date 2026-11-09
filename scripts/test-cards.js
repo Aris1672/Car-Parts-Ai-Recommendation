@@ -372,3 +372,16 @@ console.log('test-cards: side-question guard compiled');
   a.strictEqual(d('Если нужно, менеджер свяжется с вами.'), 'Если нужно, менеджер свяжется с вами.');
   console.log('test-cards: «менеджер подберёт замену» clause ok');
 }
+
+// Parts without a car (owner 09.11, «Тормозные колодки» chip): only the car is asked, axle later as buttons.
+{
+  const { _noCarReply: n } = require('../api/chat');
+  const r = n({ partKeywords: ['тормозные колодки', 'тормозные диски'] });
+  a.ok(/тормозные колодки и диски/.test(r) && /VIN/.test(r) && /кнопкой/.test(r), r);
+  a.ok(!/кнопкой/.test(n({ partKeywords: ['тормозная жидкость'] })));
+  a.strictEqual(n({ partKeywords: ['тормозные колодки'], model: 'X5' }), null);
+  a.strictEqual(n({ partKeywords: ['тормозные колодки'], vin: 'WBA2H71010VF78880' }), null);
+  a.strictEqual(n({ partKeywords: ['зимние шины'] }), null);
+  a.strictEqual(n({ partKeywords: null }), null);
+  console.log('test-cards: no-car reply ok');
+}

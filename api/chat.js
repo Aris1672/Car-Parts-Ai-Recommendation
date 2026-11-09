@@ -1187,6 +1187,19 @@ function sideAnswerFrom(messages) {
   if (/^прав/.test(t)) return 'R';
   return null;
 }
+const AXLE_PART_RE = /колодк|тормозн\S*\s+диск|^диск|суппорт|амортиз|стойк|рычаг|пружин|ступиц|подшипник|сайлентблок|шаров/i;
+/**
+ * Parts named but no car (no VIN, brand, model, article) -> the fixed «send the car» reply,
+ * else null. Tyres keep the AI answer (it also asks summer / winter).
+ */
+function noCarReply(extracted) {
+  const kws = Array.isArray(extracted && extracted.partKeywords) ? extracted.partKeywords.filter(Boolean) : [];
+  if (!kws.length || extracted.vin || extracted.brand || extracted.model || extracted.vendorCode) return null;
+  if (kws.some(k => /шин|колес|колёс|резин/i.test(k))) return null;
+  const axle = kws.some(k => AXLE_PART_RE.test(String(k)));
+  return `Подберу ${axleQuestionParts(kws)} по оригинальному каталогу. Пришлите, пожалуйста, VIN (17 символов из СТС) или модель — например, X5 G05 30d.` +
+    (axle ? ' Ось — переднюю или заднюю — выберете кнопкой, когда определю машину.' : '');
+}
 /** «тормозные колодки», «накладки», «тормозные диски» -> «тормозные колодки и диски» (for the axle question). */
 function axleQuestionParts(keywords) {
   let kws = [...new Set((keywords || []).map(k => String(k).toLowerCase().replace(/(^|\s)(передн|задн)\S*/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean))];
@@ -3649,6 +3662,19 @@ console.log(JSON.stringify(extracted, null, 2));
       return res.status(200).json({ reply });
     }
 
+    // Parts named, no car yet (owner 09.11, «Тормозные колодки» chip): the AI asked
+    // «переднюю или заднюю ось?» as plain text before the car was known. Fixed reply:
+    // only the car; the axle comes later as buttons (axle question, from the BMW numbers).
+    {
+      const reply = noCarReply(extracted);
+      if (reply) {
+        console.log(`[nocar] parts ${JSON.stringify(extracted.partKeywords)} without a car -- asking for VIN / model only`);
+        Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).json({ reply });
+      }
+    }
+
     // «Это она?» follow-ups (owner 09.11): «Да» / «Нет, другая позиция» / a position number.
     {
       const reply = await confirmFollowUp(messages);
@@ -4736,7 +4762,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
