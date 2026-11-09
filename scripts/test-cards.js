@@ -209,3 +209,9 @@ console.log('test-cards: all ok');
   a.strictEqual(st.oem, '13628649765');
   console.log('test-cards: «Это она?» rules ok');
 }
+{
+  const L = require('../lib/laximo.js');
+  const g = L.groupsForKeyword ? L.groupsForKeyword('датчик температуры охлаждающей жидкости') : null;
+  if (g) { a.ok(g.includes('13') && !g.includes('83'), 'sensor -> engine electronics, not fluids'); }
+  console.log('test-cards: sensor groups ok');
+}
