@@ -1705,16 +1705,26 @@ function narrowToNamedParts(extracted, messages) {
   const kws = Array.isArray(extracted && extracted.partKeywords) ? extracted.partKeywords : null;
   const users = (messages || []).filter(m => m && m.role === 'user');
   if (!kws || kws.length < 2 || users.length < 2) return extracted;
-  const last = String(lastUserMessage(messages) || '').toLowerCase().replace(/ё/g, 'е');
-  if (SERVICE_UNIT_RE.test(last) || /(^|[^а-я])то([^а-я]|$)|техобслуж|обслуживан/.test(last)) return extracted;
-  const stems = k => String(k).toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).filter(w => w.length >= 4).map(w => w.slice(0, 5));
-  const named = kws.filter(k => { const st = stems(k); return st.length && st.every(x => last.includes(x)); });
-  if (!named.length || named.length === kws.length) return extracted;
-  const drop = kws.filter(k => !named.includes(k));
-  extracted.partKeywords = named;
-  extracted.namedFollowUp = true; // isServiceRequest: the ТО word in the previous message no longer counts
-  drop.forEach(k => { if (extracted.partSearchNames) delete extracted.partSearchNames[k]; if (extracted.partGroups) delete extracted.partGroups[k]; });
-  console.log(`[extract] follow-up names only ${named.join(', ')} -- earlier parts dropped (${drop.length})`);
+  const textOf = m => String(typeof m.content === 'string' ? m.content : '').toLowerCase().replace(/ё/g, 'е');
+  const isTo = t => SERVICE_UNIT_RE.test(t) || /(^|[^а-я])то([^а-я]|$)|техобслуж|обслуживан/.test(t);
+  // Side / axle words are an answer to our question («Передние и задние»), not a part name.
+  const SIDE = /^(передн|задн|левы|левая|левое|левые|правы|правая|правое|правые|верхн|нижн|обе|оба)/;
+  const stems = k => String(k).toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).filter(w => w.length >= 4 && !SIDE.test(w)).map(w => w.slice(0, 5));
+  // The last message, or -- for a short answer to our question («Передние и задние») --
+  // the message that asked for the parts (Диалоги ✗ 09.11 #406, #410: the ТО kit again).
+  for (const m of users.slice(-3).reverse()) {
+    const t = textOf(m);
+    if (isTo(t)) return extracted;
+    const named = kws.filter(k => { const st = stems(k); return st.length && st.every(x => t.includes(x)); });
+    if (!named.length) continue;
+    if (named.length === kws.length) return extracted;
+    const drop = kws.filter(k => !named.includes(k));
+    extracted.partKeywords = named;
+    extracted.namedFollowUp = true; // isServiceRequest: the ТО word in the previous message no longer counts
+    drop.forEach(k => { if (extracted.partSearchNames) delete extracted.partSearchNames[k]; if (extracted.partGroups) delete extracted.partGroups[k]; });
+    console.log(`[extract] follow-up names only ${named.join(', ')} -- earlier parts dropped (${drop.length})`);
+    return extracted;
+  }
   return extracted;
 }
 

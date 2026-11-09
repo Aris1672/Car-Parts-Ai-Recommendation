@@ -318,3 +318,11 @@ console.log('test-cards: all ok');
   console.log('test-cards: no false card claims ok');
 }
 a.strictEqual(chat.dropCardClaims('Цена и срок указаны в карточке товара на сайте.', { partKeywords: ['фильтр'] }), 'Цена и срок указаны в карточке товара на сайте.');
+{
+  const m = [{ role: 'user', content: 'ТО для моей машины' }, { role: 'assistant', content: 'набор' }, { role: 'user', content: 'и тормозные колодки/диски' }, { role: 'assistant', content: 'Для какой оси?' }, { role: 'user', content: 'Передние и задние' }];
+  const e = { partKeywords: ['масляный фильтр', 'свеча', 'воздушный фильтр', 'CHF', 'передние тормозные колодки', 'передние тормозные диски', 'задние тормозные колодки', 'задние тормозные диски', 'тормозной диск'] };
+  chat.narrowToNamedParts(e, m);
+  a.deepStrictEqual(e.partKeywords, ['передние тормозные колодки', 'передние тормозные диски', 'задние тормозные колодки', 'задние тормозные диски', 'тормозной диск']);
+  a.strictEqual(chat.isServiceRequest(m, e), false);
+  console.log('test-cards: axle answer after ТО follow-up ok');
+}
