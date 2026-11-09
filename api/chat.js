@@ -1892,17 +1892,41 @@ async function wholeUnitReply(st, lead) {
   return `${lead}\n<<<UNIT_DIAGRAM>>>\n${JSON.stringify(big)}\n<<<END_UNIT_DIAGRAM>>>`
     + `\n<<<BUTTONS>>>\n${JSON.stringify(buttons)}\n<<<END_BUTTONS>>>` + confirmBlock(st);
 }
+/**
+ * Pure: the customer's answer to «Это она?» / the unit diagram -> { yes, no, other, num }.
+ * Typed answers too («Да 3», «да, она», «нет», «поз. 12», «12-я»). Russian-safe: no \b
+ * (JS \b doesn't see Cyrillic letters -- «Да 3» was missed live 09.11).
+ */
+function parseConfirmAnswer(text) {
+  const u = String(text || '').trim().toLowerCase().replace(/ё/g, 'е');
+  const end = '(?=$|[\\s,.!?;:—–-])';
+  const other = u === CONFIRM_OTHER.toLowerCase() || /^друг\S*\s+детал/.test(u);
+  const numM = u.length <= 40 ? u.match(/(?:^|[^\d])(\d{1,3})(?!\d)/) : null;
+  const yes = new RegExp(`^(да|ага|верно|она|он|это\\s+(она|он)|подходит)${end}`).test(u);
+  // A number is a position only in an answer-like message: a button («3 — …»), «поз. 12»,
+  // «да 3», or a bare / nearly bare number -- not «колодки X5».
+  const button = /^\d{1,3}\s*[—–-]\s/.test(u);
+  const restWords = numM ? u.replace(numM[1], ' ').replace(/[^a-zа-я]+/g, ' ').trim().split(' ').filter(Boolean) : [];
+  const answerLike = button || /^поз/.test(u) || yes || restWords.length === 0 || (restWords.length === 1 && /^(номер|позиция|поз|нет)$/.test(restWords[0]));
+  const num = numM && answerLike ? numM[1] : null;
+  const no = new RegExp(`^(нет|не\\s+(она|он|то)|друг\\S*)${end}`).test(u) && !other;
+  return { yes, no, other, num };
+}
+
 async function confirmFollowUp(messages) {
   const st = confirmStateOf(messages);
   if (!st || !st.schema) return null;
   const u = String(lastUserMessage(messages) || '').trim();
-  if (/^да\b|^это\s+она|^она\b|^верно|^подходит/i.test(u)) {
+  const ans = parseConfirmAnswer(u);
+  console.log(`[confirm] answer «${u.slice(0, 40)}»: ${JSON.stringify(ans)}`);
+  // A number wins over «да» («Да 3» = position 3); «да» alone = the marked part.
+  if (ans.yes && !ans.num) {
     const cards = await confirmCards([{ oem: st.oem, name: st.name, position: st.position }], st);
     console.log(`[confirm] yes: ${st.oem}`);
     return `Отлично — «${st.name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
       + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
   }
-  if (u.toLowerCase() === CONFIRM_OTHER.toLowerCase() || /^друг\S*\s+детал/i.test(u)) {
+  if (ans.other) {
     st.allPositions = true;
     const r = await wholeUnitReply(st, '');
     if (r) { console.log('[confirm] all positions of the unit'); return 'Все позиции схемы — нажмите номер нужной детали или напишите его числом.' + r; }
@@ -1919,8 +1943,8 @@ async function confirmFollowUp(messages) {
     return rows;
   };
   const posButtons = rs => [...new Map(rs.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
-  const num = u.match(/^(?:поз\S*\s*)?(\d{1,3})\b/i);
-  if (/^нет\b|^друг|^не\s+она|^не\s+то/i.test(u) && !num) {
+  const num = ans.num ? [ans.num, ans.num] : null;
+  if (ans.no && !num) {
     const r = await wholeUnitReply(st, '');
     if (r) return `Вот вся схема узла${st.unit ? ` «${st.unit}»` : ''}. Нажмите номер нужной позиции ниже или напишите его числом.` + r;
     const rs = await loadRows();
@@ -4582,6 +4606,7 @@ module.exports.articleInMessage = articleInMessage;
 module.exports.rowMatchesRequest = rowMatchesRequest;
 module.exports.sameKindOtherVariant = sameKindOtherVariant;
 module.exports.confirmStateOf = confirmStateOf;
+module.exports.parseConfirmAnswer = parseConfirmAnswer;
 module.exports.dropGenericKeywords = dropGenericKeywords;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;

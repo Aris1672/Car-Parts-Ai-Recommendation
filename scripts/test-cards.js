@@ -249,3 +249,24 @@ console.log('test-cards: all ok');
   a.ok(set.has('13') && set.has('17') && set.has('83'), 'fixed rule + AI groups together');
   console.log('test-cards: soft group check ok');
 }
+{
+  const p = chat.parseConfirmAnswer;
+  a.deepStrictEqual(p('Да 3'), { yes: true, no: false, other: false, num: '3' });
+  a.ok(p('Да, это она').yes && !p('Да, это она').num);
+  a.ok(p('да').yes);
+  a.ok(p('Нет, другая позиция').no);
+  a.ok(p('нет').no);
+  a.strictEqual(p('3 — Серводвигатель').num, '3');
+  a.strictEqual(p('поз. 12').num, '12');
+  a.ok(p('Другая деталь на схеме').other && !p('Другая деталь на схеме').no);
+  a.ok(!p('датчик температуры').yes && !p('датчик температуры').no && !p('датчик температуры').num);
+  a.strictEqual(p('Серводвигатель VIN: WBA2H71010VF78880 и еще много слов тут').num, null, 'long text: no position');
+  console.log('test-cards: confirm answers ok');
+}
+{
+  const p = chat.parseConfirmAnswer;
+  a.strictEqual(p('Колодки X5').num, null, 'model name is not a position');
+  a.strictEqual(p('12').num, '12');
+  a.strictEqual(p('номер 7').num, '7');
+  console.log('test-cards: position numbers ok');
+}
