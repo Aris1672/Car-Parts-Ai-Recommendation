@@ -50,3 +50,5 @@
 | 401 | 2026-11-09_1810 | «нужен комплект, который не крутится» → «показал в карточках ниже» with no cards | ✗ | ✅ fixed | `51f618a` card/«есть» sentences dropped when no card came + an honest line |
 | 402 | 2026-11-09_1810 | «не вижу карточки» → generation asked again (X5 G05 fell out of the last 10 messages) | — | ✅ fixed | `51f618a` widget sends the customer's older messages as one short first message |
 | 397–399 | 2026-11-09_1810 | 225xe ТО → «тормозные колодки/диски» → axle buttons | ✓ | ok | — |
+| 406, 410 | 2026-11-09_1818 | 225xe ТО → «и тормозные колодки/диски» → «Передние и задние» → the ТО kit again (13 cards), no brake cards / «в данных нет позиций» | ✗ | ✅ fixed | `6453e18` a short axle answer takes the parts from the message that asked for them; the kit path skipped |
+| 403–405, 407–409 | 2026-11-09_1818 | 225xe ТО, axle buttons for the brakes (`51078a0` confirmed) | ✓ | ok | — |
