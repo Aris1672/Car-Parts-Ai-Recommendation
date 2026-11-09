@@ -567,8 +567,10 @@
     .pc-product-name { font-size: 12px; font-weight: 700; color: var(--pc-dark); line-height: 1.3; }
     .pc-product-meta { font-size: 11px; color: #888; }
     .pc-unit-diagram { margin: 6px 0 10px; max-width: 760px; width: 100%; }
-    .pc-unit-frame { position: relative; background: #fff; border-radius: 14px; border: 1px solid #e6ebf2; overflow: hidden; line-height: 0; }
-    .pc-unit-frame img { width: 100%; height: auto; display: block; cursor: zoom-in; }
+    /* Height capped (owner 09.11: the question above scrolled out of view): the frame
+       shrinks to the picture, the picture keeps its ratio; height set from the chat in JS. */
+    .pc-unit-frame { position: relative; display: inline-block; max-width: 100%; background: #fff; border-radius: 14px; border: 1px solid #e6ebf2; overflow: hidden; line-height: 0; }
+    .pc-unit-frame img { max-width: 100%; height: auto; display: block; cursor: zoom-in; }
     .pc-unit-mark { position: absolute; display: none; border: 3px solid #e1251b; border-radius: 6px; box-shadow: 0 0 0 3px rgba(225,37,27,.25); pointer-events: none; }
     .pc-product-price { font-size: 15px; font-weight: 800; color: var(--pc-dark); margin-top: 4px; }
     .pc-product-stock { font-size: 11px; color: #1a9a40; }
@@ -2425,7 +2427,16 @@
     wrap.className = 'pc-unit-diagram';
     wrap.innerHTML = `<div class="pc-unit-frame"><img alt="${escHtml(d.unit || 'Схема BMW')}" src="${escHtml(diagramSrc(d.image))}"><div class="pc-unit-mark"></div></div>`;
     const img = wrap.querySelector('img'), mark = wrap.querySelector('.pc-unit-mark');
+    // ≈55% of the chat window's height (phones: full width is already short enough).
+    const capHeight = () => {
+      const c = document.getElementById('pc-messages');
+      const h = c && c.clientHeight ? Math.round(c.clientHeight * 0.55) : 420;
+      img.style.maxHeight = `${Math.max(220, h)}px`;
+    };
+    capHeight();
+    window.addEventListener('resize', capHeight);
     img.addEventListener('load', () => {
+      capHeight();
       const b = d.box, nw = img.naturalWidth, nh = img.naturalHeight;
       if (b && b.x != null && nw && nh) {
         const pad = 0.4; // % of the picture around the label
@@ -2437,6 +2448,7 @@
     });
     img.addEventListener('click', () => window.open(diagramSrc(d.image), '_blank', 'noopener'));
     appendMsg(wrap);
+    capHeight();
   }
   function addDiagram(d) {
     if (!d || !d.image) return;
