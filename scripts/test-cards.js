@@ -270,3 +270,8 @@ console.log('test-cards: all ok');
   a.strictEqual(p('номер 7').num, '7');
   console.log('test-cards: position numbers ok');
 }
+{
+  const ap = chat.catalogOilApprovals([{ name: 'BMW Engine Oil LL17FE+ 0W20' }, { name: 'BMW Engine Oil LL04 5W30' }, { name: 'BMW Engine Oil LL12FE 0W30' }, { name: 'BMW Engine Oil LL17FE+ 0W20' }]);
+  a.deepStrictEqual(ap, ['BMW Longlife-17 FE+', 'BMW Longlife-04', 'BMW Longlife-12 FE']);
+  console.log('test-cards: catalog oil approvals ok');
+}

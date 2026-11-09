@@ -3184,6 +3184,18 @@ async function fetchOilProducts() {
 // punctuation/whitespace. "VW 502.00", "VW 502 00", and "vw50200" all
 // become "VW50200" -- this handles the inconsistent formatting seen across
 // different products' "Допуски производителей" field.
+/** Pure: BMW approvals from catalog oil rows («BMW Engine Oil LL17FE+ 0W20» -> «BMW Longlife-17 FE+»), catalog order. */
+function catalogOilApprovals(parts) {
+  const out = [];
+  for (const p of parts || []) {
+    const m = String((p && p.name) || '').match(/\bLL\s*-?\s*(\d{2})\s*(FE\s*\+?)?/i);
+    if (!m) continue;
+    const ap = `BMW Longlife-${m[1]}${m[2] ? ' ' + m[2].replace(/\s+/g, '').toUpperCase() : ''}`;
+    if (!out.includes(ap)) out.push(ap);
+  }
+  return out;
+}
+
 function normalizeApprovalCode(code) {
   if (!code) return '';
   return code.toUpperCase().replace(/[^A-Z0-9А-Я]/g, '');
@@ -3467,6 +3479,19 @@ async function handleChat(req, res) {
     sanitizeContactPhone(extracted);
     dropInventedQualifiers(extracted, messages); // «Глушитель» must not become «задний глушитель» (live 28.10)
     dropGenericKeywords(extracted); // «колесный диск» + «диск» -> brake / CD discs (Диалоги ✗ 09.11)
+    // «Задние тормозные колодки» -> the AI also gave «задние накладки» as a keyword (the prompt
+    // asks for the synonym): searched alone it hit «Накладки порога» -> a jack-point pad (#376).
+    // The synonym belongs to the pads' search names, not a part of its own.
+    if (Array.isArray(extracted.partKeywords) && extracted.partKeywords.some(k => /колодк/i.test(k))) {
+      const syn = extracted.partKeywords.filter(k => /^(передн\S*\s+|задн\S*\s+)?(тормозн\S*\s+)?накладк\S*$/i.test(String(k).trim()));
+      if (syn.length) {
+        extracted.partKeywords = extracted.partKeywords.filter(k => !syn.includes(k));
+        const pads = extracted.partKeywords.find(k => /колодк/i.test(k));
+        extracted.partSearchNames = { ...(extracted.partSearchNames || {}), [pads]: [...new Set([...((extracted.partSearchNames || {})[pads] || []), 'накладка'])] };
+        syn.forEach(k => { if (extracted.partSearchNames) delete extracted.partSearchNames[k]; if (extracted.partGroups) delete extracted.partGroups[k]; });
+        console.log(`[extract] «${syn.join(', ')}» is the pads' catalog word, not a separate part -- dropped`);
+      }
+    }
     // «Датчик абсолютного давления и температуры воздуха» is ONE part (BMW «Датчик T-Map», owner
     // 09.11): the request reading split it into 4 sensor keywords -> 14 sensors (#326).
     if (TMAP_ASK.test(lastUserMessage(messages) || '') && Array.isArray(extracted.partKeywords) && extracted.partKeywords.length > 1) {
@@ -4071,6 +4096,17 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
     // 2) Vehicle-fitment match, for manual_products that carry a `fitment`
     //    list (physical parts tied to specific car models -- see
     //    products.js). Independent of approval codes entirely.
+    // Engine oil by VIN (Диалоги ✗ 09.11 #375, 225xe B38): the BMW catalog already lists the
+    // car's oils («BMW Engine Oil LL17FE+ 0W20», LL04, LL12FE) -- the approval is known, the
+    // bot must not ask for it. First catalog row = the recommended one.
+    if (!extracted.oilApprovalCode && laximoResult && Array.isArray(laximoResult.parts)) {
+      const aps = catalogOilApprovals(laximoResult.parts);
+      if (aps.length) {
+        extracted.oilApprovalCode = aps[0];
+        vinVehicleForPrompt += ` ДОПУСК МОТОРНОГО МАСЛА ПО КАТАЛОГУ BMW для этого автомобиля: ${aps[0]}${aps.length > 1 ? ` (также допустимы: ${aps.slice(1).join(', ')})` : ''}. НЕ спрашивай клиента про допуск -- он известен; предложи масло с этим допуском.`;
+        console.log(`[chat] oil approval from the catalog: ${aps.join(', ')}`);
+      }
+    }
     const oilProducts = await fetchOilProducts();
     const matchedByApproval = extracted.oilApprovalCode
       ? matchOilByApproval(oilProducts, extracted.oilApprovalCode)
@@ -4607,6 +4643,7 @@ module.exports.rowMatchesRequest = rowMatchesRequest;
 module.exports.sameKindOtherVariant = sameKindOtherVariant;
 module.exports.confirmStateOf = confirmStateOf;
 module.exports.parseConfirmAnswer = parseConfirmAnswer;
+module.exports.catalogOilApprovals = catalogOilApprovals;
 module.exports.dropGenericKeywords = dropGenericKeywords;
 module.exports.dropManagerDetailsLine = dropManagerDetailsLine;
 module.exports.cleanCardsText = cleanCardsText;
