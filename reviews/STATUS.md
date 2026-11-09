@@ -33,3 +33,5 @@
 | 323–325 | 2026-11-09_1325 | ✓ (325: «- —» leftovers cleaned in `98bd4fd`) | — | ok | — |
 | 329, 331 (and 327, 330) | 2026-11-09_1502 | «Датчик температуры о.ж» 230i → «ничего не найдено» | — | ✅ fixed | `76fbbe1` sensor keyword matched the fluids group rule (83), group check dropped 13 62 7 580 635 (group 13); sensors get their own group rule. Short form «охл.жидкости» (`44e3970`) was searched correctly |
 | 328 | 2026-11-09_1502 | A2903303600 | — | ok | — |
+| 332–336, 338, 339 | 2026-11-09_1644 | 230i `WBA2H71010VF78880`: «Датчик температуры о.ж», «Датчик температуры» → variant buttons → pick (испарителя / головки блока цил. / охл.жидкости) | owner's live tests 09.11 («This was corrected») | ✅ done | `44e3970` short forms, `76fbbe1` sensor groups, `6c7451c`…`c5e60b0` whole unit diagram + position buttons, `0c94902` / `958bec1` variant question in code, `62b592d` soft group check, `4a8abb5` typed answers |
+| 337 | 2026-11-09_1644 | «BMW 11 28 2 339 110» | — | ok | — |
