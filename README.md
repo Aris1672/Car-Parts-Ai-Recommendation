@@ -41,7 +41,7 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ## ▶️ RESUME HERE (state 09.11.2026) — newest: 09.11 block below («🧹 09.11 — fixes from «Диалоги»»); then 06.11, 05.11, 04.11. — read this block first
 
-**09.11 in short:** `bot-reviews` up to `2026-11-09_1241` handled (✗ 288, 311, 320 fixed in `42c9832`): bare «диск» next to «колесный диск» dropped (`dropGenericKeywords`); brand + digit article («Liqui moly 4087») via ABCP `search/brands` with the named brand (`articleInMessage` returns `{ code, brandHint }`); no «в наличии (1 шт.)» / «менеджер закажет второй» in the text. To retest live: «Liqui moly 4087», Mercedes CLA VIN → «Колесный диск» → «альтернативы?», «Передние тормозные диски BMW 320i F30».
+**09.11 in short:** `bot-reviews` up to `2026-11-09_1325` handled (#326 T-Map sensor) (✗ 288, 311, 320 fixed in `42c9832`): bare «диск» next to «колесный диск» dropped (`dropGenericKeywords`); brand + digit article («Liqui moly 4087») via ABCP `search/brands` with the named brand (`articleInMessage` returns `{ code, brandHint }`); no «в наличии (1 шт.)» / «менеджер закажет второй» in the text. To retest live: «Liqui moly 4087», Mercedes CLA VIN → «Колесный диск» → «альтернативы?», «Передние тормозные диски BMW 320i F30».
 
 
 **06.11 in short (all on `main`, owner tested live on 230i F22 `WBA2H71010VF78880` and X5 E70 40d `X4XZW61140L560928`, 5-part list «прокладка впускного коллектора, фланец системы охлаждения, масляный фильтр, поддон АКПП с фильтром, свечи» → 5 cards on both cars):**
@@ -100,6 +100,7 @@ Plan: project doc «logistics-agent-plan.md» (order → supplier → Яндек
 ### 🧹 09.11 — fixes from «Диалоги»
 - **Generic keyword dropped** (`dropGenericKeywords`, #320, #288): «колесный диск» + bare «диск» → the bare word brought brake / CD / DVD discs. A one-word keyword that is a word of a longer keyword is removed. Log: `[extract] generic keyword(s) … dropped`.
 - **Brand + digit number** (#311 «Liqui moly 4087»): `articleInMessage()` now returns `{ code, brandHint }`; brand words + one digit-only number (4–14 digits, not 11-digit BMW, not a year, not with BMW/MINI words, not an order question) → `search/brands`, only the named brand kept; no such brand → normal path.
+- **T-Map sensor** (#326, owner): «Датчик абсолютного давления (и температуры воздуха)» = BMW «Датчик T-Map» (230i B48: 13 62 8 637 900). `TMAP_ASK` in api/chat.js collapses the 4 generic sensor keywords into one; `HUMAN_NAMES` entry `tmap` searches «датчик t-map» and keeps only T-Map rows, renamed. Also «- — Эмблема» leftovers after number stripping removed.
 - **No stock quantity in the text** (#288): prompt — no «в наличии (1 шт.)» (one price-list offer; the product page has several), no «менеджер закажет второй» (customer sets the quantity in the cart).
 
 ### 🔎 06.11 — any article via the site search (ABCP)

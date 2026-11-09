@@ -178,3 +178,11 @@ console.log('test-cards: all ok');
   chat.dropGenericKeywords(e3); a.strictEqual(e3.partKeywords.length, 2, 'two real parts stay');
   console.log('test-cards: brand+number, generic keywords ok');
 }
+{
+  const L = require('../lib/laximo.js');
+  const h = L.humanNameFor('датчик абсолютного давления и температуры воздуха');
+  a.ok(h && h.label === 'tmap');
+  a.ok(L.humanNameFor('датчик t-map').label === 'tmap');
+  a.ok(!L.humanNameFor('датчик давления масла') || L.humanNameFor('датчик давления масла').label !== 'tmap');
+  console.log('test-cards: T-Map ok');
+}

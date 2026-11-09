@@ -1645,6 +1645,8 @@ const QUALIFIER_FAMILIES = [
  * «колесный диск» / «передние тормозные диски») is dropped: searched on its own it
  * brings every «диск» of the car (brake, CD, DVD…). Mutates `extracted`. Pure otherwise.
  */
+const TMAP_ASK = /датчик\S*\s+(абсолютн\S*\s+давлен|давлен\S*\s+и\s+температур)|t-?map|т-?мап/i;
+
 function dropGenericKeywords(extracted) {
   const kws = Array.isArray(extracted && extracted.partKeywords) ? extracted.partKeywords : null;
   if (!kws || kws.length < 2) return extracted;
@@ -2356,6 +2358,7 @@ function stripNumbers(x) {
     .replace(/\(?\s*(?:от\s+)?\d[\d\s]*(?:[.,]\d+)?\s*₽\s*(?:,?\s*(?:срок\s*)?~?\s*\d+\s*(?:дн\.?|дней|дня))?\s*\)?/gi, ' ')
     .replace(new RegExp(`(?:арт\\.?|артикул|№|номер)?\\s*${PART_NO_RE.source}`, 'gi'), ' ')
     .replace(/\*\*\s*\*\*/g, ' ')
+    .replace(/^(\s*[-•*]\s+)[—–-]\s+/gm, '$1') // «- — Эмблема» after the number was cut (Диалоги #325)
     .replace(/\(\s*[,;:—–-]?\s*\)/g, ' ')
     .replace(/\s+([,.;:!?)])/g, '$1').replace(/([(])\s+/g, '$1')
     .replace(/[,;]\s*(?=[,;.])/g, '').replace(/\s*[—–-]\s*([,.;]|$)/g, '$1').replace(/:\s*([,.]|$)/g, '$1')
@@ -3225,6 +3228,15 @@ async function handleChat(req, res) {
     sanitizeContactPhone(extracted);
     dropInventedQualifiers(extracted, messages); // «Глушитель» must not become «задний глушитель» (live 28.10)
     dropGenericKeywords(extracted); // «колесный диск» + «диск» -> brake / CD discs (Диалоги ✗ 09.11)
+    // «Датчик абсолютного давления и температуры воздуха» is ONE part (BMW «Датчик T-Map», owner
+    // 09.11): the request reading split it into 4 sensor keywords -> 14 sensors (#326).
+    if (TMAP_ASK.test(lastUserMessage(messages) || '') && Array.isArray(extracted.partKeywords) && extracted.partKeywords.length > 1) {
+      const kw = 'датчик абсолютного давления и температуры воздуха';
+      console.log(`[extract] T-Map sensor: ${extracted.partKeywords.join(', ')} -> «${kw}»`);
+      extracted.partKeywords = [kw];
+      extracted.partSearchNames = { [kw]: ['датчик t-map', 't-map'] };
+      extracted.partGroups = { [kw]: ['13'] };
+    }
     // Keys / coding = workshop services: no catalog work at all (see workshopServiceTopic).
     const workshopTopic = extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true' ? null : workshopServiceTopic(messages);
     if (workshopTopic) {
