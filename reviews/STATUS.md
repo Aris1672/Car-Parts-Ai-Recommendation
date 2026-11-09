@@ -57,3 +57,5 @@
 | 411–415, 418, 419 | 2026-11-09_1856 | part number 51317389423, ТО, axle buttons | ✓ | ok | — |
 | 423, 425 | 2026-11-09_1913 | 225xe «Тормозные колодки» + VIN → only the rear set, no axle question (the group «Колодки тормозные дисковые» lists only the rear set) | ✗ | ✅ fixed | `30a7ac2` pads of one axle found -> the other axle's set from the brake unit «Сервисное обслуживание тормозов» (front 34118867481, pos. 02) -> axle question |
 | 422, 424 | 2026-11-09_1913 | «Тормозные колодки» without a car -> VIN asked | ✓ | ok | — |
+| 427, 429 | 2026-11-09_1920 | 225xe «Тормозные колодки» + VIN → only the rear set again (`30a7ac2` looked only in the rear set's own unit «Тормозной механизм заднего колеса» -> 0 rows); AI axle question in text (#427); «менеджер подберёт замену» | ✗ | ✅ fixed | `af820b6` axle always asked for pads/discs (owner); the other axle's pads from every unit of the found rows («Сервисное обслуживание тормозов») and the wear sensors' units; the manager-replacement clause removed |
+| 426, 428 | 2026-11-09_1920 | «Тормозные колодки» without a car -> VIN asked | ✓ | ok | — |
