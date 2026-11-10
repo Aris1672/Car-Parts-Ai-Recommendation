@@ -72,3 +72,11 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   if (next !== null) a.ok(/34216888825/.test(next), 'next part = the pads card: ' + String(next).slice(0, 300));
   console.log('test-group-first: list of parts ok');
 })().catch(e => { console.error(e); process.exit(1); });
+{
+  // Foreign catalog names are detected (translated by the AI live; offline: nothing changes).
+  const chat = require('../api/chat');
+  if (chat._isForeignName) {
+    a.ok(chat._isForeignName('Seitenscheibendefrostkanal') && chat._isForeignName('Luftkanal B-Säule') && !chat._isForeignName('Воздуховод задней части салона') && !chat._isForeignName('Болт M6'));
+    console.log('test-group-first: foreign names ok');
+  }
+}

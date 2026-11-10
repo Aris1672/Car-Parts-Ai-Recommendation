@@ -2078,6 +2078,8 @@ async function narrowGroups(st, item) {
   const names = await laximo.mainGroupNames(st.schema).catch(() => ({}));
   const out = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code))
     .map(g => ({ code: g.code, name: names[g.code] || narrowing.PLACE[g.code] || `Группа ${g.code}`, units: [...g.units.values()] }));
+  const ru = await translateForeignNames(out.flatMap(g => g.units.map(u => u.name)));
+  out.forEach(g => g.units.forEach(u => { if (ru.has(u.name)) u.name = ru.get(u.name); }));
   console.log(`[narrow] «${item.kw}»: groups ${out.map(g => `${g.code} (${g.units.map(u => u.name).join(' / ')})`).join(', ')}`);
   return out;
 }
@@ -2135,6 +2137,8 @@ async function narrowUnitPageView(st, item, g, u, lead) {
   const rows = page.rows.filter(r => r.position).map(r => ({ position: pos(r.position), oem: laximo.normalizeOem(r.oem), name: r.name || '', ...(r.box ? { box: r.box } : {}) }))
     .filter(r => { const k = `${r.position}|${r.oem}`; if (seen.has(k)) return false; seen.add(k); return true; });
   if (!rows.length) return null;
+  const ru = await translateForeignNames(rows.map(r => r.name));
+  rows.forEach(r => { if (ru.has(r.name)) r.name = ru.get(r.name); });
   const marked = u.oems.length === 1 ? rows.find(r => r.oem === laximo.normalizeOem(u.oems[0])) : null;
   const base = marked || rows[0];
   const unitName = u.name || page.unitName;
@@ -2529,6 +2533,8 @@ async function wholeUnitReply(st, lead) {
   const rows = ((d.unitParts) || []).filter(r => r && r.oem && r.position).map(r => ({ position: pos(r.position), oem: laximo.normalizeOem(r.oem), name: r.name || '' }))
     .filter(r => { const k = `${r.position}|${r.oem}`; if (seen.has(k)) return false; seen.add(k); return true; });
   if (!rows.length) return null;
+  const ru = await translateForeignNames(rows.map(r => r.name));
+  rows.forEach(r => { if (ru.has(r.name)) r.name = ru.get(r.name); });
   st.image = d.image; st.positions = rows;
   const mine = rows.find(r => r.oem === st.oem);
   if (mine) st.position = mine.position;
@@ -2829,6 +2835,38 @@ async function toRussianPartName(name) {
     console.error('[compat] translation failed:', err.message);
     return null;
   }
+}
+
+/**
+ * Catalog names Laximo has only in German / English («Seitenscheibendefrostkanal», «Luftkanal
+ * B-Säule», owner 10.11) -> Russian, the way the BMW catalog would say it. One AI call per list,
+ * cached. Names with Cyrillic stay as they are. -> Map(original -> russian)
+ */
+const isForeignName = n => /[a-zäöüß]{4,}/i.test(String(n || '')) && !/[а-яё]/i.test(String(n || ''));
+async function translateForeignNames(names) {
+  const out = new Map();
+  const todo = [...new Set((names || []).filter(isForeignName))].filter(n => {
+    const k = n.trim().toLowerCase();
+    if (translateCache.has(k)) { const v = translateCache.get(k); if (v) out.set(n, v); return false; }
+    return true;
+  });
+  if (!todo.length || !LLM_API_KEY) return out;
+  const prompt = `Переведи названия автозапчастей BMW на русский так, как они называются в оригинальном каталоге BMW (коротко, без пояснений). Ответь только JSON-объектом {"<исходное название>": "<русское название>"}.\n${todo.map(n => `- ${n}`).join('\n')}`;
+  try {
+    const res = await llmFastFetch({ model: LLM_MODEL, max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }, 30000);
+    if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
+    const data = await res.json();
+    trackUsage(LLM_MODEL, data);
+    const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+    const j = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    for (const n of todo) {
+      const ru = typeof j[n] === 'string' && /[а-яё]/i.test(j[n]) ? j[n].replace(/["«»]/g, '').trim().slice(0, 80) : null;
+      translateCache.set(n.trim().toLowerCase(), ru);
+      if (ru) out.set(n, ru);
+    }
+    console.log(`[translate] ${todo.length} foreign catalog name(s): ${todo.map(n => `${n} -> ${out.get(n) || '?'}`).join('; ')}`);
+  } catch (err) { console.error('[translate] catalog names failed:', err.message); }
+  return out;
 }
 
 /** "Фильтр масляный" -> ["фильтр масляный", "масляный фильтр"] (Laximo name search). */
@@ -5443,7 +5481,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._confirmFollowUp = confirmFollowUp; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._confirmFollowUp = confirmFollowUp; module.exports._isForeignName = isForeignName; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
