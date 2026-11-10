@@ -2020,7 +2020,12 @@ async function narrowingStart(extracted, messages, outcome) {
     if (!out.some(o => o.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',') === keys)) out.push(it);
   }
   if (!out.length) return null;
-  const st = { v: 1, car: carLabelOf(res.vehicle), schema: { catalog: q.c || null, vid: q.vid || null, ssd: q.ssd || null }, items: out, cur: 0 };
+  // The catalog reference for the card diagrams: from the rows (the chat's vehicle object has
+  // no query -- 10.11 #518: card without a picture).
+  const rs = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
+  const schema = { catalog: rs.catalog || q.c || null, vid: rs.vid || q.vid || null, ssd: rs.ssd || q.ssd || null };
+  if (!schema.vid) console.warn('[narrow] no catalog reference for the card diagrams');
+  const st = { v: 1, car: carLabelOf(res.vehicle), schema, items: out, cur: 0 };
   return narrowContinue(st, '');
 }
 /** The customer answered a narrowing question (button or text). null = not an answer -> normal flow. */
