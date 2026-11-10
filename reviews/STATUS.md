@@ -95,3 +95,4 @@
 | 588, 589 | 2026-11-10_1848 | ТО without car → VIN → X5 E70 kit | ✓ | ok | — |
 | 599 | 2026-11-10_1917 | 230i ТО → «и тормозные колодки» → groups «02 Объем работ…» + «34 Тормозные механизмы» | ✗ | ✅ fixed | `a5500d7` owner: only 34 for brakes → group 02 dropped from the group question whenever the part has its own group (kept only if 02 is the only one) |
 | 591–598, 600, 601 | 2026-11-10_1917 | ТО kits (X5 E70, 230i), X5 E70 pads → Value Line unit → positions, 230i 34 units | ✓ | ok | — |
+| 602–699 | 2026-11-10_2050 | owner's test series on the group-first narrowing (pads per axle / service kit, ТО + pads, колпак ступицы, поперечный рычаг, гидроопора, ступица, приводной вал, стартер, карданный вал; lists with «Готово, дальше») | ✓ | ok — owner: tests only, already corrected, not counted | — |
