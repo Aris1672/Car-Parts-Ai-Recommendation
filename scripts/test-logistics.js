@@ -416,7 +416,10 @@ t('shadow: picks for paid new positions only, once; manager decision when the po
   const moved = [d('1', [{ id: 'a', status: 'ЗАКАЗАНО СРОЧНЫМ' }, { id: 'x', status: 'Отказ клиента' }, { id: 'y', status: 'Заказ принят' }])];
   assert.deepStrictEqual(shadow.toResolve(moved, new Set(['a', 'x', 'y'])).map(x => `${x.p.id}:${x.outcome}`), ['a:ordered', 'x:cancelled']);
   assert.ok(shadow.sameSupplier('zlataauto.ru [online]', null, 'Zlataauto.ru', null));
-  assert.ok(!shadow.sameSupplier('A', '1', 'A', '2'));
+  // 10.11: names decide; a shared id never makes two differently named suppliers «the same»
+  assert.ok(shadow.sameSupplier('A', '1', 'A', '2'));
+  assert.ok(!shadow.sameSupplier('Алексей Химки', '77', 'autoskyimport.ru [online]', '77'));
+  assert.ok(shadow.sameSupplier(null, '77', 'autoskyimport.ru [online]', '77'));
 });
 t('VAG 1T0075111: the manager\'s cheap supplier is not «suspicious»; never recommend 90 % dearer', () => {
   const raw = [
@@ -492,5 +495,22 @@ t('Gates T36296: compared with the live price of the order\'s supplier; 7 % chea
     assert.ok(why[0].startsWith('дешевле текущего предложения Рольф Химки нал (1\u00a0469 ₽) на'), why[0]);
     assert.ok(why.includes('в заказе записана закупка 1\u00a0189 ₽'), why.join(' | '));
   }
+});
+t('own stock «Наше наличие» is never replaced; current supplier matched by name, not a shared id', () => {
+  const raw = [
+    { number: '34116889585', brand: 'BMW', price: 7000, priceIn: 6895, deliveryPeriod: 72, distributorId: 9 },
+    { number: '34116889585', brand: 'BMW', price: 9000, priceIn: 8800, deliveryPeriod: 24, distributorId: 8 }];
+  const offers = sup.scoreOffers(sup.normalizeOffers('34116889585', raw, new Map([['9', 'motexc.ru [online]'], ['8', 'autoeuro.ru [online]']])), [], 1, 'BMW');
+  // «Наше наличие» is not even in the search results -> still kept
+  const kept = sup.preferCurrent(offers, { supplier: 'Наше наличие', supplierId: '1', priceIn: 23000, priceOut: 30000 });
+  assert.strictEqual(kept[0].supplier, 'Наше наличие'); assert.ok(kept[0].ownStock);
+  assert.deepStrictEqual(sup.explainPick(kept, { supplier: 'Наше наличие', supplierId: '1', priceIn: 23000 }), ['деталь есть на своём складе — заказывать у других поставщиков не нужно']);
+  // «Алексей Химки» shares a distributor id with autoskyimport -> NOT treated as the same supplier
+  const raw2 = [
+    { number: '61217604808', brand: 'BMW', price: 38000, priceIn: 37883, deliveryPeriod: 24, distributorId: 77 },
+    { number: '61217604808', brand: 'BMW', price: 31000, priceIn: 30000, deliveryPeriod: 24, distributorId: 78 }];
+  const o2 = sup.scoreOffers(sup.normalizeOffers('61217604808', raw2, new Map([['77', 'autoskyimport.ru [online]'], ['78', 'Алексей Химки']])), [], 1, 'BMW', { supplier: 'Алексей Химки', supplierId: '77' });
+  const k2 = sup.preferCurrent(o2, { supplier: 'Алексей Химки', supplierId: '77', priceOut: 40000 });
+  assert.strictEqual(k2[0].supplier, 'Алексей Химки');
 });
 console.log('test-logistics (replacements): ok');

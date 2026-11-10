@@ -101,16 +101,16 @@ module.exports = async function handler(req, res) {
             const od = stages.ts(o.summary.date);
             const okList = all0.filter(x => !decisions.slowerThanPromised(p, x, od));
             const slow = all0.filter(x => decisions.slowerThanPromised(p, x, od)).map(o => ({ ...o, slower: true, reasons: [`медленнее срока, который выбрал клиент (до ${Math.ceil((p.deadlineMaxHours || p.deadlineHours) / 24)} дн.)`, ...o.reasons] }));
-            const kept = suppliers.preferCurrent(okList, { supplier: p.supplier, supplierId: p.supplierId, priceOut: p.price });
+            const kept = suppliers.preferCurrent(okList, { supplier: p.supplier, supplierId: p.supplierId, priceOut: p.price, priceIn: p.priceIn });
             const offers = [...kept, ...slow];
             offers.fetchedAt = all0.fetchedAt;
             const k = suppliers.nameKey(p.supplier);
-            const curOffer = offers.find(x => (p.supplierId && x.supplierId === p.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
+            const curOffer = offers.find(x => suppliers.sameSup(x.supplier, x.supplierId, p.supplier, p.supplierId)) || null;
             if (kept.length) offers[0] = { ...offers[0], pickWhy: suppliers.explainPick(kept, { supplier: p.supplier, supplierId: p.supplierId, priceIn: p.priceIn }) };
             else if (offers[0]) offers[0] = { ...offers[0], noPick: true };
             // 08.11 (order 286730444): same rules as the decision card — no «agent's pick» above the customer's price
             const pick = kept[0] || null;
-            const pickIsCurrent = !!(pick && ((p.supplierId && pick.supplierId === p.supplierId) || (k && suppliers.nameKey(pick.supplier) === k)));
+            const pickIsCurrent = !!(pick && suppliers.sameSup(pick.supplier, pick.supplierId, p.supplier, p.supplierId));
             const overPrice = !!(pick && p.price && (pick.priceIn || pick.price) > p.price + 0.5);
             if (overPrice && !pickIsCurrent) offers[0] = { ...offers[0], noPick: true };
             const replacements = all0.length ? null : await suppliers.replacementsFor(p.number, p.brand || 'BMW').catch(() => null);
@@ -140,17 +140,17 @@ module.exports = async function handler(req, res) {
               const all = await suppliers.offersFor(p.number, p.brand || 'BMW', p.quantity || 1, false, { supplier: item.supplier, supplierId: item.supplierId });
               // the customer chose the order's offer (price + delivery): only offers not slower than that promise may be picked
               const od = stages.ts(item.date);
-              const list = suppliers.preferCurrent(all.filter(o => !decisions.slowerThanPromised(p, o, od)), { supplier: item.supplier, supplierId: item.supplierId, priceOut: p.price });
+              const list = suppliers.preferCurrent(all.filter(o => !decisions.slowerThanPromised(p, o, od)), { supplier: item.supplier, supplierId: item.supplierId, priceOut: p.price, priceIn: p.priceIn });
               list.fetchedAt = all.fetchedAt;
               if (list[0]) list[0] = { ...list[0], pickWhy: suppliers.explainPick(list, { supplier: item.supplier, supplierId: item.supplierId, priceIn: p.priceIn }) };
               const k = suppliers.nameKey(item.supplier);
-              const cur = all.find(x => (item.supplierId && x.supplierId === item.supplierId) || (k && suppliers.nameKey(x.supplier) === k)) || null;
+              const cur = all.find(x => suppliers.sameSup(x.supplier, x.supplierId, item.supplier, item.supplierId)) || null;
               const repl = all.length ? null : await suppliers.replacementsFor(p.number, p.brand || 'BMW').catch(() => null);
               const fastest = all.length ? [...all].sort((a, b) => (a.hoursMax || a.hours || 0) - (b.hoursMax || b.hours || 0))[0] : null;
               // 08.11 (RAF FILTER RSTC067BM): the order's supplier has no offer any more and every offer is above the
               // customer's price -> no switch to recommend; the card asks to agree the price with the customer.
               // same supplier = by id / normalized name (08.11: object identity never matched after preferCurrent's copy)
-              const pickIsCurrent = !!(list[0] && ((item.supplierId && list[0].supplierId === item.supplierId) || suppliers.nameKey(list[0].supplier) === suppliers.nameKey(item.supplier)));
+              const pickIsCurrent = !!(list[0] && suppliers.sameSup(list[0].supplier, list[0].supplierId, item.supplier, item.supplierId));
               const overPrice = !!(list[0] && p.price && (list[0].priceIn || list[0].price) > p.price + 0.5);
               return { id: p.id, pick: list[0] || null, overPrice, pickIsCurrent, customerPrice: p.price || null, current: cur, count: list.length, total: all.length, slower: all.length - list.length,
                 promisedDays: p.deadlineMaxHours ? Math.ceil(p.deadlineMaxHours / 24) : null, promiseExpired: decisions.promiseExpired(p, od),
@@ -186,7 +186,8 @@ module.exports = async function handler(req, res) {
       case 'shadowStats': {
         const days = Math.min(180, Math.max(7, parseInt(body.days, 10) || 60));
         const [rows, sup] = await Promise.all([shadow.rows(days), suppliers.supplierStats(120).catch(() => [])]);
-        return res.json({ success: true, days, rows, suppliers: sup, margin: Number(process.env.LOGISTICS_SWITCH_MARGIN) || 0.05 });
+        return res.json({ success: true, days, rows, suppliers: sup, margin: Number(process.env.LOGISTICS_SWITCH_MARGIN) || 0.05,
+          ownStock: String(process.env.LOGISTICS_OWN_STOCK || 'наше наличие').split(',').map(x => x.trim()).filter(Boolean) });
       }
       case 'statuses': {
         const list = await abcp.apiGet('cp/statuses');

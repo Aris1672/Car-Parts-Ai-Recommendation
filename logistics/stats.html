@@ -82,7 +82,7 @@
     <div class="chart"><h3>Совпадение по сумме позиции</h3><div class="sub">Доля решений, где менеджер выбрал того же поставщика, что и агент</div><div id="chPrice"></div></div>
     <div class="chart"><h3>Совпадение по типу поставщика</h3><div class="sub">Доверенный (БорисХоф…), с историей у магазина (5+ поставок), новый</div><div id="chType"></div></div>
     <div class="chart"><h3>Совпадение по поставщику менеджера</h3><div class="sub">Поставщики с 5+ решениями</div><div id="chSup"></div></div>
-    <div class="chart"><h3>Когда не совпали — чей выбор дешевле</h3><div class="sub">Разница закупки по позициям, где агент выбрал бы другого поставщика</div><div id="chDiff"></div></div>
+    <div class="chart"><h3>Когда не совпали — чей выбор дешевле</h3><div class="sub">Экономия агента по группам: у надёжных поставщиков, у новых, и «проверить» — дешевле на 40%+</div><div id="chDiff"></div></div>
     <div class="chart wide"><h3>Готовность к автопилоту</h3><div class="sub">Группа «сумма × тип поставщика». Зелёным — 20+ решений и совпадение 95%+: такие заказы агент мог бы оформлять сам.</div><div class="scroll" id="ready"></div></div>
     <div class="chart wide"><h3>Где агент и менеджер разошлись</h3><div class="sub">Последние расхождения: что выбрал менеджер, что предлагал агент и чем закончилось (поставка по истории статусов)</div><div class="scroll" id="diffs"></div></div>
   </div>
@@ -172,22 +172,45 @@
     const rows = data.rows || [];
     const supStats = new Map((data.suppliers || []).map(s => [nk(s.supplier), s]));
     const typeOf = r => { if (r.agent_trusted) return 'доверенный'; const s = supStats.get(nk(r.mgr_supplier || r.cur_supplier)); return s && s.judged >= 5 ? 'с историей' : 'новый'; };
-    const decided = rows.filter(r => r.outcome === 'ordered' && r.agent_supplier);
-    const match = r => (r.agent_supplier_id && r.mgr_supplier_id ? String(r.agent_supplier_id) === String(r.mgr_supplier_id) : nk(r.agent_supplier) === nk(r.mgr_supplier));
+    // 10.11: own stock is never replaced (rows recorded before the fix are excluded); same supplier = same name
+    const own = (data.ownStock || ['наше наличие']).map(nk);
+    const isOwn = n => { const k = nk(n); return !!k && own.some(t => k.includes(t)); };
+    const decided = rows.filter(r => r.outcome === 'ordered' && r.agent_supplier && !isOwn(r.mgr_supplier) && !isOwn(r.cur_supplier));
+    const ownSkipped = rows.filter(r => r.outcome === 'ordered' && (isOwn(r.mgr_supplier) || isOwn(r.cur_supplier))).length;
+    const diffRub = r => ((Number(r.mgr_price_in) || 0) - (Number(r.agent_price_in) || 0)) * (r.quantity || 1);
+    const sameName = r => (nk(r.agent_supplier) && nk(r.mgr_supplier) ? nk(r.agent_supplier) === nk(r.mgr_supplier) : String(r.agent_supplier_id) === String(r.mgr_supplier_id));
+    // 10.11: a difference under 1 % of the manager's price counts as the same choice («практически одинаково»)
+    const tiny = r => { const m = Number(r.mgr_price_in) || 0, a = Number(r.agent_price_in) || 0; return m > 0 && a > 0 && Math.abs(m - a) < 0.01 * m; };
+    const match = r => sameName(r) || tiny(r);
     const agree = decided.filter(match), differ = decided.filter(r => !match(r));
     const waiting = rows.filter(r => !r.outcome).length, cancelled = rows.filter(r => r.outcome === 'cancelled').length;
-    const diffRub = r => ((Number(r.mgr_price_in) || 0) - (Number(r.agent_price_in) || 0)) * (r.quantity || 1);
-    const agentCheaper = differ.filter(r => diffRub(r) > 0), agentDearer = differ.filter(r => diffRub(r) < 0);
-    const saved = agentCheaper.reduce((a, r) => a + diffRub(r), 0), extra = -agentDearer.reduce((a, r) => a + diffRub(r), 0);
+    // 10.11: savings split — reliable supplier / new supplier / «проверить» (agent ≥ 40 % cheaper: maybe not original, grey import…)
+    const groupOf = r => {
+      const m = Number(r.mgr_price_in) || 0, a = Number(r.agent_price_in) || 0;
+      if (m > 0 && a > 0 && a < 0.6 * m) return 'check';
+      if (r.agent_trusted) return 'reliable';
+      const s = supStats.get(nk(r.agent_supplier));
+      return s && s.judged >= 5 && s.onTimeShare >= 0.6 ? 'reliable' : 'new';
+    };
+    const GROUP = { reliable: 'надёжный поставщик', new: 'новый поставщик', check: 'проверить: дешевле на 40%+' };
+    const cheaper = differ.filter(r => diffRub(r) > 0), agentDearer = differ.filter(r => diffRub(r) < 0);
+    const sumOf = list => list.reduce((a, r) => a + diffRub(r), 0);
+    const byG = g => cheaper.filter(r => groupOf(r) === g);
+    const saved = sumOf(byG('reliable')), savedNew = sumOf(byG('new')), savedCheck = sumOf(byG('check'));
+    const agentCheaper = cheaper;
+    const extra = -sumOf(agentDearer);
     const onTime = r => { if (!r.arrived_at || !r.order_date || !r.promised_hours) return null; return Date.parse(r.arrived_at) <= Date.parse(r.order_date) + (r.promised_hours + 24) * 3600000; };
     const judged = decided.map(onTime).filter(v => v != null);
     const rate = decided.length ? pct(agree.length, decided.length) : null;
+    void agentCheaper;
 
     $('tiles').innerHTML = [
       ['', num(rows.length), 'выборов агента записано'],
-      ['', num(decided.length), `менеджер уже заказал (ещё ждут: ${num(waiting)}${cancelled ? `, отменено: ${num(cancelled)}` : ''})`],
-      [rate == null ? '' : rate >= 95 ? 'green' : rate >= 80 ? 'amber' : 'red', rate == null ? '—' : rate + '%', `совпадение: менеджер выбрал того же поставщика (${num(agree.length)} из ${num(decided.length)})`],
-      [saved ? 'green' : '', saved ? '−' + rub(saved) : '0 ₽', `агент купил бы дешевле в ${num(agentCheaper.length)} случаях (по закупке)`],
+      ['', num(decided.length), `менеджер уже заказал (ещё ждут: ${num(waiting)}${cancelled ? `, отменено: ${num(cancelled)}` : ''}${ownSkipped ? `; со своего склада: ${num(ownSkipped)} — не считаются` : ''})`],
+      [rate == null ? '' : rate >= 95 ? 'green' : rate >= 80 ? 'amber' : 'red', rate == null ? '—' : rate + '%', `совпадение: тот же поставщик или разница меньше 1% (${num(agree.length)} из ${num(decided.length)})`],
+      [saved ? 'green' : '', saved ? '−' + rub(saved) : '0 ₽', `агент дешевле у надёжных поставщиков (${num(byG('reliable').length)} поз.) — если у поставщика менеджера нет скрытой скидки`],
+      ['', savedNew ? '−' + rub(savedNew) : '0 ₽', `агент дешевле у новых поставщиков (${num(byG('new').length)} поз.) — без истории у магазина`],
+      [savedCheck ? 'amber' : '', savedCheck ? '−' + rub(savedCheck) : '0 ₽', `проверить: агент дешевле на 40%+ (${num(byG('check').length)} поз.) — оригинал ли?`],
       [extra ? 'amber' : '', extra ? '+' + rub(extra) : '0 ₽', `агент выбрал бы дороже в ${num(agentDearer.length)} случаях — ради срока или надёжности`],
       ['', judged.length ? pct(judged.filter(Boolean).length, judged.length) + '%' : '—', `заказов менеджера пришли вовремя (из ${num(judged.length)} уже доставленных)`],
     ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
@@ -221,9 +244,10 @@
     const bySup = group(decided, r => r.mgr_supplier || '?');
     hbars($('chSup'), rateRows(bySup, Object.keys(bySup).filter(k => bySup[k].n >= 5).sort((a, b) => bySup[b].n - bySup[a].n).slice(0, 10)), { max: 100 });
     hbars($('chDiff'), [
-      { label: 'Агент дешевле', value: saved, text: rub(saved) + ` · ${agentCheaper.length}`, color: C.good, tip: `В ${agentCheaper.length} случаях агент купил бы дешевле, всего на <b>${rub(saved)}</b>` },
-      { label: 'Агент дороже', value: extra, text: rub(extra) + ` · ${agentDearer.length}`, color: C.warning, tip: `В ${agentDearer.length} случаях агент выбрал бы дороже (быстрее или надёжнее), всего на <b>${rub(extra)}</b>` },
-      { label: 'Та же цена', value: differ.length - agentCheaper.length - agentDearer.length, text: num(differ.length - agentCheaper.length - agentDearer.length), color: C.blue },
+      { label: 'Надёжные поставщики', value: saved, text: rub(saved) + ` · ${byG('reliable').length}`, color: C.good, tip: `Агент дешевле у доверенных или проверенных поставщиков: <b>${rub(saved)}</b> в ${byG('reliable').length} поз.` },
+      { label: 'Новые поставщики', value: savedNew, text: rub(savedNew) + ` · ${byG('new').length}`, color: C.blue, tip: `Агент дешевле у поставщиков без истории у магазина: <b>${rub(savedNew)}</b>` },
+      { label: 'Проверить (40%+)', value: savedCheck, text: rub(savedCheck) + ` · ${byG('check').length}`, color: C.warning, tip: `Агент дешевле на 40% и больше — проверьте, оригинал ли: <b>${rub(savedCheck)}</b>` },
+      { label: 'Агент дороже', value: extra, text: rub(extra) + ` · ${agentDearer.length}`, color: C.orange, tip: `Агент выбрал бы дороже (быстрее или надёжнее): <b>${rub(extra)}</b>` },
     ].filter(r => r.value > 0));
 
     // readiness table: price band × supplier type
@@ -243,7 +267,7 @@
         <td><a href="/logistics" style="color:var(--text)">${esc(r.number)}</a><div class="small">${esc(r.brand || '')} ${esc(r.article || '')} × ${r.quantity || 1}</div></td>
         <td>${esc(r.mgr_supplier || '—')}<div class="small">${r.mgr_price_in ? rub(r.mgr_price_in) : ''}</div></td>
         <td>${esc(r.agent_supplier || '—')}<div class="small">${r.agent_price_in ? rub(r.agent_price_in) : ''}${r.agent_days != null ? ` · до ${r.agent_days} дн.` : ''}</div></td>
-        <td class="num" style="color:${d > 0 ? 'var(--green)' : d < 0 ? 'var(--amber)' : 'inherit'}">${d > 0 ? '−' + rub(d) : d < 0 ? '+' + rub(-d) : '0'}</td>
+        <td class="num" style="color:${d > 0 ? 'var(--green)' : d < 0 ? 'var(--amber)' : 'inherit'}">${d > 0 ? '−' + rub(d) : d < 0 ? '+' + rub(-d) : '0'}${d > 0 ? `<div class="small" style="text-align:right">${GROUP[groupOf(r)]}</div>` : ''}</td>
         <td class="small">${esc(r.agent_why || '')}</td>
         <td>${ot == null ? '<span class="small">ещё не пришло</span>' : ot ? '<span class="pill ok">вовремя</span>' : '<span class="pill no">опоздал</span>'}${r.refused ? ' <span class="pill no">отказ</span>' : ''}</td></tr>`;
     }).join('')}</table>` : '<div class="small">Расхождений пока нет.</div>';
