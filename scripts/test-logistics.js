@@ -239,18 +239,18 @@ t('pick explains itself (order 288688455)', () => {
     { number: '11128571308', price: 31100, priceIn: 33785, deliveryPeriod: 48, distributorId: 1 },
     { number: '11128571308', price: 38400, priceIn: 41735, deliveryPeriod: 96, distributorId: 2 },
     { number: '11128571308', price: 51900, priceIn: 43250, deliveryPeriod: 48, distributorId: 3 }],
-    new Map([['1', 'trinity-parts.ru [online]'], ['2', 'froza.ru [online]'], ['3', 'zlataauto.ru [online]']]));
+    new Map([['1', 'trinity-parts.ru [online]'], ['2', 'froza.ru [online]'], ['3', 'autoeuro.ru [online]']]));
   const sc = sup.scoreOffers(o, [
     { supplier: 'trinity-parts.ru [online]', judged: 5, onTimeShare: 0.2, positions: 5, refusedShare: 0 },
-    { supplier: 'zlataauto.ru [online]', judged: 80, onTimeShare: 0.78, positions: 90, refusedShare: 0.12 }], 1);
+    { supplier: 'autoeuro.ru [online]', judged: 80, onTimeShare: 0.78, positions: 90, refusedShare: 0.12 }], 1);
   assert.strictEqual(sc[0].supplier, 'froza.ru [online]');
-  const why = sup.explainPick(sc, { supplier: 'zlataauto.ru [online]', priceIn: 43250 });
-  assert.strictEqual(why[0], 'дешевле текущего предложения zlataauto.ru [online] (43\u00a0250 ₽) на 1\u00a0515 ₽');
+  const why = sup.explainPick(sc, { supplier: 'autoeuro.ru [online]', priceIn: 43250 });
+  assert.strictEqual(why[0], 'дешевле текущего предложения autoeuro.ru [online] (43\u00a0250 ₽) на 1\u00a0515 ₽');
   assert.ok(why[1].startsWith('самый дешёвый вариант (trinity-parts.ru [online], 33\u00a0785 ₽) отброшен — опаздывает в 80% случаев'), why[1]);
   assert.ok(why.includes('новый поставщик — истории доставок ещё нет'));
   const tr = sc.find(x => x.supplier.startsWith('trinity'));
   assert.ok(tr.reasons[0].startsWith('дешевле выбора агента на 7\u00a0950 ₽, но опаздывает в 80% случаев'), tr.reasons[0]);
-  assert.ok(sc.find(x => x.supplier.startsWith('zlata')).reasons[0].startsWith('дороже выбора агента на 1\u00a0515 ₽ (4%)'));
+  assert.ok(sc.find(x => x.supplier.startsWith('autoeuro')).reasons[0].startsWith('дороже выбора агента на 1\u00a0515 ₽ (4%)'));
 });
 t('suspiciously cheap / other brand offers lose and are flagged', () => {
   const o = sup.normalizeOffers('31108866771', [
@@ -561,5 +561,23 @@ t('10.11: Рольф cheaper -> Рольф; manager\'s supplier missing now -> n
   const k2 = sup.preferCurrent(o2, { supplier: 'Рольф Ясенево нал', priceIn: 62833 });
   assert.strictEqual(k2[0].supplier, 'Рольф Ясенево нал'); assert.ok(k2[0].missingNow);
   assert.ok(sup.explainPick(k2, { supplier: 'Рольф Ясенево нал', priceIn: 62833 })[0].startsWith('у поставщика из заказа сейчас нет предложения'));
+});
+t('11.11: an unproven supplier is never paid more than the cheapest proven one — with or without a manager', () => {
+  // Masuma case: adeo.pro (no history) in stock but 100 ₽ dearer than a slow supplier with 40 deliveries, 60 % on time
+  const o = sup.normalizeOffers('MS1234', [
+    { number: 'MS1234', price: 2000, priceIn: 2000, deliveryPeriod: 240, distributorId: 1 },
+    { number: 'MS1234', price: 2100, priceIn: 2100, deliveryPeriod: 0, distributorId: 2 }], new Map([['1', 'autoeuro.ru [online]'], ['2', 'adeo.pro [online]']]));
+  const sc = sup.scoreOffers(o, [{ supplier: 'autoeuro.ru [online]', judged: 40, onTimeShare: 0.6, positions: 40, refusedShare: 0 }], 1);
+  assert.strictEqual(sc[0].supplier, 'autoeuro.ru [online]');   // no «current» passed at all = autopilot
+  assert.ok(sc[0].riskGated && sc[0].riskGated.supplier === 'adeo.pro [online]');
+  assert.ok(sup.explainPick(sc, {}).some(x => x.includes('непроверенное обещание')));
+  // the proven one is late most of the time -> no reference, the faster new one may win
+  const sc2 = sup.scoreOffers(o, [{ supplier: 'autoeuro.ru [online]', judged: 40, onTimeShare: 0.3, positions: 40, refusedShare: 0 }], 1);
+  assert.ok(!sc2[0].riskGated);
+});
+t('11.11: Михаил\'s trusted list', () => {
+  for (const n of ['Рольф Ясенево нал', 'ЦС Автодом Сток', 'zlataauto.ru [online]', 'Мезенцев', 'ОригаТо', 'germsp.ru [online]', 'Марат', 'БорисХоф Север'])
+    assert.ok(sup.isTrusted(n), n);
+  assert.ok(!sup.isTrusted('adeo.pro [online]'));
 });
 console.log('test-logistics (retro): ok');

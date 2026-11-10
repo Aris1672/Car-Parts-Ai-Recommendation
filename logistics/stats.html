@@ -98,6 +98,7 @@
     <div class="chart"><h3>Совпадение по типу поставщика</h3><div class="sub">Доверенный (БорисХоф…), с историей у магазина (5+ поставок), новый</div><div id="chType"></div></div>
     <div class="chart"><h3>Совпадение по поставщику менеджера</h3><div class="sub">Поставщики с 5+ решениями</div><div id="chSup"></div></div>
     <div class="chart wide"><h3>Готовность к автопилоту</h3><div class="sub">Группа «сумма × тип поставщика». Зелёным — 20+ решений и совпадение 95%+: такие заказы агент мог бы оформлять сам.</div><div class="scroll" id="ready"></div></div>
+    <div class="chart wide"><h3>Почему менеджер выбрал иначе</h3><div class="sub">Агент не копирует менеджера — он учится на причинах. Отметьте причину у расхождения ниже (одно нажатие). Частые причины станут правилами агента, редкие останутся решением менеджера.</div><div id="reasons"></div></div>
     <div class="chart wide" id="diffsBox"><h3>Где агент и менеджер разошлись</h3><div class="sub" id="diffsHead"></div><div class="scroll" id="diffs"></div></div>
   </div>
   <div class="small" id="foot"></div>
@@ -183,14 +184,29 @@
   }
 
   // ── data ──
-  let data = null, diffFilter = '';
+  let data = null, diffFilter = '', REASONS = {};
   document.addEventListener('click', e => {
     const g = e.target.closest('[data-grp]');
     if (g && g.dataset.grp) { diffFilter = g.dataset.grp; render(); $('diffsBox').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (e.target.id === 'diffsAll') { e.preventDefault(); diffFilter = ''; render(); }
   });
+  // 11.11: the manager's reason for a different choice
+  async function saveReason(id, reason, note) {
+    const r = data.rows.find(x => x.position_id === id);
+    try {
+      await api('shadowReason', { positionId: id, reason, note, author: st.get('lg_name') || '' });
+      if (r) { r.mgr_reason = reason || null; r.mgr_reason_note = note || null; }
+      render();
+    } catch (err) { alert('Не сохранилось: ' + err.message); }
+  }
+  document.addEventListener('change', e => {
+    const el = e.target.closest('[data-reason],[data-note]');
+    if (!el) return;
+    const id = el.dataset.reason || el.dataset.note, tr = el.closest('tr');
+    saveReason(id, tr.querySelector('[data-reason]').value, tr.querySelector('[data-note]').value.trim());
+  });
   async function load() {
-    data = await api('shadowStats', { days: $('days').value });
+    data = await api('shadowStats', { days: $('days').value }); REASONS = data.reasons || {};
     $('login').classList.add('hidden'); $('app').classList.remove('hidden');
     $('resetBtn').classList.toggle('hidden', data.role === 'logistics');
     $('retroBtn').classList.toggle('hidden', data.role === 'logistics');
@@ -332,7 +348,7 @@
     $('diffsHead').innerHTML = f
       ? `Показано: <b>${esc(f[0])}</b> — ${num(shown.length)} поз., сумма <b>${shownSum > 0 ? '−' : shownSum < 0 ? '+' : ''}${rub(Math.abs(shownSum))}</b>, по убыванию разницы. <a href="#" id="diffsAll" style="color:var(--blue)">Показать последние расхождения</a>`
       : 'Последние расхождения: что выбрал менеджер, что предлагал агент и чем закончилось (поставка по истории статусов). Нажмите строку в таблице итогов выше, чтобы увидеть все позиции группы.';
-    $('diffs').innerHTML = shown.length ? `<table><tr><th>Дата</th><th>Заказ / деталь</th><th>Менеджер</th><th>Агент</th><th>Разница</th><th>Почему агент так выбрал</th><th>Поставка</th></tr>${shown.map(r => {
+    $('diffs').innerHTML = shown.length ? `<table><tr><th>Дата</th><th>Заказ / деталь</th><th>Менеджер</th><th>Агент</th><th>Разница</th><th>Почему агент так выбрал</th><th>Поставка</th><th>Почему менеджер выбрал иначе</th></tr>${shown.map(r => {
       const d = diffRub(r), ot = onTime(r);
       return `<tr><td class="small">${esc(day(r.ordered_at || r.picked_at).slice(8, 10) + '.' + day(r.ordered_at || r.picked_at).slice(5, 7))}${r.retro ? '<div><span class="pill wait">ретро</span></div>' : ''}</td>
         <td><a href="/logistics" style="color:var(--text)">${esc(r.number)}</a><div class="small">${esc(r.brand || '')} ${esc(r.article || '')} × ${r.quantity || 1}</div></td>
@@ -340,8 +356,17 @@
         <td>${esc(r.agent_supplier || '—')}<div class="small">${r.agent_price_in ? rub(r.agent_price_in) : ''}${r.agent_days != null ? ` · до ${r.agent_days} дн.` : ''}</div></td>
         <td class="num" style="color:${d > 0 ? 'var(--green)' : d < 0 ? 'var(--amber)' : 'inherit'}">${d > 0 ? '−' + rub(d) : d < 0 ? '+' + rub(-d) : '0'}${d > 0 ? `<div class="small" style="text-align:right">${GROUP[groupOf(r)]}</div>` : ''}</td>
         <td class="small">${esc(r.agent_why || '')}</td>
-        <td>${ot == null ? '<span class="small">ещё не пришло</span>' : ot ? '<span class="pill ok">вовремя</span>' : '<span class="pill no">опоздал</span>'}${r.refused ? ' <span class="pill no">отказ</span>' : ''}</td></tr>`;
+        <td>${ot == null ? '<span class="small">ещё не пришло</span>' : ot ? '<span class="pill ok">вовремя</span>' : '<span class="pill no">опоздал</span>'}${r.refused ? ' <span class="pill no">отказ</span>' : ''}</td>
+        <td><select data-reason="${esc(r.position_id)}" style="max-width:220px"><option value="">— причина —</option>${Object.entries(REASONS).map(([k, v]) => `<option value="${k}"${r.mgr_reason === k ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select>
+          <input data-note="${esc(r.position_id)}" value="${esc(r.mgr_reason_note || '')}" placeholder="комментарий" style="display:block;margin-top:4px;max-width:220px"></td></tr>`;
     }).join('')}</table>` : '<div class="small">Расхождений пока нет.</div>';
+    // reasons summary
+    const marked = differ.filter(r => r.mgr_reason);
+    const cnt = {}; for (const r of marked) cnt[r.mgr_reason] = (cnt[r.mgr_reason] || 0) + 1;
+    const notes = marked.filter(r => r.mgr_reason_note).slice(0, 8);
+    $('reasons').innerHTML = marked.length
+      ? `<div class="small" style="margin-bottom:6px">Отмечено ${num(marked.length)} из ${num(differ.length)} расхождений.</div><table><tr><th>Причина</th><th style="text-align:right">Раз</th><th style="text-align:right">Доля</th></tr>${Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr><td>${esc(REASONS[k] || k)}</td><td class="num">${n}</td><td class="num">${pct(n, marked.length)}%</td></tr>`).join('')}</table>${notes.length ? `<div class="small" style="margin-top:8px">Комментарии: ${notes.map(r => `«${esc(r.mgr_reason_note)}» (${esc(r.number)})`).join(' · ')}</div>` : ''}`
+      : `<div class="small">Пока не отмечено ни одной причины — ${num(differ.length)} расхождений ждут отметки.</div>`;
     const first = rows.length ? rows.reduce((m, r) => (r.picked_at < m ? r.picked_at : m), rows[0].picked_at) : null;
     $('foot').textContent = `${first ? `Статистика собирается с ${new Date(first).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. ` : ''}Данные за ${data.days} дн. · «Разница» = закупка менеджера минус закупка агента × количество; зелёным — агент дешевле.`;
   }
