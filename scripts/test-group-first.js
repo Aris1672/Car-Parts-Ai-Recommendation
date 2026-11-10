@@ -92,3 +92,9 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
     console.log('test-group-first: foreign names ok');
   }
 }
+{
+  // Group 88 «Детали и пакеты: ремонт и обслуживание» is never a group (owner 10.11 #590).
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'lib', 'laximo.js'), 'utf8');
+  a.ok(/NOT_A_PLACE_GROUP_RE = \/\^\(02\|88\)\//.test(src));
+  console.log('test-group-first: group 88 excluded ok');
+}
