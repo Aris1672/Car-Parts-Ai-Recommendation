@@ -67,3 +67,9 @@ const XM = [['13715A1F9C2','Воздуховод'],['51749451352','Воздух�
     console.log('test-narrowing: chat glue ok');
   })().catch(e => { console.error(e); process.exit(1); });
 }
+{
+  // No row IS the asked part -> nothing (10.11 #531-535: a trim kit came through as pads).
+  const trim = [{ oem: '51137480123', name: 'Ремкомплект для черной дизайн. накладки' }];
+  a.strictEqual(n.headFilter(trim, n.stemsFor('тормозные колодки', ['колодка'])).length, 0);
+  console.log('test-narrowing: no false part ok');
+}

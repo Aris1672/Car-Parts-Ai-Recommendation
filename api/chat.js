@@ -1489,7 +1489,7 @@ async function lookupLaximo(extracted, messages, outcome = {}, lopts = {}) {
   const equipment = plainPartSearch ? equipmentAnswerFrom(messages) : null;
   // customerText: the tyre route reads the asked size («235/55 R18») from it.
   const userTextAll = (messages || []).filter(m => m.role === 'user' && typeof m.content === 'string').map(m => m.content).join(' \n ');
-  const searchOpts = { ...(equipment ? { equipment } : {}), customerText: userTextAll };
+  const searchOpts = { ...(equipment ? { equipment } : {}), customerText: userTextAll, ...(lopts.narrow ? { narrow: true } : {}) };
   if (equipment) console.log(`[laximo] equipment answer: ${equipment.label} = ${equipment.answer}`);
 
   const started = Date.now();
@@ -2001,8 +2001,12 @@ async function narrowingStart(extracted, messages, outcome) {
   const kws = [...new Set((extracted.partKeywords || []).map(k => String(k).toLowerCase().trim()).filter(Boolean))];
   const text = lastUserMessage(messages) || '';
   const items = [];
+  const padsAsked = kws.some(k => /колодк/.test(k));
   for (const kw of kws) {
-    let rows = res.parts.filter(p => p && p.oem && !p.crossSell && String(p.query || '').toLowerCase().split(/\s*,\s*/).includes(kw));
+    if (padsAsked && /^(передн\S*\s+|задн\S*\s+)?(тормозн\S*\s+)?накладк\S*$/.test(kw)) continue; // the pads' catalog word, not a part
+    let rows = res.parts.filter(p => p && p.oem && !p.crossSell && String(p.query || '').toLowerCase().split(/\s*,\s*/).some(q => q === kw || (padsAsked && /колодк/.test(kw) && /накладк/.test(q))));
+    // Brake pads are BMW main group 34 (not «Накладка порога», «дизайн. накладки», #531-535).
+    if (/колодк/.test(kw)) rows = rows.filter(p => narrowing.groupOf(p.oem) === '34');
     if (!rows.length) continue;
     const vocab = (extracted.partSearchNames || {})[kw] || [];
     const fixed = rows.filter(p => p.fixedName); // names-table rows (owner's pairs) = the asked part
