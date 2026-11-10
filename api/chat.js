@@ -2377,7 +2377,12 @@ function pickupAnswer(question, orders) {
   return `**Пока нет — заказ №${o.number} ещё не пришёл, забирать рано.**${due ? ` Ориентировочно до ${due}.` : ''} Когда придёт, статус сменится на «Пришло».`;
 }
 
-async function orderStatusReply(extracted, ip, question) {
+/** True when an earlier bot reply in this chat already listed order №number. */
+function orderShownBefore(messages, number) {
+  return (messages || []).some(m => m.role === 'assistant' && typeof m.content === 'string' && m.content.includes(`Заказ №${number}**`));
+}
+
+async function orderStatusReply(extracted, ip, question, messages) {
   const number = abcpOrders.normalizeOrderNumber(extracted.orderNumber);
   const phone = extracted.contactPhone, email = extracted.contactEmail;
   if (!abcpOrders.enabled()) {
@@ -2405,6 +2410,12 @@ async function orderStatusReply(extracted, ip, question) {
   }
   const lead = r.viaCode ? '' : pickupAnswer(question, r.orders);
   if (lead) console.log(`[order] pickup question -> «${lead.replace(/\*/g, '').slice(0, 80)}»`);
+  // The order's details were already shown in this chat (Диалоги ✗ 10.11 #472: «answer is good
+  // but repeats all order details again») -> only the answer.
+  if (lead && orderShownBefore(messages, r.orders[0].number)) {
+    console.log(`[order] ${r.orders[0].number} already shown in this chat -- answer only`);
+    return lead;
+  }
   const short = t => { const x = String(t || ''); return x.length > 70 ? x.slice(0, 67).replace(/[\s,.;:]+\S*$/, '') + '…' : x; };
   const lines = [];
   if (r.viaCode) lines.push(r.orders.length > 1 ? `По коду заказа ${r.code} нашёл ${r.orders.length} заказа:` : `По коду заказа ${r.code}:`);
@@ -3663,7 +3674,7 @@ console.log(JSON.stringify(extracted, null, 2));
     if (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true') {
       const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
       progress.step('Проверяю статус заказа…');
-      let reply = await orderStatusReply(extracted, ip, lastUserMessage(messages));
+      let reply = await orderStatusReply(extracted, ip, lastUserMessage(messages), messages);
       // «Писал в телеграм - нет ответа» (Диалоги ✗ 05.11): the reply ended with
       // «напишите нам в Telegram или MAX» -- exactly what didn't work for them.
       if (NO_ANSWER_RE.test(lastUserMessage(messages) || '')) {
@@ -4789,7 +4800,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;

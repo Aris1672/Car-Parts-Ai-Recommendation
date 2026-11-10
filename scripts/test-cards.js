@@ -397,3 +397,9 @@ console.log('test-cards: side-question guard compiled');
   a.strictEqual(pa('где мой заказ', o(['Заказ в работе'])), '');
   console.log('test-cards: pickup answer ok');
 }
+{
+  const { _orderShownBefore: sb } = require('../api/chat');
+  a.ok(sb([{ role: 'assistant', content: '**Заказ №288674242** от 07.11.2026' }], '288674242'));
+  a.ok(!sb([{ role: 'assistant', content: 'Напишите номер заказа' }], '288674242'));
+  console.log('test-cards: order shown before ok');
+}
