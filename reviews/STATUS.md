@@ -77,3 +77,5 @@
 | 505, 506 | 2026-11-10_1229 | gearbox unit + «10, 8, 9» → 3 cards | ✓ | ok | — |
 | 518 | 2026-11-10_1426 | NARROWING=1: XM «Воздуховод» → «… — впуск воздуха …» → card 13715A1F9C2 without a picture | ✗ | ✅ fixed | `0ad2a76` the narrowing cards took the catalog reference from the chat's vehicle object (no query there) → empty diagram link; now from the catalog rows |
 | 508–517 | 2026-11-10_1426 | catalog path unit «Воздуховод» + positions, order status, ТО without car, first narrowing question (XM воздуховод, 15 candidates) | ✓ | ok | — |
+| 531, 533–535 | 2026-11-10_1436 | NARROWING=1: XM «(Задние) тормозные колодки» → «Ремкомплект для черной дизайн. накладки» (trim kit) | ✗ | ✅ fixed | `40f36b1` the narrowing search skipped the quick groups (XM pads only in «Колодки тормозные дисковые») → now groups + words for every keyword; no row that IS the part → old flow instead of a wrong part; pads = group 34 only, «накладки» synonym not a separate item |
+| 519–530, 532 | 2026-11-10_1436 | narrowing воздуховод: buttons, «Не знаю» (8 of 15 cards), typed «тот, что у радиатора снизу» → Верхний/Нижний → card | ✓ | ok | — |
