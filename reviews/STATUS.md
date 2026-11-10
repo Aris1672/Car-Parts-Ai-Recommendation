@@ -64,3 +64,5 @@
 | 430–467 | 2026-11-10_1044 | brake chips multi-select / no-car reply, X5 / X6 axle + sides, колпак ступицы, F16 pads, order status | ✓ | ok | — |
 | 472 | 2026-11-10_1051 | «этот заказ пришёл, можно забрать?» → answer good («Пока нет…»), but the full order details repeated | ✗ | ✅ fixed | `ea712f8` order already shown in this chat → only the answer line |
 | 469–471 | 2026-11-10_1051 | order status 288674242 | ✓ | ok | — |
+| 478 | 2026-11-10_1109 | XM 50e «подушки крепления двигателя» → «Правая» → «не удалось найти» although 22116860458 was found and is in the price list | ✗ | ✅ fixed | `59e510a` the AI answer (9 tokens) gave no card; `ensureCardPerKeyword` ran only for 2+ parts → now also for one part when the reply has no card |
+| 473–477 | 2026-11-10_1109 | order status + pickup answer (confirmed), XM side question | ✓ | ok | — |
