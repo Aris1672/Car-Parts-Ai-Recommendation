@@ -39,9 +39,15 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 10.11.2026 night) — newest: «🗂 10.11 evening — GROUP-FIRST narrowing» right below, then «📚 10.11 — knowledge base», «🧭 10.11 — narrowing dialog (NARROWING=1, live)», «10.11 — order status: pickup question» (✅ live), «09.11 late — category chips multi-select» (✅ live); then 06.11, 05.11, 04.11. — read this block first
+## ▶️ RESUME HERE (state 10.11.2026 late evening) — **GROUP-FIRST narrowing ✅ confirmed live by the owner (10.11 20:17: «difficult tests work remarkably well»)** — newest: «🧹 10.11 — cleanup» right below, then «🗂 10.11 evening — GROUP-FIRST narrowing», «📚 10.11 — knowledge base», «🧭 10.11 — narrowing dialog»; then 09.11 and older. — read this block first
 
-### 🗂 10.11 evening — GROUP-FIRST narrowing (the manager's way, owner's design)
+### 🧹 10.11 late — cleanup after the owner confirmed group-first live
+- **Narrowing is ON by default** (`NARROWING` unset = on; `NARROWING=0` = the old logic, emergency only).
+- **Removed (superseded by group-first):** the catalog-wide unit view (`narrowUnitView`), the knowledge «where is it» question and knowledge buttons inside the kind question (`narrowKbPlaces`, `kbSystemOptions`, attr `kb`), the old unit question (attr `unit`), `knowledge.related`. Knowledge-base answers («Нет, я имею в виду …») now hand their rows to the group-first flow (`fromKb`: group → unit diagram, the found part marked).
+- **Still there on purpose (fallbacks / other flows):** the attribute questions in `lib/narrowing.js` (when the catalog's unit lookups fail); the old part-search pipeline in `lookupLaximo` + AI filter / «Это она?» (only when the narrowing finds no candidate row, and for the model wizard until the car is known); ТО kit, tyres, part numbers, whole-unit requests (gearbox mounting, catalog path), order status, workshop services — own flows.
+- Logic as it runs now: project doc «narrowing-dialog-plan».
+
+### 🗂 10.11 evening — GROUP-FIRST narrowing (the manager's way, owner's design) — ✅ confirmed live 10.11
 Main logic (owner 10.11): **word search in Laximo → the catalog groups of the found rows → ask by the catalog's group names → open the group's unit diagram.** The Laximo search does the main work; the knowledge base only fills its gaps.
 - `lib/laximo.js`: `partUnits(schema, oem)` (GetOEMPartApplicability, cached: the row's units = the site's «Взрыв-схема» column; group from the UNIT code «64_2903» → 64, not from the part number — «51 16 9 399 772» sits in 64_2903), `mainGroupNames` (ListCategories), `groupUnitsNamed(schema, code, stem)` (ListUnits of a main group, units whose name has the word), `unitPage(ref)`.
 - `api/chat.js` `narrowGroups` → `narrowGroupStep` → `narrowUnitPageView`: rows → groups; the customer's context («для двигателя», «в салон») → the AI picks a group (thinking), else the question «Где находится …?» with buttons «13 Подготовка и регулир. рабочей смеси / 51 Оснащение кузова / 64 Отопление и кондиционирование / Не знаю»; a group with several units → «Какой узел показать?»; one unit → the unit diagram (from its catalog page) with multi-select chips → positions → cards (confirm flow). One found part in the unit → marked. «Не знаю» → cards with diagrams. A request whose words leave ONE row → its card at once.
