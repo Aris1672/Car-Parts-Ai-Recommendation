@@ -579,6 +579,10 @@
     .pc-product-name { font-size: 12px; font-weight: 700; color: var(--pc-dark); line-height: 1.3; }
     .pc-product-meta { font-size: 11px; color: #888; }
     .pc-unit-diagram { margin: 6px 0 10px; max-width: 760px; width: 100%; }
+    /* Desktop (owner 10.11): the lead text and the unit diagram in one row; wraps when narrow. */
+    .pc-unit-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 16px; }
+    .pc-unit-row > .pc-msg-bot { flex: 0 1 330px; min-width: 260px; margin-bottom: 0; }
+    .pc-unit-row > .pc-unit-diagram { flex: 1 1 460px; margin-top: 0; }
     /* Height capped (owner 09.11: the question above scrolled out of view): the frame
        shrinks to the picture, the picture keeps its ratio; height set from the chat in JS. */
     .pc-unit-frame { position: relative; display: inline-block; max-width: 100%; background: #fff; border-radius: 14px; border: 1px solid #e6ebf2; overflow: hidden; line-height: 0; }
@@ -2508,7 +2512,17 @@
       const c = document.getElementById('pc-messages'); if (c) c.scrollTop = c.scrollHeight;
     });
     img.addEventListener('click', () => window.open(diagramSrc(d.image), '_blank', 'noopener'));
-    appendMsg(wrap);
+    // The lead text bubble just above -> one row with the picture (text left, diagram right).
+    const box = document.getElementById('pc-messages');
+    const prev = box && box.lastElementChild;
+    if (prev && prev.classList.contains('pc-msg-bot') && prev.querySelector('.pc-bubble') && !prev.closest('.pc-unit-row')) {
+      const row = document.createElement('div');
+      row.className = 'pc-unit-row';
+      box.insertBefore(row, prev);
+      row.appendChild(prev);
+      row.appendChild(wrap);
+      box.scrollTop = box.scrollHeight;
+    } else appendMsg(wrap);
     capHeight();
   }
   function addDiagram(d) {
