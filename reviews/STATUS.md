@@ -93,3 +93,5 @@
 | 577–586 | 2026-11-10_1838 | lists pads + воздуховод (13 / 51 units → positions), ТО by VIN | ✓ | ok | — |
 | 590 | 2026-11-10_1848 | X5 E70 ТО → «и тормозные колодки» → groups «34 Тормозные механизмы» + «88 Детали и пакеты: ремонт и обслуживание» | ✗ | ✅ fixed | `67b7bdf` owner: exclude 88 from all searches → groups 02 and 88 never offered (cache key bumped) |
 | 588, 589 | 2026-11-10_1848 | ТО without car → VIN → X5 E70 kit | ✓ | ok | — |
+| 599 | 2026-11-10_1917 | 230i ТО → «и тормозные колодки» → groups «02 Объем работ…» + «34 Тормозные механизмы» | ✗ | ✅ fixed | `a5500d7` owner: only 34 for brakes → group 02 dropped from the group question whenever the part has its own group (kept only if 02 is the only one) |
+| 591–598, 600, 601 | 2026-11-10_1917 | ТО kits (X5 E70, 230i), X5 E70 pads → Value Line unit → positions, 230i 34 units | ✓ | ok | — |
