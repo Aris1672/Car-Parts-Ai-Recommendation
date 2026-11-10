@@ -83,3 +83,5 @@
 | 536–551, 553 | 2026-11-10_1456 | narrowing XM pads (axle question, «Оба» → both cards), discs (kind → axle → side → 3 cards), pads + discs list item by item, ТО by VIN | ✓ | ok | — |
 | 555–557 | 2026-11-10_1512 | NARROWING: X5 E70 «Воздуховод» → system question (Отопление / Кузов / Двигатель); «Двигатель» → «Патрубок соединительный / маслоналивной» | ✗ | ✅ fixed | `0687a57` the AI's search word «патрубок» passed the part check → the customer's own word first; kinds (радиатора, тормозов, центральной стойки, обдува лобового стекла…) before systems up to 16; «левой / правой» → side question |
 | 554 | 2026-11-10_1512 | «Воздуховод» without a car → VIN asked | ✓ | ok | — |
+| 563 | 2026-11-10_1601 | NARROWING: X5 E70 «воздуховод» → «Нет я имею в виду откуда двигатель берёт воздух до воздушного фильтра» → the same 13 options again | ✗ | ✅ fixed | `2015b22` knowledge base `knowledge/bmw-parts.md` (owner's decision): «Впускной канал» ✅ entry; a rejecting / describing answer → entries → catalog search → «Понял: это «Впускной канал»…»; never the same list again |
+| 559–562 | 2026-11-10_1601 | manager / review requests, X5 E70 воздуховод kinds | ✓ | ok | — |
