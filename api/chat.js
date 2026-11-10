@@ -2004,6 +2004,33 @@ async function narrowUnitView(st, item, lead, mark) {
   return `${lead ? lead + ' ' : ''}Вот схема узла «${unit}» для вашего ${st.car}.${what} Отметьте нужные позиции (можно несколько) и нажмите «Подобрать выбранное» — или напишите номера числами.${reply}`;
 }
 
+/**
+ * First question for a bare word (owner 10.11 #564/565): the catalog's own unit(s) for the word
+ * PLUS the approved knowledge entries the word may also mean («воздуховод» -> «Впускной канал —
+ * перед воздушным фильтром»). -> reply with attr 'kb' | null (no related entry -> normal flow)
+ */
+async function narrowKbPlaces(st, item, lead) {
+  const names = new Set(item.cands.map(c => String(c.name || '').toLowerCase()));
+  const rel = knowledge.related(item.kw).filter(e => !e.catalogNames.some(c => names.has(c.toLowerCase())));
+  if (!rel.length) return null;
+  // The catalog's own candidates, by unit (one diagram request per candidate, cached; ≤ 8).
+  const units = new Map();
+  for (const c of item.cands.slice(0, 8)) {
+    const d = await laximo.getPartDiagram({ oem: laximo.normalizeOem(c.oem), schema: { ...st.schema, number: c.oem } }).catch(() => null);
+    const u = d && d.unitName ? d.unitName : null;
+    if (u) units.set(u, (units.get(u) || 0) + 1);
+  }
+  const own = item.cands.length <= 8 && units.size ? [...units.keys()].map(u => `«${u}» (в каталоге — «${item.kw}»)`) : [`«${item.kw}» по каталогу (${item.cands.length})`];
+  const kb = rel.map(e => `${e.title}${e.where ? ' — ' + e.where.split(/[—;(]/)[0].trim() : ''}`);
+  const options = [...own, ...kb, narrowing.DONT_KNOW];
+  st.attr = 'kb'; st.question = `Где находится ${item.kw}?`; st.options = options;
+  st.kbMap = Object.fromEntries([...own.map(o => [o, '']), ...rel.map((e, i) => [kb[i], e.title])]);
+  item.kbChecked = true;
+  console.log(`[narrow] «${item.kw}»: knowledge places ${rel.map(e => e.title).join(', ')} + catalog unit(s) ${[...units.keys()].join(', ') || '?'}`);
+  return `${lead ? lead + '\n\n' : ''}«${item.kw}» бывает в разных местах автомобиля. Где находится нужный?`
+    + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+}
+
 /** Walk the items: cards for the resolved ones, the next question for the first open one. */
 async function narrowContinue(st, lead, opts = {}) {
   const done = [];
@@ -2011,9 +2038,18 @@ async function narrowContinue(st, lead, opts = {}) {
     const item = st.items[i];
     // One item, all candidates in one unit (2+ of them, or a part found from a description) ->
     // the whole unit diagram instead of more questions (owner 10.11).
-    if (st.items.length === 1 && !item.gaveUp && (item.cands.length >= 2 || opts.unitView)) {
+    // Not before the first question (#564/565): a bare word may mean a part the catalog names
+    // otherwise -- the knowledge base offers those places first (narrowKbPlaces).
+    if (st.items.length === 1 && !item.gaveUp && (opts.unitView || (item.cands.length >= 2 && (item.asked || []).length))) {
       const uv = await narrowUnitView(st, item, lead, opts.unitView ? item.cands[0] : null).catch(err => { console.error('[narrow] unit view failed:', err.message); return null; });
       if (uv) return uv;
+    }
+    const first = st.items.length === 1 && !item.gaveUp && !(item.asked || []).length && !item.kbChecked;
+    const step0 = first ? narrowing.nextStep(item) : null;
+    // The catalog can't split at the first level (all one kind / unit): the knowledge places question.
+    if (first && (step0.done || !['kind', 'place'].includes(step0.attr))) {
+      const kq = await narrowKbPlaces(st, item, lead).catch(err => { console.error('[narrow] knowledge places failed:', err.message); return null; });
+      if (kq) return kq;
     }
     const step = item.gaveUp ? { done: true, pick: item.cands.slice(0, narrowing.MAX_CARDS), gaveUp: true } : narrowing.nextStep(item);
     if (step.done) {
@@ -2028,6 +2064,20 @@ async function narrowContinue(st, lead, opts = {}) {
       continue;
     }
     st.cur = i; st.attr = step.attr; st.question = step.question; st.options = step.options;
+    // First question: the knowledge base adds what the word may also mean (parts the catalog names
+    // otherwise, owner 10.11) next to the catalog's own kinds.
+    if (st.items.length === 1 && !(item.asked || []).length && !item.kbChecked && ['kind', 'place'].includes(step.attr)) {
+      const names = new Set(item.cands.map(c => String(c.name || '').toLowerCase()));
+      const rel = knowledge.related(item.kw).filter(e => !e.catalogNames.some(c => names.has(c.toLowerCase())));
+      if (rel.length) {
+        const kb = rel.map(e => `${e.title}${e.where ? ' — ' + e.where.split(/[—;(]/)[0].trim() : ''}`);
+        st.options = [...step.options.filter(o => o !== narrowing.DONT_KNOW), ...kb, narrowing.DONT_KNOW];
+        step.options = st.options;
+        st.kbMap = Object.fromEntries(rel.map((e, k) => [kb[k], e.title]));
+        item.kbChecked = true;
+        console.log(`[narrow] «${item.kw}»: + knowledge option(s) ${rel.map(e => e.title).join(', ')}`);
+      }
+    }
     console.log(`[narrow] «${item.kw}»: ${item.cands.length} candidate(s) -> ask ${step.attr}: ${step.options.join(' | ')}`);
     const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
     const multi = st.items.length > 1 ? ` (деталь ${i + 1} из ${st.items.length})` : '';
@@ -2166,6 +2216,25 @@ async function narrowingFollowUp(messages) {
   if (!m.option) {
     return `Не понял ответ. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
+  if (st.attr !== 'kb' && st.kbMap && st.kbMap[m.option]) st.attr = 'kb'; // a knowledge option in the kind question
+  if (st.attr === 'kb') {
+    const item = st.items[st.cur];
+    const title = (st.kbMap || {})[m.option];
+    delete st.attr; delete st.question; delete st.options; delete st.kbMap;
+    if (title) {
+      const entry = knowledge.entries().find(e => e.title === title);
+      const rows = entry ? await laximo.searchByCatalogNames(st.schema, entry.catalogNames).catch(() => []) : [];
+      console.log(`[narrow] knowledge place «${title}»: ${rows.length} row(s)`);
+      if (rows.length) {
+        st.items[st.cur] = { kw: entry.title.toLowerCase(), cands: rows.map(narrowing.compact), asked: ['kb'], kbChecked: true };
+        return narrowContinue(st, `Понял: «${entry.title}».`, { unitView: rows.length <= 8 });
+      }
+      return `В оригинальном каталоге вашего ${st.car} «${title}» не нашёл. Оставьте заявку — менеджер проверит по VIN.\n<<<MANAGER_BUTTON>>>`;
+    }
+    if (m.option === narrowing.DONT_KNOW) { st.items[st.cur] = { ...item, gaveUp: true }; return narrowContinue(st, ''); }
+    st.items[st.cur] = { ...item, asked: [...(item.asked || []), 'kb'] }; // the catalog's own unit -> its diagram / next question
+    return narrowContinue(st, '');
+  }
   const item = st.items[st.cur];
   st.items[st.cur] = narrowing.applyAnswer(item, st.attr, m.option);
   // A typed answer can say more than the option («тот, что у радиатора снизу» -> also «снизу», 10.11 #527).
@@ -2174,7 +2243,7 @@ async function narrowingFollowUp(messages) {
     cur.cands = narrowing.applyRequestWords(cur.cands, u, item.kw);
   }
   console.log(`[narrow] «${item.kw}» ${st.attr} = «${m.option}»: ${item.cands.length} -> ${st.items[st.cur].cands.length}`);
-  delete st.attr; delete st.question; delete st.options;
+  delete st.attr; delete st.question; delete st.options; delete st.kbMap;
   return narrowContinue(st, '');
 }
 

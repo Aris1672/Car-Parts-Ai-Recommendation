@@ -38,7 +38,26 @@ const k = require('../lib/knowledge');
     const q = await chat._narrow.narrowContinue(st, '');
     const msgs = [{ role: 'user', content: 'Воздуховод VIN' }, { role: 'assistant', content: q }, { role: 'user', content: 'Нет я имею в виду откуда двигатель берёт воздух до воздушного фильтра' }];
     const r = await chat._narrow.narrowingFollowUp(msgs);
-    a.ok(/Впускной канал/.test(r) && /13717812058/.test(r), r.slice(0, 400));
+    a.ok(/Понял: это «Впускной канал»/.test(r), r.slice(0, 400)); // card or its unit diagram
     console.log('test-knowledge: #563 path ok');
+  })().catch(e => { console.error(e); process.exit(1); });
+}
+{
+  // 230i «Воздуховод» (#564/565): the first question offers the catalog's ducts AND «Впускной канал» (knowledge).
+  const laximo = require('../lib/laximo');
+  laximo.getPartDiagram = async () => ({ unitName: 'Воздуховоды', image: 'x' });
+  laximo.searchByCatalogNames = async (schema, names) => (names.includes('Впускной канал') ? [{ oem: '13718636460', name: 'Впускной канал' }] : []);
+  const n = require('../lib/narrowing');
+  const chat = require('../api/chat');
+  (async () => {
+    const cands = [{ oem: '51747292461', name: 'Воздуховод радиатора сист.охлажд.двиг.' }, { oem: '51747292462', name: 'Воздуховод Нж' }, { oem: '51747292463', name: 'Воздуховод тормозн.механизма П' }];
+    const st = { v: 1, car: 'BMW 230i (F22N)', schema: { catalog: 'C', vid: '1', ssd: 'x' }, items: [{ kw: 'воздуховод', cands, asked: [] }], cur: 0 };
+    const q = await chat._narrow.narrowContinue(st, '');
+    a.ok(!/UNIT_DIAGRAM/.test(q), 'no unit view before the first question');
+    a.ok(/Впускной канал — перед воздушным фильтром/.test(q), q.slice(0, 600));
+    const msgs = [{ role: 'user', content: 'Воздуховод, VIN' }, { role: 'assistant', content: q }, { role: 'user', content: 'Впускной канал — перед воздушным фильтром' }];
+    const r = await chat._narrow.narrowingFollowUp(msgs);
+    a.ok(/Впускной канал/.test(r), r.slice(0, 300));
+    console.log('test-knowledge: 230i воздуховод probe ok');
   })().catch(e => { console.error(e); process.exit(1); });
 }
