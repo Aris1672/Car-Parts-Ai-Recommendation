@@ -39,7 +39,15 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 10.11.2026 afternoon) — newest: «🧭 10.11 — narrowing dialog (NARROWING=1)» right below (built, switched OFF until the owner tests); then «10.11 — order status: pickup question» (✅ live), «09.11 late — category chips multi-select» (✅ live), «🛑 09.11 night — brakes per axle + follow-ups»; then the other 09.11 blocks; then 06.11, 05.11, 04.11. — read this block first
+## ▶️ RESUME HERE (state 10.11.2026 evening) — newest: «📚 10.11 — knowledge base» right below, then «🧭 10.11 — narrowing dialog (NARROWING=1, live)», «10.11 — order status: pickup question» (✅ live), «09.11 late — category chips multi-select» (✅ live), «🛑 09.11 night — brakes per axle»; then 06.11, 05.11, 04.11. — read this block first
+
+### 📚 10.11 — knowledge base `knowledge/bmw-parts.md` (step 1 built)
+Owner's decision 10.11: knowledge the catalog doesn't have (customer words ↔ BMW catalog names, where a part sits in its system, how to tell similar parts apart) lives in ONE MD file in the repo, by BMW main group, in a fixed entry format (see the file's head). **Only ✅ approved entries are used; Claude writes 📝 drafts — instead of code patches — and the owner approves** (on GitHub 📝 → ✅, or «утверждаю» in the chat). All of BMW is the target; filled group by group.
+- `lib/knowledge.js`: `parse` / `entries()` (re-read when the file changes) / `select(text)` (approved entries whose customer phrase is in the text, or all words of a multi-word phrase; a bare word like «воздуховод» pulls nothing) / `promptBlock`.
+- `lib/laximo.js` `searchByCatalogNames(schema, names)`: the car's catalog by the entry's catalog names (rows whose name starts with them).
+- Narrowing (`api/chat.js` `knowledgeLookup`): (a) a typed answer that matches no option — e.g. #563 «Нет, я имею в виду откуда двигатель берёт воздух до воздушного фильтра» — → entries → one clear entry by code, several → the AI picks (thinking) → catalog search → new candidates: «Понял: это «Впускной канал» (перед воздушным фильтром).» + card / questions. No entry → «Опишите, где он стоит…» + manager, never the same list again. (b) A new request that contains an entry's phrase («воздуховод до фильтра, VIN …») → that entry's catalog name decides. Logs `[knowledge] …`.
+- Content now: shorthand list; group 11 (owner's names-table pairs as ✅), group 13 air path (flow + entries; «Впускной канал» ✅ from #563, the rest 📝), group 22 gearbox mount ✅. Tests `scripts/test-knowledge.js`.
+- Next: step 2 — 📝 drafts for the other groups in batches for review; step 3 — the hard-coded `HUMAN_NAMES` moves to the file.
 
 ### 🧭 10.11 — narrowing dialog (`NARROWING=1`) — built, OFF by default
 Design: project doc «narrowing-dialog-plan». Owner's decision 10.11: the old logic is too hard-coded and answers before it understands (one XM has 21 «воздуховоды» in 4 places). New: ONE procedure for every part request — the AI uses the customer as a questionnaire until one part is left; a precise request ends after 0 questions; lists are narrowed item by item. Quality over cost.

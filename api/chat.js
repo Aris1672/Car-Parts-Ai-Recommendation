@@ -81,6 +81,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // LAXIMO_ENABLED=false turns it off without a code change.
 const laximo = require('../lib/laximo');
 const narrowing = require('../lib/narrowing');
+const knowledge = require('../lib/knowledge');
 const diagramToken = require('../lib/diagramToken');
 const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
@@ -1957,7 +1958,7 @@ async function narrowMapAnswer(text, step) {
   const exact = narrowing.matchOption(text, step.options);
   if (exact) return { option: exact };
   if (!LLM_API_KEY) return {};
-  const prompt = `Ассистент магазина автозапчастей уточняет у клиента, какая деталь нужна.\nВопрос: ${step.question}\nВарианты:\n${step.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}\nОтвет клиента: «${String(text).slice(0, 300)}»\n\nК какому варианту относится ответ? Если клиент не знает или просит показать всё -- это вариант «${narrowing.DONT_KNOW}». Если клиент спрашивает о другой детали / новый запрос -- newRequest true. Ответь только JSON: {"option": номер варианта или null, "newRequest": true|false}`;
+  const prompt = `Ассистент магазина автозапчастей уточняет у клиента, какая деталь нужна.\nВопрос: ${step.question}\nВарианты:\n${step.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}\nОтвет клиента: «${String(text).slice(0, 300)}»\n\nК какому варианту относится ответ? Если клиент не знает или просит показать всё -- это вариант «${narrowing.DONT_KNOW}». Если клиент отвергает варианты или описывает деталь, которой нет среди вариантов («нет, я имею в виду …», «не то», описание места или назначения, не совпадающее ни с одним вариантом) -- option null. Если клиент спрашивает о другой детали / новый запрос -- newRequest true. Ответь только JSON: {"option": номер варианта или null, "newRequest": true|false}`;
   try {
     const res = await llmFetch({ model: LLM_MODEL, max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }, 60000, NARROW_THINKING_OFF); // room for thinking
     if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
@@ -2006,6 +2007,37 @@ async function narrowContinue(st, lead) {
   return `${lead ? lead + '\n\n' : ''}${text}\nОткройте карточку, выберите предложение по цене и сроку и добавьте в корзину.`
     + `\n<<<PRODUCTS>>>\n${JSON.stringify(allCards)}\n<<<END_PRODUCTS>>>`;
 }
+/**
+ * Knowledge base step (owner 10.11, knowledge/bmw-parts.md): the customer DESCRIBES the part or
+ * rejects the offered options («Нет, я имею в виду откуда двигатель берёт воздух до воздушного
+ * фильтра», #563). Approved entries matching the words -> catalog names (one clear entry: code;
+ * several: the AI picks, with thinking) -> code searches the car's catalog by those names.
+ * -> { entry, rows } | null
+ */
+async function knowledgeLookup(text, kw, schema) {
+  const found = knowledge.select(`${kw || ''} ${text}`);
+  if (!found.length) { console.log(`[knowledge] no approved entry for «${String(text).slice(0, 60)}»`); return null; }
+  let entry = found[0];
+  if (found.length > 1 && LLM_API_KEY) {
+    const prompt = `Клиент магазина запчастей BMW ищет деталь «${kw || ''}» и пишет: «${String(text).slice(0, 400)}».\nНиже записи базы знаний (как деталь называют клиенты, как она называется в каталоге BMW, где стоит).\n\n${knowledge.promptBlock(found)}\n\nКакая запись описывает деталь, которую ищет клиент? Ответь только JSON: {"title": "<заголовок записи после ###, без группы>" или null}`;
+    try {
+      const res = await llmFetch({ model: LLM_MODEL, max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }, 60000, NARROW_THINKING_OFF);
+      if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
+      const data = await res.json();
+      trackUsage(LLM_MODEL, data);
+      const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+      const j = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+      const pick = found.find(e => j.title && (e.title === j.title || String(j.title).startsWith(e.title)));
+      console.log(`[knowledge] AI picked «${j.title}» of ${found.map(e => e.title).join(' | ')} (${thinkingProof(data)})`);
+      if (j.title === null) return null;
+      if (pick) entry = pick;
+    } catch (err) { console.error('[knowledge] AI pick failed, best match used:', err.message); }
+  }
+  const rows = await laximo.searchByCatalogNames(schema, entry.catalogNames).catch(err => { console.error('[knowledge] catalog search failed:', err.message); return []; });
+  console.log(`[knowledge] «${entry.title}» -> catalog ${entry.catalogNames.map(c => `«${c}»`).join(', ')}: ${rows.length} row(s)`);
+  return { entry, rows };
+}
+
 /** A new part request: collect candidates per keyword, then continue. null = old flow. */
 async function narrowingStart(extracted, messages, outcome) {
   const res = await lookupLaximo(extracted, messages, outcome, { narrow: true }).catch(err => { console.error('[narrow] search failed:', err.message); return null; });
@@ -2038,6 +2070,20 @@ async function narrowingStart(extracted, messages, outcome) {
     console.log(`[narrow] «${kw}»: ${rows.length} row(s) of the asked part, ${cands.length} after the request words`);
   }
   // Synonym keywords («тормозные колодки» + «накладки») found the same rows: keep the first.
+  // The request itself matches an approved knowledge entry («воздуховод до фильтра»): its catalog
+  // name decides (the word search for «воздуховод» never finds «Впускной канал»).
+  if (kws.length === 1 && narrowing.stateOf(messages) == null) {
+    const kb = knowledge.select(`${kws[0]} ${text}`).filter(e => e.phrases.some(p => `${kws[0]} ${String(text).toLowerCase().replace(/ё/g, 'е')}`.includes(p)));
+    if (kb.length) {
+      const rs0 = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
+      const kr = await knowledgeLookup(text, kws[0], { catalog: rs0.catalog || q.c, vid: rs0.vid || q.vid, ssd: rs0.ssd || q.ssd });
+      if (kr && kr.rows.length) {
+        items.length = 0;
+        items.push({ kw: kr.entry.title.toLowerCase(), cands: kr.rows.map(narrowing.compact), asked: [] });
+        console.log(`[narrow] request matches knowledge «${kr.entry.title}»: ${kr.rows.length} candidate(s)`);
+      }
+    }
+  }
   const out = [];
   for (const it of items) {
     const keys = it.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',');
@@ -2059,7 +2105,29 @@ async function narrowingFollowUp(messages) {
   const u = String(lastUserMessage(messages) || '').trim();
   const step = { question: st.question, options: st.options || [] };
   const m = await narrowMapAnswer(u, step);
-  if (m.newRequest || (!m.option && u.split(/\s+/).length > 6)) { console.log('[narrow] new request -- leaving the narrowing'); return null; }
+  // Not one of the options but a description of the part («Нет, я имею в виду …», #563): the
+  // knowledge base -> catalog names -> a new candidate list for this item (not the same question again).
+  const rejects = /^(нет|не то|не эт|другой|другая|другое)|имею в виду|я про|мне нужен|мне нужна/i.test(u);
+  if (!m.option || (m.newRequest && rejects)) {
+    const item0 = st.items[st.cur];
+    const kr = await knowledgeLookup(u, item0.kw, st.schema);
+    if (kr && kr.rows.length) {
+      st.items[st.cur] = { kw: kr.entry.title.toLowerCase(), cands: kr.rows.map(narrowing.compact), asked: [] };
+      delete st.attr; delete st.question; delete st.options;
+      const why = kr.entry.where ? ` (${kr.entry.where.split(/[—;]/)[0].trim()})` : '';
+      return narrowContinue(st, `Понял: это «${kr.entry.title}»${why}.`);
+    }
+    if (kr && !kr.rows.length) {
+      return `Понял: это «${kr.entry.title}». В оригинальном каталоге вашего ${st.car} такой детали не нашёл. Оставьте заявку — менеджер проверит по VIN.\n<<<MANAGER_BUTTON>>>`;
+    }
+  }
+  if (m.newRequest || (!m.option && u.split(/\s+/).length > 6)) {
+    if (rejects) {
+      // A rejection the knowledge base can't place: say so, don't repeat the same list (#563).
+      return `Понял, что нужен другой ${st.items[st.cur].kw}. Опишите, пожалуйста, где он стоит или что делает (например, «до воздушного фильтра», «к радиатору», «в салоне»), — или оставьте заявку менеджеру.\n<<<MANAGER_BUTTON>>>` + narrowing.stateBlock(st);
+    }
+    console.log('[narrow] new request -- leaving the narrowing'); return null;
+  }
   if (!m.option) {
     return `Не понял ответ. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
