@@ -580,7 +580,7 @@
     .pc-product-meta { font-size: 11px; color: #888; }
     .pc-unit-diagram { margin: 6px 0 10px; max-width: 760px; width: 100%; }
     /* Desktop (owner 10.11): the unit diagram, then the lead text to its right; wraps when narrow. */
-    .pc-unit-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; padding-left: 42px; }
+    .pc-unit-row { display: flex; flex-direction: row-reverse; justify-content: flex-end; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; padding-left: 42px; }
     .pc-unit-row > .pc-msg-bot { flex: 0 1 330px; min-width: 260px; margin-bottom: 0; }
     .pc-unit-row > .pc-msg-bot .pc-msg-icon { display: none; }
     .pc-unit-row > .pc-unit-diagram { flex: 0 1 760px; min-width: 300px; margin: 0; }
@@ -2520,8 +2520,10 @@
       const row = document.createElement('div');
       row.className = 'pc-unit-row';
       box.insertBefore(row, prev);
-      row.appendChild(wrap); // picture first, the text bubble to its right (owner 10.11)
+      // DOM: text, picture; row-reverse shows the picture left, text right -- and when the
+      // row wraps (narrow chat, phones) the text goes ABOVE the picture (owner 10.11).
       row.appendChild(prev);
+      row.appendChild(wrap);
       box.scrollTop = box.scrollHeight;
     } else appendMsg(wrap);
     capHeight();
