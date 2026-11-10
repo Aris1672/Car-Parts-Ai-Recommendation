@@ -2128,14 +2128,22 @@ async function narrowGroupStep(st, item, i, lead) {
       if (!set.size) { if (/(^|[^а-яё])(пер\.|передн|пд)/i.test(x.name)) set.add('передняя ось'); if (/(^|[^а-яё])(зд|задн)/i.test(x.name)) set.add('задняя ось'); }
       return set.size === 1 ? [...set][0] : null;
     };
-    const axles = g.units.map(axleOfUnit);
-    if (axles.every(Boolean) && new Set(axles).size === 2) {
+    // Several units per axle too (230i pads, owner 10.11 #600: sensor units + «Value Line» kits +
+    // parking brake): units sorted by axle, the parking brake its own button, the main unit of an
+    // axle = most found parts, not a «Value Line» / «Сервисный» kit (those mostly repeat).
+    const parking = g.units.filter(x => /стояноч/i.test(x.name));
+    const axleUnits = g.units.filter(x => !parking.includes(x));
+    const axles = axleUnits.map(axleOfUnit);
+    if (axleUnits.length >= 2 && axles.every(Boolean) && new Set(axles).size === 2) {
       const kw = String(item.kw || '').replace(/^(передн\S*|задн\S*)\s+/i, '');
       const front = `Передние ${kw}`, rear = `Задние ${kw}`, both = 'Обе оси (передние и задние)';
-      const options = [front, rear, both, narrowing.DONT_KNOW];
+      const mainOf = ax => axleUnits.filter((x, k) => axles[k] === ax)
+        .sort((a, b) => (b.oems.length - a.oems.length) || (/value line|сервисн/i.test(a.name) - /value line|сервисн/i.test(b.name)))[0];
+      const park = parking[0] ? 'Колодки стояночного тормоза' : null;
+      const options = [front, rear, both, ...(park ? [park] : []), narrowing.DONT_KNOW];
       st.cur = i; st.attr = 'unitpick'; st.question = `Какие ${kw} нужны?`; st.options = options;
-      st.unitPickMap = { [front]: g.units[axles.indexOf('передняя ось')].code, [rear]: g.units[axles.indexOf('задняя ось')].code, [both]: 'both' };
-      console.log(`[narrow] «${item.kw}»: group ${g.code} units by axle -> front / rear / both`);
+      st.unitPickMap = { [front]: mainOf('передняя ось').code, [rear]: mainOf('задняя ось').code, [both]: 'both', ...(park ? { [park]: parking[0].code } : {}) };
+      console.log(`[narrow] «${item.kw}»: group ${g.code} ${g.units.length} units by axle -> front ${mainOf('передняя ось').code} / rear ${mainOf('задняя ось').code}${park ? ` / parking ${parking[0].code}` : ''}`);
       return `${lead ? lead + '\n\n' : ''}Какие ${kw} нужны — передние, задние или для обеих осей?`
         + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
     }
@@ -2408,7 +2416,7 @@ async function narrowingFollowUp(messages) {
     if (code === 'both') {
       // Both axles: the found parts of both units as cards (no diagrams to pick from).
       const g = (item.groups || []).find(x => x.code === item.groupCode);
-      const oems = new Set((g ? g.units : []).flatMap(u => u.oems));
+      const oems = new Set((g ? g.units : []).filter(u => !/стояноч/i.test(u.name)).flatMap(u => u.oems));
       const cands = item.cands.filter(c => oems.has(c.oem));
       st.items[st.cur] = { ...item, cands: cands.length ? cands : item.cands, groupDone: true, asked: ['kind', 'place', 'frontRear', 'topBottom', 'side'] };
       console.log(`[narrow] «${item.kw}» both axles: ${cands.map(c => c.oem).join(', ')}`);

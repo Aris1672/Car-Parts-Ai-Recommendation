@@ -91,6 +91,18 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   r = await chat._narrow.narrowContinue(st, '');
   a.ok(!/02 Объем/.test(r) && !/Где находится/.test(r), 'only group 34 -> no group question: ' + r.slice(0, 300));
   console.log('test-group-first: group 02 dropped ok');
+
+  // 230i pads (owner 10.11 #600): 5 units -> front / rear / both + parking brake; main unit per axle.
+  UNITS['34106888459'] = [{ group: '34', unitCode: '34_3255', unitName: 'Датчик износа торм.накладки пер.колеса', ref: 'f' }, { group: '34', unitCode: '34_3133', unitName: 'Сервисный к-т торм.колодки / Value Line', ref: 'vf' }];
+  UNITS['34216888825'] = [{ group: '34', unitCode: '34_3256', unitName: 'Датчик износа торм.накладки колеса Зд', ref: 'r' }, { group: '34', unitCode: '34_3134', unitName: 'Сервисный к-т торм.колодки / Value Line', ref: 'vr' }];
+  UNITS['34216761284'] = [{ group: '34', unitCode: '34_3310', unitName: 'Стояночный тормоз/тормозные колодки', ref: 'p' }];
+  const f22pads = [{ oem: '34106888459', name: 'К-т', axle: 'передняя ось' }, { oem: '34216888825', name: 'К-т', axle: 'задняя ось' }, { oem: '34216761284', name: 'Колодки стояночного тормоза', axle: 'задняя ось' }];
+  st = st0([{ kw: 'тормозные колодки', cands: f22pads, asked: [], text: 'и тормозные колодки' }]);
+  r = await chat._narrow.narrowContinue(st, '');
+  a.ok(/Передние тормозные колодки/.test(r) && /Колодки стояночного тормоза/.test(r) && !/Value Line/.test(r.split('<<<NARROW_STATE>>>')[0]), r.slice(0, 400));
+  const map = JSON.parse(r.match(/<<<NARROW_STATE>>>([\s\S]*?)<<<END_NARROW_STATE>>>/)[1]).unitPickMap;
+  a.strictEqual(map['Передние тормозные колодки'], '34_3255'); a.strictEqual(map['Задние тормозные колодки'], '34_3256');
+  console.log('test-group-first: pads 5 units -> axle + parking ok');
 })().catch(e => { console.error(e); process.exit(1); });
 {
   // Foreign catalog names are detected (translated by the AI live; offline: nothing changes).
