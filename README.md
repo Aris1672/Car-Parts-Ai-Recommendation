@@ -39,7 +39,12 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 09.11.2026 late evening) — newest: «09.11 late — category chips multi-select» (✅ live) right below, then «🛑 09.11 night — brakes per axle + follow-ups»; then the other 09.11 blocks («🛢», «❓», «🧹»); then 06.11, 05.11, 04.11. — read this block first
+## ▶️ RESUME HERE (state 10.11.2026 morning) — newest: «10.11 — order status: pickup question» (✅ live) right below, then «09.11 late — category chips multi-select» (✅ live), then «🛑 09.11 night — brakes per axle + follow-ups»; then the other 09.11 blocks («🛢», «❓», «🧹»); then 06.11, 05.11, 04.11. — read this block first
+
+**10.11 morning — order status: pickup question — ✅ confirmed live by the owner (10.11 10:59):**
+- «Пришёл ли заказ? Можно забрать?» (Диалоги ✗ #468: the bot repeated the full status without answering) → `pickupAnswer` (api/chat.js) puts a direct lead line first: «**Да, заказ №… пришёл — можно забирать в ПВЗ …**» / «**Пришла часть заказа (N из M поз.)** — остальное ещё в пути, ориентировочно до …» / «**Пока нет — заказ №… ещё не пришёл, забирать рано.** Ориентировочно до …» / «Заказ уже выдан.». Arrived = status «Пришло…», «Готов к выдаче», «на складе магазина», «в сервис / в пункт»; «ОПЛАЧЕНО» does NOT count (it comes before ordering). Ask words: `PICKUP_ASK_RE`.
+- Order already shown in this chat (`orderShownBefore`, ✗ #472 «repeats all order details again») → only the lead line, no second dump.
+- Log: `[order] pickup question -> «…»`, `[order] … already shown in this chat -- answer only`. Tests in `scripts/test-cards.js`. `bot-reviews` handled up to `2026-11-10_1051`.
 
 **09.11 late — category chips multi-select + «Колодки + диски» + no-car reply — ✅ confirmed live by the owner (09.11 20:07):**
 - Widget (`addButtonsBubble(items, { multi: true })`, homepage category menus only): a chip tap ticks it (✓); «Подобрать выбранное (N)» sends ONE list message («Тормозные колодки, тормозные диски») → the existing list flow (card per part). «Другое — опишу сам», «Всё для ТО» and the new shortcut chip «Колодки + диски» (`COMBO_PADS_DISCS`, sends «Тормозные колодки и тормозные диски») act at once. Hint «Можно выбрать несколько». Old saved chats replay fine (payload array or `{items, multi}`).
