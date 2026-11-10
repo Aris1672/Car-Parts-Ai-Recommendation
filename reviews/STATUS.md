@@ -85,3 +85,4 @@
 | 554 | 2026-11-10_1512 | «Воздуховод» without a car → VIN asked | ✓ | ok | — |
 | 563 | 2026-11-10_1601 | NARROWING: X5 E70 «воздуховод» → «Нет я имею в виду откуда двигатель берёт воздух до воздушного фильтра» → the same 13 options again | ✗ | ✅ fixed | `2015b22` knowledge base `knowledge/bmw-parts.md` (owner's decision): «Впускной канал» ✅ entry; a rejecting / describing answer → entries → catalog search → «Понял: это «Впускной канал»…»; never the same list again |
 | 559–562 | 2026-11-10_1601 | manager / review requests, X5 E70 воздуховод kinds | ✓ | ok | — |
+| 564, 565 | 2026-11-10_1641 | NARROWING: 230i «Воздуховод» → straight to the unit «Воздуховоды» (radiator ducts), no probing | ✗ | ✅ fixed | `88412a5` all catalog «воздуховод» rows were in one unit → the new unit rule fired at once; now no unit view before the first question, and the first question adds the approved knowledge alternatives («Впускной канал — перед воздушным фильтром») |
