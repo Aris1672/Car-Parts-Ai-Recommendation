@@ -81,3 +81,5 @@
 | 519–530, 532 | 2026-11-10_1436 | narrowing воздуховод: buttons, «Не знаю» (8 of 15 cards), typed «тот, что у радиатора снизу» → Верхний/Нижний → card | ✓ | ok | — |
 | 552 | 2026-11-10_1456 | NARROWING: «Задние тормозные колодки» → VIN → still «Передний или задний?» | ✗ | ✅ fixed | `ebf0166` request words read only from the VIN message → now the keyword's own words count too |
 | 536–551, 553 | 2026-11-10_1456 | narrowing XM pads (axle question, «Оба» → both cards), discs (kind → axle → side → 3 cards), pads + discs list item by item, ТО by VIN | ✓ | ok | — |
+| 555–557 | 2026-11-10_1512 | NARROWING: X5 E70 «Воздуховод» → system question (Отопление / Кузов / Двигатель); «Двигатель» → «Патрубок соединительный / маслоналивной» | ✗ | ✅ fixed | `0687a57` the AI's search word «патрубок» passed the part check → the customer's own word first; kinds (радиатора, тормозов, центральной стойки, обдува лобового стекла…) before systems up to 16; «левой / правой» → side question |
+| 554 | 2026-11-10_1512 | «Воздуховод» without a car → VIN asked | ✓ | ok | — |
