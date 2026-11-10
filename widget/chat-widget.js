@@ -2905,6 +2905,7 @@
 
     // «Это она?» state (09.11): server data for the next turn -- hidden, kept in the history.
     text = text.replace(/<<<CONFIRM_STATE>>>[\s\S]*?<<<END_CONFIRM_STATE>>>/g, '').trim();
+    text = text.replace(/<<<NARROW_STATE>>>[\s\S]*?<<<END_NARROW_STATE>>>/g, '').trim(); // narrowing dialog state (10.11)
     // Whole unit diagram (09.11): one big picture with the marker, not a product card.
     let unitDiagram = null;
     let buttonsOpts = {};

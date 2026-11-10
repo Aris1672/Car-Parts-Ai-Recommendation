@@ -63,6 +63,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // car; without a VIN (or if Laximo fails) the table path below is used.
 // LAXIMO_ENABLED=false turns it off without a code change.
 const laximo = require('../lib/laximo');
+const narrowing = require('../lib/narrowing');
 const diagramToken = require('../lib/diagramToken');
 const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
@@ -1431,7 +1432,7 @@ async function aiFilterParts(parts, extracted, messages, opts = {}) {
  * Returns null whenever the regular compatibility-table path should be used
  * instead -- never throws.
  */
-async function lookupLaximo(extracted, messages, outcome = {}) {
+async function lookupLaximo(extracted, messages, outcome = {}, lopts = {}) {
   if (!LAXIMO_ENABLED) return null;
   const vin = laximo.normalizeVin(extracted.vin);
 
@@ -1476,7 +1477,8 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
   const plainPartSearch = !isServiceRequest(messages, extracted) && !extracted.vendorCode;
   const searchNames = plainPartSearch ? extracted.partSearchNames : null;
   // BMW main-group check (lib/laximo.js): fixed rules + the AI's partGroups. Off ({} vs null) for ТО / article checks.
-  const partGroups = plainPartSearch ? (extracted.partGroups || {}) : null;
+  // Narrowing dialog (lopts.narrow): every candidate of the whole catalog -- no group check, no quick groups.
+  const partGroups = lopts.narrow ? null : plainPartSearch ? (extracted.partGroups || {}) : null;
 
   // The customer's answer to an earlier equipment question (S2NHA ...), if any.
   const equipment = plainPartSearch ? equipmentAnswerFrom(messages) : null;
@@ -1502,6 +1504,7 @@ async function lookupLaximo(extracted, messages, outcome = {}) {
       }),
     ]);
     clearTimeout(timer);
+    if (lopts.narrow) return result; // raw candidates: the narrowing dialog decides (lib/narrowing.js)
     // Broad catalog names ("суппорт", "фильтр", "диск") bring neighbours too
     // (clutch disc, fuel filter...): the AI keeps only what the customer asked for.
     let filteredOut = 0;
@@ -1912,6 +1915,127 @@ function confirmStateOf(messages) {
   try { return JSON.parse(m[1].trim()); } catch (e) { return null; }
 }
 const confirmBlock = st => `\n<<<CONFIRM_STATE>>>\n${JSON.stringify(st)}\n<<<END_CONFIRM_STATE>>>`;
+// ─── NARROWING DIALOG (owner 10.11, project doc «narrowing-dialog-plan») ─────────
+// NARROWING=1: every part request goes through lib/narrowing.js -- all candidates of the
+// car's catalog, then questions until one part (or versions of one part) is left. Code keeps
+// the candidate list and the stop rule; the AI only maps a typed answer onto the options.
+const NARROWING = process.env.NARROWING === '1';
+const NARROW_TYRE_RE = /шин|резин|колес|колёс|диск\S*\s+колес|колесн\S*\s+диск/i;
+function narrowingEligible(extracted, messages) {
+  const kws = (extracted.partKeywords || []).filter(Boolean);
+  if (!NARROWING || !kws.length || extracted.vendorCode) return false;
+  if (!laximo.normalizeVin(extracted.vin) && !(extracted.brand && extracted.model)) return false;
+  if (isServiceRequest(messages, extracted)) return false;          // ТО: its own kit flow
+  if (kws.some(k => NARROW_TYRE_RE.test(k))) return false;           // tyres / wheels: own flow
+  if (extracted.catalogUnitAsk || isUnitRequest(lastUserMessage(messages))) return false; // whole-unit flows
+  return true;
+}
+const carLabelOf = v => `${v.brand || 'BMW'} ${v.name || ''}${v.options && v.options['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim();
+async function narrowCards(st, picks) {
+  const live = await abcpPrices.livePrices(picks.map(p => p.oem), 'BMW', 6).catch(() => ({}));
+  return picks.map(p => diagramCardFor({ oem: p.oem, name: p.name, axle: p.axle, schema: { ...st.schema, number: p.oem } }, live[laximo.normalizeOem(p.oem)], st.car));
+}
+/** Map a typed answer onto the options (AI). -> { option } | { newRequest: true } | {} */
+async function narrowMapAnswer(text, step) {
+  const exact = narrowing.matchOption(text, step.options);
+  if (exact) return { option: exact };
+  if (!LLM_API_KEY) return {};
+  const prompt = `Ассистент магазина автозапчастей уточняет у клиента, какая деталь нужна.\nВопрос: ${step.question}\nВарианты:\n${step.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}\nОтвет клиента: «${String(text).slice(0, 300)}»\n\nК какому варианту относится ответ? Если клиент не знает или просит показать всё -- это вариант «${narrowing.DONT_KNOW}». Если клиент спрашивает о другой детали / новый запрос -- newRequest true. Ответь только JSON: {"option": номер варианта или null, "newRequest": true|false}`;
+  try {
+    const res = await llmFastFetch({ model: LLM_MODEL, max_tokens: 200, messages: [{ role: 'user', content: prompt }] }, 20000);
+    if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
+    const data = await res.json();
+    trackUsage(LLM_MODEL, data);
+    const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+    const j = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    const i = Number(j.option);
+    console.log(`[narrow] AI read «${String(text).slice(0, 40)}» -> ${JSON.stringify(j)}`);
+    if (i >= 1 && i <= step.options.length) return { option: step.options[i - 1] };
+    return j.newRequest ? { newRequest: true } : {};
+  } catch (err) {
+    console.error('[narrow] answer mapping failed:', err.message);
+    return {};
+  }
+}
+/** Walk the items: cards for the resolved ones, the next question for the first open one. */
+async function narrowContinue(st, lead) {
+  const done = [];
+  for (let i = st.cur || 0; i < st.items.length; i++) {
+    const item = st.items[i];
+    const step = item.gaveUp ? { done: true, pick: item.cands.slice(0, narrowing.MAX_CARDS), gaveUp: true } : narrowing.nextStep(item);
+    if (step.done) {
+      const cards = await narrowCards(st, step.pick);
+      const kw = item.kw;
+      const text = step.gaveUp ? `«${kw}» — все подходящие варианты со схемами${item.cands.length > step.pick.length ? ` (первые ${step.pick.length} из ${item.cands.length})` : ''}. Выберите по картинке.`
+        : step.versions ? `«${kw}» — для вашей машины в каталоге ${step.pick.length} исполнения: сравните по схемам и выберите своё.`
+        : step.pick.length > 1 ? `«${kw}» — ${step.pick.length} позиции по вашему выбору, все в карточках ниже.`
+        : st.items.length > 1 ? `«${kw}» — ${step.pick[0].name}.` : `Подобрал по оригинальному каталогу для вашего ${st.car}: «${step.pick[0].name}».`;
+      console.log(`[narrow] «${kw}» resolved: ${step.pick.map(p => p.oem).join(', ')}${step.versions ? ' (versions)' : ''}${step.gaveUp ? ' (shown all)' : ''}`);
+      done.push({ text, cards });
+      continue;
+    }
+    st.cur = i; st.attr = step.attr; st.question = step.question; st.options = step.options;
+    console.log(`[narrow] «${item.kw}»: ${item.cands.length} candidate(s) -> ask ${step.attr}: ${step.options.join(' | ')}`);
+    const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
+    const multi = st.items.length > 1 ? ` (деталь ${i + 1} из ${st.items.length})` : '';
+    const intro = !before && !(item.asked || []).length ? `В оригинальном каталоге для вашего ${st.car} «${item.kw}» — ${item.cands.length} разных деталей. Уточню, какая нужна.\n` : '';
+    return `${lead ? lead + '\n\n' : ''}${before ? before + '\n\n' : ''}${intro}${step.question}${multi}`
+      + `\n<<<BUTTONS>>>\n${JSON.stringify(step.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  // Everything resolved. Several products blocks: the widget shows one -> merge into one.
+  const allCards = done.flatMap(d => d.cards);
+  const text = done.map(d => d.text).join('\n');
+  return `${lead ? lead + '\n\n' : ''}${text}\nОткройте карточку, выберите предложение по цене и сроку и добавьте в корзину.`
+    + `\n<<<PRODUCTS>>>\n${JSON.stringify(allCards)}\n<<<END_PRODUCTS>>>`;
+}
+/** A new part request: collect candidates per keyword, then continue. null = old flow. */
+async function narrowingStart(extracted, messages, outcome) {
+  const res = await lookupLaximo(extracted, messages, outcome, { narrow: true }).catch(err => { console.error('[narrow] search failed:', err.message); return null; });
+  if (!res || !res.vehicle || res.needsChoice || !Array.isArray(res.parts) || res.unavailable) return null; // wizard / errors: old flow
+  const q = res.vehicle.query || {};
+  const kws = [...new Set((extracted.partKeywords || []).map(k => String(k).toLowerCase().trim()).filter(Boolean))];
+  const text = lastUserMessage(messages) || '';
+  const items = [];
+  for (const kw of kws) {
+    let rows = res.parts.filter(p => p && p.oem && !p.crossSell && String(p.query || '').toLowerCase().split(/\s*,\s*/).includes(kw));
+    if (!rows.length) continue;
+    const vocab = (extracted.partSearchNames || {})[kw] || [];
+    const fixed = rows.filter(p => p.fixedName); // names-table rows (owner's pairs) = the asked part
+    if (fixed.length) rows = fixed;
+    else rows = narrowing.headFilter(rows, narrowing.stemsFor(kw, vocab));
+    const seen = new Set();
+    const cands = narrowing.applyRequestWords(rows, text, kw).filter(p => { const k = laximo.normalizeOem(p.oem); if (seen.has(k)) return false; seen.add(k); return true; }).map(narrowing.compact);
+    items.push({ kw, cands, asked: [] });
+    console.log(`[narrow] «${kw}»: ${rows.length} row(s) of the asked part, ${cands.length} after the request words`);
+  }
+  // Synonym keywords («тормозные колодки» + «накладки») found the same rows: keep the first.
+  const out = [];
+  for (const it of items) {
+    const keys = it.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',');
+    if (!out.some(o => o.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',') === keys)) out.push(it);
+  }
+  if (!out.length) return null;
+  const st = { v: 1, car: carLabelOf(res.vehicle), schema: { catalog: q.c || null, vid: q.vid || null, ssd: q.ssd || null }, items: out, cur: 0 };
+  return narrowContinue(st, '');
+}
+/** The customer answered a narrowing question (button or text). null = not an answer -> normal flow. */
+async function narrowingFollowUp(messages) {
+  const st = narrowing.stateOf(messages);
+  if (!st || !Array.isArray(st.items) || !st.attr) return null;
+  const u = String(lastUserMessage(messages) || '').trim();
+  const step = { question: st.question, options: st.options || [] };
+  const m = await narrowMapAnswer(u, step);
+  if (m.newRequest || (!m.option && u.split(/\s+/).length > 6)) { console.log('[narrow] new request -- leaving the narrowing'); return null; }
+  if (!m.option) {
+    return `Не понял ответ. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  const item = st.items[st.cur];
+  st.items[st.cur] = narrowing.applyAnswer(item, st.attr, m.option);
+  console.log(`[narrow] «${item.kw}» ${st.attr} = «${m.option}»: ${item.cands.length} -> ${st.items[st.cur].cands.length}`);
+  delete st.attr; delete st.question; delete st.options;
+  return narrowContinue(st, '');
+}
+
 async function confirmCards(entries, st) {
   const live = await abcpPrices.livePrices(entries.map(e => e.oem), 'BMW', 6).catch(() => ({}));
   return entries.map(e => diagramCardFor({ oem: e.oem, name: e.name, position: e.position, unit: st.unit, schema: st.schema }, live[laximo.normalizeOem(e.oem)], st.car));
@@ -3638,7 +3762,7 @@ async function handler(req, res) {
       console.log(`[timing] message total: ${Date.now() - started} ms`);
       const msgs = Array.isArray(req.body && req.body.messages) ? req.body.messages : [];
       const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
-      if (lastUser && turn.body) {
+      if (lastUser && turn.body && !(req.body && req.body.replay)) { // replay script: not recorded
         chatTurns.record({
           convId: req.body.conv_id, sessionId: req.body.session_id,
           userText: pii.redactText(String(lastUser.content || '')),
@@ -3804,6 +3928,16 @@ console.log(JSON.stringify(extracted, null, 2));
       }
     }
 
+    // Narrowing dialog answers (NARROWING=1): before everything else that reads follow-ups.
+    if (NARROWING && narrowing.stateOf(messages)) {
+      const reply = await narrowingFollowUp(messages).catch(err => { console.error('[narrow] follow-up failed:', err.message); return null; });
+      if (reply) {
+        Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).json({ reply });
+      }
+    }
+
     // «Это она?» follow-ups (owner 09.11): «Да» / «Нет, другая позиция» / a position number.
     {
       const reply = await confirmFollowUp(messages);
@@ -3886,6 +4020,15 @@ console.log(JSON.stringify(extracted, null, 2));
     }
 
     const laximoOutcome = {};
+    // Narrowing dialog (NARROWING=1): a part request with a known car -> candidates + questions.
+    if (!workshopTopic && narrowingEligible(extracted, messages)) {
+      const reply = await narrowingStart(extracted, messages, laximoOutcome).catch(err => { console.error('[narrow] failed, old flow:', err.message); return null; });
+      if (reply) {
+        Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).json({ reply });
+      }
+    }
     const laximoResult = workshopTopic ? null : await lookupLaximo(extracted, messages, laximoOutcome);
     // Dashboard «Подбор» (green / red dot per chat): the outcome goes back with
     // the reply and the widget logs it -- the chat session is created only
@@ -4900,7 +5043,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
