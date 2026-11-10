@@ -1983,7 +1983,8 @@ async function narrowContinue(st, lead) {
     console.log(`[narrow] «${item.kw}»: ${item.cands.length} candidate(s) -> ask ${step.attr}: ${step.options.join(' | ')}`);
     const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
     const multi = st.items.length > 1 ? ` (деталь ${i + 1} из ${st.items.length})` : '';
-    const intro = !before && !(item.asked || []).length ? `В оригинальном каталоге для вашего ${st.car} «${item.kw}» — ${item.cands.length} разных деталей. Уточню, какая нужна.\n` : '';
+    const nForms = k => (k % 10 === 1 && k % 100 !== 11 ? 'вариант' : k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 12 || k % 100 > 14) ? 'варианта' : 'вариантов');
+    const intro = !before && !(item.asked || []).length ? `В оригинальном каталоге для вашего ${st.car} по запросу «${item.kw}» — ${item.cands.length} ${nForms(item.cands.length)}. Уточню, какой нужен.\n` : '';
     return `${lead ? lead + '\n\n' : ''}${before ? before + '\n\n' : ''}${intro}${step.question}${multi}`
       + `\n<<<BUTTONS>>>\n${JSON.stringify(step.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
@@ -2013,7 +2014,9 @@ async function narrowingStart(extracted, messages, outcome) {
     if (fixed.length) rows = fixed;
     else rows = narrowing.headFilter(rows, narrowing.stemsFor(kw, vocab));
     const seen = new Set();
-    const cands = narrowing.applyRequestWords(rows, text, kw).filter(p => { const k = laximo.normalizeOem(p.oem); if (seen.has(k)) return false; seen.add(k); return true; }).map(narrowing.compact);
+    // The keyword carries the customer's words from an earlier message («Задние тормозные колодки»,
+    // then only the VIN -- 10.11 #552), the last message may add more.
+    const cands = narrowing.applyRequestWords(rows, `${kw} ${text}`, kw).filter(p => { const k = laximo.normalizeOem(p.oem); if (seen.has(k)) return false; seen.add(k); return true; }).map(narrowing.compact);
     items.push({ kw, cands, asked: [] });
     console.log(`[narrow] «${kw}»: ${rows.length} row(s) of the asked part, ${cands.length} after the request words`);
   }

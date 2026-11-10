@@ -58,7 +58,7 @@ const XM = [['13715A1F9C2','Воздуховод'],['51749451352','Воздух�
     const cands = n.headFilter(XM, n.stemsFor('воздуховод', [])).map(n.compact);
     const st = { v: 1, car: 'BMW XM 50e (G09)', schema: { catalog: 'C', vid: '1', ssd: 'x' }, items: [{ kw: 'воздуховод', cands, asked: [] }], cur: 0 };
     let reply = await chat._narrow.narrowContinue(st, '');
-    a.ok(/17 разных деталей/.test(reply) && /<<<NARROW_STATE>>>/.test(reply), reply.slice(0, 200));
+    a.ok(/17 вариантов/.test(reply) && /<<<NARROW_STATE>>>/.test(reply), reply.slice(0, 200));
     const msgs = [{ role: 'user', content: 'Воздуховод' }, { role: 'assistant', content: reply }, { role: 'user', content: 'Воздуховод радиатора' }];
     reply = await chat._narrow.narrowingFollowUp(msgs);
     msgs.push({ role: 'assistant', content: reply }, { role: 'user', content: 'Нижний' });
@@ -87,4 +87,11 @@ const XM = [['13715A1F9C2','Воздуховод'],['51749451352','Воздух�
   const s = n.nextStep({ kw: 'тормозные колодки', cands: c, asked: [] });
   a.strictEqual(s.attr, 'frontRear', 'front «колодок» vs rear «колодок безасбест.» = one kind, the axle is asked');
   console.log('test-narrowing: XM rear pads name ok');
+}
+{
+  // «Задние тормозные колодки», then only the VIN (10.11 #552): the keyword keeps «задние».
+  const rows = [{ oem: '34108842390', name: 'Ремкомплект тормозных колодок', axle: 'передняя ось' }, { oem: '34208842966', name: 'Ремкомплект тормозных колодок безасбест.', axle: 'задняя ось' }];
+  const kw = 'задние тормозные колодки';
+  a.deepStrictEqual(n.applyRequestWords(rows, `${kw} VIN: WBS11CS0609158489`, kw).map(x => x.oem), ['34208842966']);
+  console.log('test-narrowing: words from the earlier message ok');
 }
