@@ -450,3 +450,16 @@ console.log('test-cards: side-question guard compiled');
   a.strictEqual(c._gearboxUnitRow([{ oem: '22325A16555', name: 'Несущий кронштейн', schema: sch }]).oem, '22325A16555');
   console.log('test-cards: gearbox unit request ok');
 }
+
+// Catalog path copied from the site (Диалоги ✗ 10.11 #507, XM «Воздуховод Подготовка и регулир. рабочей смеси»).
+{
+  const c = require('../api/chat');
+  const path = c._catalogPathIn('Воздуховод Подготовка и регулир. рабочей смеси  VIN: WBS11CS0609158489');
+  a.ok(path && /подготовка/i.test(path), path);
+  a.ok(c._keywordInTitle('подготовка рабочей смеси', path));
+  a.ok(!c._keywordInTitle('воздуховод', path));
+  a.strictEqual(c._catalogPathIn('колодки на X5'), null);
+  const sch = { vid: '1' };
+  a.strictEqual(c._namedUnitRow([{ oem: '13715A24FB2', name: 'Сменный элемент', schema: sch }, { oem: '137151F9C2', name: 'Воздуховод', unit: 'Воздуховод', schema: sch }], 'воздуховод').oem, '137151F9C2');
+  console.log('test-cards: catalog path unit ok');
+}

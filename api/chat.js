@@ -1933,12 +1933,32 @@ function gearboxUnitRow(parts) {
     || (parts || []).find(p => ok(p) && /^2232/.test(laximo.normalizeOem(p.oem))) || null;
 }
 
+// Main-group titles as the site's catalog shows them («13. Подготовка и регулир. рабочей смеси»).
+const CATALOG_PATH_RE = /подготовк\S*\s+и\s+регулир\S*(\s+рабоч\S*\s+смес\S*)?|подвеск\S*\s+двигател\S*\s+и\s+кпп|электрооборудован\S*\s+двигател\S*|общее\s+электрооборудован\S*|оборудован\S*\s+кузова|отоплени\S*\s+и\s+кондиционер\S*|механ\S*\s+коробк\S*\s+передач/i;
+function catalogPathIn(text) { const m = String(text || '').match(CATALOG_PATH_RE); return m ? m[0] : null; }
+/** «подготовка рабочей смеси» is (part of) the title «Подготовка и регулир. рабочей смеси». */
+function keywordInTitle(kw, title) {
+  const t = String(title || '').toLowerCase().replace(/ё/g, 'е');
+  const words = String(kw || '').toLowerCase().replace(/ё/g, 'е').split(/[^а-яa-z]+/).filter(w => w.length >= 3);
+  return words.length > 0 && words.every(w => t.includes(w.slice(0, Math.min(6, w.length - 1))));
+}
+/** The row that stands for the unit the customer named: unit name = keyword, else row name = keyword. */
+function namedUnitRow(parts, kw) {
+  const n = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9]+/g, ' ').trim();
+  const ok = p => p && p.oem && p.schema && p.schema.vid && !p.crossSell;
+  const k = n(kw);
+  if (!k) return null;
+  const unitOf = p => p.unit || (p.schema && p.schema.unit) || '';
+  return (parts || []).find(p => ok(p) && n(unitOf(p)) === k) || (parts || []).find(p => ok(p) && n(p.catalogName || p.name) === k) || null;
+}
+
 async function confirmQuestionIfUnsure(laximoResult, extracted, messages) {
   const kws = (extracted.partKeywords || []).filter(Boolean);
   if (!laximoResult.vehicle || laximoResult.needsChoice) return null;
   if (confirmStateOf(messages)) return null; // just answered one -- no second question in a row
-  if (isUnitRequest(lastUserMessage(messages))) {
-    const cand = gearboxUnitRow(laximoResult.parts);
+  const catalogUnit = extracted.catalogUnitAsk && kws.length === 1;
+  if (isUnitRequest(lastUserMessage(messages)) || catalogUnit) {
+    const cand = catalogUnit ? namedUnitRow(laximoResult.parts, kws[0]) : gearboxUnitRow(laximoResult.parts);
     if (cand) {
       const v = laximoResult.vehicle;
       const car = `${v.brand || 'BMW'} ${v.name || ''}${v.options && v.options['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim();
@@ -1948,6 +1968,7 @@ async function confirmQuestionIfUnsure(laximoResult, extracted, messages) {
       const reply = await wholeUnitReply(st, '');
       if (reply) {
         console.log(`[confirm] unit request «${String(lastUserMessage(messages)).slice(0, 50)}» -> whole unit «${st.unit || '?'}»`);
+        if (catalogUnit) return `Вот схема узла «${st.unit || kws[0]}» для вашего ${car}. Отметьте нужные позиции (можно несколько) и нажмите «Подобрать выбранное» — или напишите номера числами, например «2, 5».${reply}`;
         return `«Крепление КПП» — это узел из нескольких деталей. Вот его схема для вашего ${car}. Отметьте нужные позиции (можно несколько) и нажмите «Подобрать выбранное» — или напишите номера числами, например «2, 10».${reply}`;
       }
     }
@@ -3709,6 +3730,20 @@ async function handleChat(req, res) {
       extracted.partSearchNames = { [kw]: ['датчик t-map', 't-map'] };
       extracted.partGroups = { [kw]: ['13'] };
     }
+    // Catalog path copied from the site («Воздуховод Подготовка и регулир. рабочей смеси», owner
+    // 10.11 #507): the main-group title is not a part -> dropped; the rest names a unit.
+    {
+      const path = catalogPathIn(lastUserMessage(messages));
+      if (path && Array.isArray(extracted.partKeywords)) {
+        const drop = extracted.partKeywords.filter(k => keywordInTitle(k, path));
+        if (drop.length && drop.length < extracted.partKeywords.length) {
+          extracted.partKeywords = extracted.partKeywords.filter(k => !drop.includes(k));
+          drop.forEach(k => { if (extracted.partSearchNames) delete extracted.partSearchNames[k]; if (extracted.partGroups) delete extracted.partGroups[k]; });
+        }
+        extracted.catalogUnitAsk = true;
+        console.log(`[extract] catalog path «${path}»: ${drop.length ? `group title keyword(s) ${drop.join(', ')} dropped; ` : ''}unit request ${JSON.stringify(extracted.partKeywords)}`);
+      }
+    }
     // Keys / coding = workshop services: no catalog work at all (see workshopServiceTopic).
     const workshopTopic = extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true' ? null : workshopServiceTopic(messages);
     if (workshopTopic) {
@@ -3896,6 +3931,15 @@ console.log(JSON.stringify(extracted, null, 2));
     // Clarifying question from the AI filter: the catalog has several
     // different parts for a vague request -- the customer picks, and the next
     // message gets exactly that part (results are cached: no new catalog requests).
+    // A whole-unit request (gearbox mounting, catalog path) wins over a clarifying question.
+    if (laximoResult?.clarify && laximoResult.vehicle && (extracted.catalogUnitAsk || isUnitRequest(lastUserMessage(messages)))) {
+      const reply = await confirmQuestionIfUnsure({ ...laximoResult, parts: laximoResult.parts || laximoResult, clarify: null }, extracted, messages).catch(() => null);
+      if (reply) {
+        Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).json({ reply, ...(catalogOutcome ? { catalog: catalogOutcome } : {}) });
+      }
+    }
     if (laximoResult?.clarify) {
       const { question, options } = laximoResult.clarify;
       const v = laximoResult.vehicle;
@@ -4856,7 +4900,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._gearboxUnitRow = gearboxUnitRow;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
