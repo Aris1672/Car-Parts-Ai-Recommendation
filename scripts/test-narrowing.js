@@ -73,3 +73,9 @@ const XM = [['13715A1F9C2','Воздуховод'],['51749451352','Воздух�
   a.strictEqual(n.headFilter(trim, n.stemsFor('тормозные колодки', ['колодка'])).length, 0);
   console.log('test-narrowing: no false part ok');
 }
+{
+  // XM front pads «Ремкомплект тормозных колодок» (34 10 8 842 390, owner's screenshot 10.11).
+  const rows = [{ oem: '34108842390', name: 'Ремкомплект тормозных колодок', axle: 'передняя ось' }, { oem: '34216888825', name: 'Рем.к-т торм.накладок, безасбестовых', axle: 'задняя ось' }];
+  a.strictEqual(n.headFilter(rows, n.stemsFor('тормозные колодки', ['накладка', 'колодка'])).length, 2);
+  console.log('test-narrowing: XM front pads name ok');
+}
