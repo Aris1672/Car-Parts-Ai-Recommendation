@@ -1023,7 +1023,7 @@
         case 'user':     addUserBubble(entry.payload); break;
         case 'products': addProductCarousel(entry.payload); break;
         case 'unitdiagram': addUnitDiagram(entry.payload); break;
-        case 'buttons':  Array.isArray(entry.payload) ? addButtonsBubble(entry.payload) : addButtonsBubble(entry.payload.items, { multi: entry.payload.multi }); break;
+        case 'buttons':  Array.isArray(entry.payload) ? addButtonsBubble(entry.payload) : addButtonsBubble(entry.payload.items, { multi: entry.payload.multi, numbers: entry.payload.numbers }); break;
         case 'manager':  addManagerButton(); break;
         case 'partlinks': addPartLinks(entry.payload); break;
         case 'diaglink': addDiagramLink(entry.payload); break;
@@ -2345,7 +2345,10 @@
       goBtn.style.display = 'none';
       goBtn.addEventListener('click', () => {
         if (!picked.length || isLoading) return;
-        const text = picked.map((l, i) => (i ? l.charAt(0).toLowerCase() + l.slice(1) : l)).join(', ');
+        // opts.numbers (unit positions «2 — Подшипник …»): send the numbers, «2, 10».
+        const text = opts.numbers
+          ? picked.map(l => (String(l).match(/^\d{1,3}/) || [l])[0]).join(', ')
+          : picked.map((l, i) => (i ? l.charAt(0).toLowerCase() + l.slice(1) : l)).join(', ');
         wrap.classList.add('pc-done');
         doSend(text);
       });
@@ -2355,7 +2358,8 @@
       btn.className = 'pc-btn';
       btn.textContent = label;
       btn.addEventListener('click', () => {
-        if (opts.multi && label !== CATEGORY_OTHER_BTN && !CHIP_INSTANT.has(label)) {
+        const instant = label === CATEGORY_OTHER_BTN || CHIP_INSTANT.has(label) || (opts.numbers && !/^\d/.test(label));
+        if (opts.multi && !instant) {
           const i = picked.indexOf(label);
           if (i >= 0) picked.splice(i, 1); else picked.push(label);
           btn.classList.toggle('pc-btn-on', i < 0);
@@ -2886,11 +2890,14 @@
     text = text.replace(/<<<CONFIRM_STATE>>>[\s\S]*?<<<END_CONFIRM_STATE>>>/g, '').trim();
     // Whole unit diagram (09.11): one big picture with the marker, not a product card.
     let unitDiagram = null;
+    let buttonsOpts = {};
     const ud = text.match(/<<<UNIT_DIAGRAM>>>([\s\S]*?)<<<END_UNIT_DIAGRAM>>>/);
     if (ud) { try { unitDiagram = JSON.parse(ud[1].trim()); } catch (e) {} text = text.replace(/<<<UNIT_DIAGRAM>>>[\s\S]*?<<<END_UNIT_DIAGRAM>>>/g, '').trim(); }
     const btnMatch = text.match(/<<<BUTTONS>>>([\s\S]*?)<<<END_BUTTONS>>>/);
     if (btnMatch) {
       try { buttons = JSON.parse(btnMatch[1].trim()); } catch(e) {}
+      // {multi, numbers, items} from the server (unit positions, 10.11): multi-select chips.
+      if (buttons && !Array.isArray(buttons) && Array.isArray(buttons.items)) { buttonsOpts = { multi: !!buttons.multi, numbers: !!buttons.numbers }; buttons = buttons.items; }
       text = text.replace(/<<<BUTTONS>>>[\s\S]*?<<<END_BUTTONS>>>/, '').trim();
     }
 
@@ -2927,7 +2934,7 @@
     // bubble. Collapse any run of blank lines to a single blank line.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
-    return { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram };
+    return { text, products, buttons, buttonsOpts, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -3000,7 +3007,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram } = parseBotResponse(raw);
+      const { text, products, buttons, buttonsOpts, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -3062,8 +3069,8 @@
         logEvent('products_shown', { products: products.map(cardInfo) });
       }
       if (buttons && buttons.length > 0) {
-        addButtonsBubble(buttons);
-        displayLog.push({ type: 'buttons', payload: buttons });
+        addButtonsBubble(buttons, buttonsOpts);
+        displayLog.push({ type: 'buttons', payload: buttonsOpts.multi ? { items: buttons, ...buttonsOpts } : buttons });
       }
       if (showManager) {
         addManagerButton();
