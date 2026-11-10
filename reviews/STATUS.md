@@ -91,3 +91,5 @@
 | 571–573, 575, 576 | 2026-11-10_1811 | group-first: XM воздуховод → 13 / 64 → unit diagrams → positions → cards | ✓ | ok | — |
 | 587 | 2026-11-10_1838 | XM ТО → «и тормозные колодки» → «Какой узел показать?» with «Датчик износа торм.накладки пер.колеса (34_3255) / … колеса Зд (34_3256)» — right but too technical (owner) | ✗ | ✅ fixed | `0482a92` units that differ only by axle → «Передние / Задние тормозные колодки / Обе оси» (both → both cards); unit buttons without catalog codes |
 | 577–586 | 2026-11-10_1838 | lists pads + воздуховод (13 / 51 units → positions), ТО by VIN | ✓ | ok | — |
+| 590 | 2026-11-10_1848 | X5 E70 ТО → «и тормозные колодки» → groups «34 Тормозные механизмы» + «88 Детали и пакеты: ремонт и обслуживание» | ✗ | ✅ fixed | `67b7bdf` owner: exclude 88 from all searches → groups 02 and 88 never offered (cache key bumped) |
+| 588, 589 | 2026-11-10_1848 | ТО without car → VIN → X5 E70 kit | ✓ | ok | — |
