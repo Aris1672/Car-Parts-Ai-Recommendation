@@ -30,6 +30,12 @@
   .stat { background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:12px 14px; }
   .stat .v { font-size:24px; font-weight:800; font-family:var(--mono); }
   .stat .l { color:var(--text2); font-size:12px; margin-top:3px; line-height:1.4; }
+  .stats.big { grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+  .stats.big .stat { padding:16px 18px; }
+  .stats.big .stat .v { font-size:34px; }
+  .stats.big .stat .t { font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px; }
+  .summary { font-size:15px; line-height:1.6; margin:0 0 14px; max-width:1100px; }
+  .summary b { font-family:var(--mono); }
   .stat.green .v { color:var(--green); } .stat.amber .v { color:var(--amber); } .stat.red .v { color:var(--red2); }
   .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:12px; margin-bottom:14px; }
   .chart { background:var(--bg2); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; min-width:0; }
@@ -76,13 +82,14 @@
 <main id="app" class="hidden">
   <p class="intro">Менеджеры работают в ABCP как обычно — <b>ничего нажимать не нужно</b>. Когда появляется оплаченная позиция, которую ещё не заказали, агент <b>сразу записывает, какого поставщика выбрал бы он</b> (по тем же правилам, что в «Нужно ваше решение»: срок не хуже выбранного клиентом, надёжность, порог 5% для смены поставщика). Когда менеджер заказывает позицию в ABCP, агент записывает, <b>что выбрал менеджер</b>. Здесь — сравнение. Когда для какой-то группы заказов совпадение стабильно 95%+ на 20+ решениях, эту группу можно переводить на автопилот.</p>
 
-  <div class="stats" id="tiles"></div>
+  <div class="stats big" id="tiles"></div>
+  <p class="summary" id="summary"></p>
   <div class="charts">
+    <div class="chart wide"><h3>Из чего складывается итог</h3><div class="sub">Позиции, где агент выбрал бы другого поставщика. Зелёным — дешевле у надёжных поставщиков, синим — у новых, жёлтым — «проверить» (дешевле на 40%+, оригинал ли?), оранжевым — агент заплатил бы больше ради срока или надёжности.</div><div id="chDiff"></div></div>
     <div class="chart wide"><h3>Решения по дням</h3><div class="sub">Сколько позиций менеджеры заказали за день и сколько из них совпали с выбором агента</div><div class="legend" id="lgDays"></div><div id="chDays"></div></div>
     <div class="chart"><h3>Совпадение по сумме позиции</h3><div class="sub">Доля решений, где менеджер выбрал того же поставщика, что и агент</div><div id="chPrice"></div></div>
     <div class="chart"><h3>Совпадение по типу поставщика</h3><div class="sub">Доверенный (БорисХоф…), с историей у магазина (5+ поставок), новый</div><div id="chType"></div></div>
     <div class="chart"><h3>Совпадение по поставщику менеджера</h3><div class="sub">Поставщики с 5+ решениями</div><div id="chSup"></div></div>
-    <div class="chart"><h3>Когда не совпали — чей выбор дешевле</h3><div class="sub">Экономия агента по группам: у надёжных поставщиков, у новых, и «проверить» — дешевле на 40%+</div><div id="chDiff"></div></div>
     <div class="chart wide"><h3>Готовность к автопилоту</h3><div class="sub">Группа «сумма × тип поставщика». Зелёным — 20+ решений и совпадение 95%+: такие заказы агент мог бы оформлять сам.</div><div class="scroll" id="ready"></div></div>
     <div class="chart wide"><h3>Где агент и менеджер разошлись</h3><div class="sub">Последние расхождения: что выбрал менеджер, что предлагал агент и чем закончилось (поставка по истории статусов)</div><div class="scroll" id="diffs"></div></div>
   </div>
@@ -204,16 +211,18 @@
     const rate = decided.length ? pct(agree.length, decided.length) : null;
     void agentCheaper;
 
+    // 10.11 (owner): four headline numbers + one plain sentence; the split chart sits right below
+    const allCheaper = saved + savedNew + savedCheck;
+    const net = allCheaper - extra; // > 0: the agent's choices cost less in total
     $('tiles').innerHTML = [
-      ['', num(rows.length), 'выборов агента записано'],
-      ['', num(decided.length), `менеджер уже заказал (ещё ждут: ${num(waiting)}${cancelled ? `, отменено: ${num(cancelled)}` : ''}${ownSkipped ? `; со своего склада: ${num(ownSkipped)} — не считаются` : ''})`],
-      [rate == null ? '' : rate >= 95 ? 'green' : rate >= 80 ? 'amber' : 'red', rate == null ? '—' : rate + '%', `совпадение: тот же поставщик или разница меньше 1% (${num(agree.length)} из ${num(decided.length)})`],
-      [saved ? 'green' : '', saved ? '−' + rub(saved) : '0 ₽', `агент дешевле у надёжных поставщиков (${num(byG('reliable').length)} поз.) — если у поставщика менеджера нет скрытой скидки`],
-      ['', savedNew ? '−' + rub(savedNew) : '0 ₽', `агент дешевле у новых поставщиков (${num(byG('new').length)} поз.) — без истории у магазина`],
-      [savedCheck ? 'amber' : '', savedCheck ? '−' + rub(savedCheck) : '0 ₽', `проверить: агент дешевле на 40%+ (${num(byG('check').length)} поз.) — оригинал ли?`],
-      [extra ? 'amber' : '', extra ? '+' + rub(extra) : '0 ₽', `агент выбрал бы дороже в ${num(agentDearer.length)} случаях — ради срока или надёжности`],
-      ['', judged.length ? pct(judged.filter(Boolean).length, judged.length) + '%' : '—', `заказов менеджера пришли вовремя (из ${num(judged.length)} уже доставленных)`],
-    ].map(([c, v, l]) => `<div class="stat ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+      ['', 'Сравнено решений', num(decided.length), `из ${num(rows.length)} выборов агента; ещё ждут заказа: ${num(waiting)}`],
+      [rate == null ? '' : rate >= 95 ? 'green' : rate >= 80 ? 'amber' : 'red', 'Совпадение', rate == null ? '—' : rate + '%', 'менеджер выбрал того же поставщика (или разница меньше 1%)'],
+      [net > 0 ? 'green' : net < 0 ? 'amber' : '', 'Итого разница', net > 0 ? '−' + rub(net) : net < 0 ? '+' + rub(-net) : '0 ₽', net > 0 ? 'в пользу выбора агента (по закупке)' : net < 0 ? 'выбор агента дороже — ради срока или надёжности' : 'одинаково'],
+      ['', 'Вовремя', judged.length ? pct(judged.filter(Boolean).length, judged.length) + '%' : '—', `заказов менеджера пришли в срок (из ${num(judged.length)} доставленных)`],
+    ].map(([c, t, v, l]) => `<div class="stat ${c}"><div class="t">${t}</div><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+    $('summary').innerHTML = decided.length
+      ? `Агент купил бы дешевле в <b>${num(cheaper.length)}</b> позициях на <b>${rub(allCheaper)}</b> и дороже в <b>${num(agentDearer.length)}</b> на <b>${rub(extra)}</b>. Итого <b>${net >= 0 ? '−' : '+'}${rub(Math.abs(net))}</b>, из них у надёжных поставщиков <b>−${rub(saved)}</b> — эта часть верна, если у поставщика менеджера нет скидки, которая не видна в ABCP.${ownSkipped ? ` Позиции со своего склада (${num(ownSkipped)}) не считаются.` : ''}`
+      : '';
 
     if (!rows.length) {
       document.querySelectorAll('.chart > div:last-child').forEach(el => { el.innerHTML = '<div class="small">Данные начнут собираться после первой проверки агента (каждые 2 минуты). Первые решения менеджеров появятся, когда они закажут новые позиции в ABCP.</div>'; });
