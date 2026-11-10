@@ -514,4 +514,16 @@ t('own stock «Наше наличие» is never replaced; current supplier mat
   const k2 = sup.preferCurrent(o2, { supplier: 'Алексей Химки', supplierId: '77', priceOut: 40000 });
   assert.strictEqual(k2[0].supplier, 'Алексей Химки');
 });
+t('Bosch 0 445 110 435: a supplier the shop has ever ordered from is never «suspicious» (no 2× dearer pick)', () => {
+  const raw = [
+    { number: '0445110435', brand: 'Bosch', price: 13000, priceIn: 12918, deliveryPeriod: 24, distributorId: 1 },
+    { number: '0445110435', brand: 'Bosch', price: 25000, priceIn: 24269, deliveryPeriod: 24, distributorId: 2 },
+    { number: '0445110435', brand: 'Bosch', price: 26000, priceIn: 25500, deliveryPeriod: 24, distributorId: 3 },
+    { number: '0445110435', brand: 'Bosch', price: 27000, priceIn: 26100, deliveryPeriod: 24, distributorId: 4 }];
+  const names = new Map([['1', 'autoeuro.ru [online]'], ['2', 'Фаворит СЕО'], ['3', 'X'], ['4', 'Y']]);
+  // the order's supplier at pick time was something else; autoeuro has only 1 position of history -> still a real source
+  const sc = sup.scoreOffers(sup.normalizeOffers('0445110435', raw, names), [{ supplier: 'autoeuro.ru [online]', judged: 0, onTimeShare: null, positions: 1, refusedShare: 0 }], 4, 'Bosch', { supplier: 'Другой' });
+  assert.ok(!sc.find(o => o.supplier.startsWith('autoeuro')).suspicious);
+  assert.strictEqual(sc[0].supplier, 'autoeuro.ru [online]');
+});
 console.log('test-logistics (replacements): ok');
