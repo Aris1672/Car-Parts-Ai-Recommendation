@@ -39,7 +39,14 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 10.11.2026 evening) — newest: «📚 10.11 — knowledge base» right below, then «🧭 10.11 — narrowing dialog (NARROWING=1, live)», «10.11 — order status: pickup question» (✅ live), «09.11 late — category chips multi-select» (✅ live), «🛑 09.11 night — brakes per axle»; then 06.11, 05.11, 04.11. — read this block first
+## ▶️ RESUME HERE (state 10.11.2026 night) — newest: «🗂 10.11 evening — GROUP-FIRST narrowing» right below, then «📚 10.11 — knowledge base», «🧭 10.11 — narrowing dialog (NARROWING=1, live)», «10.11 — order status: pickup question» (✅ live), «09.11 late — category chips multi-select» (✅ live); then 06.11, 05.11, 04.11. — read this block first
+
+### 🗂 10.11 evening — GROUP-FIRST narrowing (the manager's way, owner's design)
+Main logic (owner 10.11): **word search in Laximo → the catalog groups of the found rows → ask by the catalog's group names → open the group's unit diagram.** The Laximo search does the main work; the knowledge base only fills its gaps.
+- `lib/laximo.js`: `partUnits(schema, oem)` (GetOEMPartApplicability, cached: the row's units = the site's «Взрыв-схема» column; group from the UNIT code «64_2903» → 64, not from the part number — «51 16 9 399 772» sits in 64_2903), `mainGroupNames` (ListCategories), `groupUnitsNamed(schema, code, stem)` (ListUnits of a main group, units whose name has the word), `unitPage(ref)`.
+- `api/chat.js` `narrowGroups` → `narrowGroupStep` → `narrowUnitPageView`: rows → groups; the customer's context («для двигателя», «в салон») → the AI picks a group (thinking), else the question «Где находится …?» with buttons «13 Подготовка и регулир. рабочей смеси / 51 Оснащение кузова / 64 Отопление и кондиционирование / Не знаю»; a group with several units → «Какой узел показать?»; one unit → the unit diagram (from its catalog page) with multi-select chips → positions → cards (confirm flow). One found part in the unit → marked. «Не знаю» → cards with diagrams. A request whose words leave ONE row → its card at once.
+- **Knowledge exception** (section «Поиск» in the MD file): `### Воздуховод` / `- Группы: 13, 64` — groups the Laximo search misses on some cars (230i F22: only 51); the bot opens those groups itself (`knowledge.extraGroups`).
+- Single-part requests now; lists keep the attribute questions. Logs `[narrow] … groups …`, `group question`, `unit question`, `-> unit «…»`. Tests `scripts/test-group-first.js`.
 
 ### 📚 10.11 — knowledge base `knowledge/bmw-parts.md` (step 1 built)
 Owner's decision 10.11: knowledge the catalog doesn't have (customer words ↔ BMW catalog names, where a part sits in its system, how to tell similar parts apart) lives in ONE MD file in the repo, by BMW main group, in a fixed entry format (see the file's head). **Only ✅ approved entries are used; Claude writes 📝 drafts — instead of code patches — and the owner approves** (on GitHub 📝 → ✅, or «утверждаю» in the chat). All of BMW is the target; filled group by group.

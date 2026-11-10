@@ -2048,11 +2048,122 @@ async function narrowKbPlaces(st, item, lead) {
     + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
 }
 
+/**
+ * The catalog groups of an item's search rows (owner 10.11): each row's units (GetOEMPartApplicability,
+ * cached), grouped by the unit code's group («64_2903» -> 64), + the knowledge base's exception
+ * groups the search missed (their units whose name has the word). Group names from the car's
+ * catalog. -> [{ code, name, units: [{ code, name, ref, oems }] }]
+ */
+async function narrowGroups(st, item) {
+  const groups = new Map();
+  const add = (u, oem) => {
+    const g = groups.get(u.group) || { code: u.group, name: null, units: new Map() };
+    const un = g.units.get(u.unitCode) || { code: u.unitCode, name: u.unitName, ref: u.ref, oems: [] };
+    if (oem && !un.oems.includes(oem)) un.oems.push(oem);
+    g.units.set(u.unitCode, un); groups.set(u.group, g);
+  };
+  for (const c of item.cands.slice(0, 24)) {
+    for (const u of await laximo.partUnits(st.schema, c.oem)) add(u, c.oem);
+  }
+  // Knowledge exception: groups the Laximo search may miss for this word («воздуховод» -> 13, 64).
+  const word = String(item.kw || '').split(/\s+/)[0];
+  const stem = word.toLowerCase().replace(/ё/g, 'е').slice(0, Math.max(4, Math.min(7, word.length - 1)));
+  for (const code of knowledge.extraGroups(word)) {
+    if (groups.has(code)) continue;
+    const units = await laximo.groupUnitsNamed(st.schema, code, stem).catch(() => []);
+    units.forEach(u => add(u, null));
+    if (units.length) console.log(`[narrow] «${item.kw}»: knowledge group ${code} added (${units.map(u => u.unitName).join(', ')})`);
+  }
+  if (!groups.size) return [];
+  const names = await laximo.mainGroupNames(st.schema).catch(() => ({}));
+  const out = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code))
+    .map(g => ({ code: g.code, name: names[g.code] || narrowing.PLACE[g.code] || `Группа ${g.code}`, units: [...g.units.values()] }));
+  console.log(`[narrow] «${item.kw}»: groups ${out.map(g => `${g.code} (${g.units.map(u => u.name).join(' / ')})`).join(', ')}`);
+  return out;
+}
+const groupLabel = g => `${g.code} ${g.name}`;
+/** The customer's own context words («для двигателя», «в салон») -> the AI picks a group, or null. */
+async function narrowGroupFromContext(item, groups) {
+  const kwW = String(item.kw || '').toLowerCase().split(/\s+/).map(w => w.slice(0, 5));
+  const extra = String(item.text || '').toLowerCase().replace(/ё/g, 'е').replace(/[a-z0-9]{8,}/gi, ' ').split(/[^а-я]+/)
+    .filter(w => w.length >= 4 && !kwW.some(k => w.startsWith(k)) && !/^(нужен|нужна|нужно|ищу|подбер|подоб|пожал|какой|деталь|запчаст|машин|автомоб|моей|моего|мою|для|vin)/.test(w));
+  if (!extra.length || !LLM_API_KEY) return null;
+  const prompt = `Клиент магазина запчастей BMW пишет: «${String(item.text).slice(0, 300)}». Деталь «${item.kw}» есть в таких группах оригинального каталога его машины:\n${groups.map(g => `- ${g.code} ${g.name}`).join('\n')}\n\nУказал ли клиент, где стоит деталь (например «для двигателя», «в салон», «у радиатора»), так что подходит ровно одна группа? Ответь только JSON: {"group": "NN"} или {"group": null}, если из слов клиента это не ясно.`;
+  try {
+    const res = await llmFetch({ model: LLM_MODEL, max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }, 60000, NARROW_THINKING_OFF);
+    if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
+    const data = await res.json();
+    trackUsage(LLM_MODEL, data);
+    const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
+    const j = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    console.log(`[narrow] context «${extra.join(' ')}» -> group ${j.group} (${thinkingProof(data)})`);
+    return groups.find(g => g.code === String(j.group)) || null;
+  } catch (err) { console.error('[narrow] context group failed:', err.message); return null; }
+}
+/** Group -> unit -> the unit diagram; asks the group / unit question when needed. -> reply | null */
+async function narrowGroupStep(st, item, i, lead) {
+  const groups = item.groups;
+  let g = item.groupCode ? groups.find(x => x.code === item.groupCode) : groups.length === 1 ? groups[0] : null;
+  if (!g && !item.ctxTried) { item.ctxTried = true; g = await narrowGroupFromContext(item, groups); if (g) item.groupCode = g.code; }
+  if (!g) {
+    const options = [...groups.map(groupLabel), narrowing.DONT_KNOW];
+    st.cur = i; st.attr = 'group'; st.question = `Где находится ${item.kw}?`; st.options = options;
+    st.groupMap = Object.fromEntries(groups.map(x => [groupLabel(x), x.code]));
+    console.log(`[narrow] «${item.kw}»: group question ${groups.map(x => x.code).join(', ')}`);
+    return `${lead ? lead + '\n\n' : ''}«${item.kw}» в оригинальном каталоге вашего ${st.car} есть в нескольких группах. Где находится нужный?`
+      + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  item.groupCode = g.code;
+  let u = item.unitCode ? g.units.find(x => x.code === item.unitCode) : g.units.length === 1 ? g.units[0] : null;
+  if (!u) {
+    const options = [...g.units.map(x => `${x.name} (${x.code})`), narrowing.DONT_KNOW];
+    st.cur = i; st.attr = 'unitpick'; st.question = 'Какой узел показать?'; st.options = options;
+    st.unitPickMap = Object.fromEntries(g.units.map(x => [`${x.name} (${x.code})`, x.code]));
+    console.log(`[narrow] «${item.kw}»: group ${g.code} -> unit question ${g.units.map(x => x.code).join(', ')}`);
+    return `${lead ? lead + '\n\n' : ''}В группе «${g.code} ${g.name}» деталь есть в нескольких узлах. Какой узел показать?`
+      + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  return narrowUnitPageView(st, item, g, u, lead);
+}
+/** The unit diagram from its catalog page (whole unit, multi-select chips, the confirm flow). */
+async function narrowUnitPageView(st, item, g, u, lead) {
+  const page = await laximo.unitPage(u.ref).catch(err => { console.error('[narrow] unit page failed:', err.message); return null; });
+  if (!page || !page.image || !page.rows.length) return null;
+  const seen = new Set();
+  const pos = x => { const t = String(x || '').trim(); return /^\d+$/.test(t) ? String(Number(t)) : t; };
+  const rows = page.rows.filter(r => r.position).map(r => ({ position: pos(r.position), oem: laximo.normalizeOem(r.oem), name: r.name || '', ...(r.box ? { box: r.box } : {}) }))
+    .filter(r => { const k = `${r.position}|${r.oem}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  if (!rows.length) return null;
+  const marked = u.oems.length === 1 ? rows.find(r => r.oem === laximo.normalizeOem(u.oems[0])) : null;
+  const base = marked || rows[0];
+  const unitName = u.name || page.unitName;
+  const cst = { oem: base.oem, name: base.name, position: marked ? marked.position : null, unit: unitName,
+    schema: { ...st.schema, number: base.oem, unit: unitName }, car: st.car, ask: item.kw, allPositions: true,
+    positions: rows.map(({ box, ...r }) => r), image: page.image, ...(marked ? { multi: true } : { noMarker: true }) };
+  const buttons = [...new Map(rows.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+  const big = { image: page.image, unit: unitName, ...(marked && marked.box ? { box: marked.box } : {}) };
+  console.log(`[narrow] «${item.kw}»: group ${g.code} -> unit «${unitName}» (${u.code}), ${rows.length} position(s)${marked ? `, marked ${marked.oem}` : ''}`);
+  const what = marked ? ` Отмечена деталь «${marked.name}».` : '';
+  return `${lead ? lead + ' ' : ''}Вот схема узла «${unitName}» (группа ${g.code} ${g.name}) для вашего ${st.car}.${what} Отметьте нужные позиции (можно несколько) и нажмите «Подобрать выбранное» — или напишите номера числами.`
+    + `\n<<<UNIT_DIAGRAM>>>\n${JSON.stringify(big)}\n<<<END_UNIT_DIAGRAM>>>`
+    + `\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(cst, buttons))}\n<<<END_BUTTONS>>>` + confirmBlock(cst);
+}
+
 /** Walk the items: cards for the resolved ones, the next question for the first open one. */
 async function narrowContinue(st, lead, opts = {}) {
   const done = [];
   for (let i = st.cur || 0; i < st.items.length; i++) {
     const item = st.items[i];
+    // GROUP-FIRST (owner 10.11, the manager's way): the search rows' catalog groups -> group
+    // question by the catalog's group names (or the customer's context) -> unit -> unit diagram.
+    // One item at a time; lists keep the attribute questions for now.
+    if (st.items.length === 1 && !item.gaveUp && !opts.unitView && (item.cands.length >= 2 || item.groupCode)) {
+      if (!item.groups) item.groups = await narrowGroups(st, item).catch(err => { console.error('[narrow] groups failed:', err.message); return []; });
+      if (item.groups && item.groups.length) {
+        const r = await narrowGroupStep(st, item, i, lead).catch(err => { console.error('[narrow] group step failed:', err.message); return null; });
+        if (r) return r;
+      }
+    }
     // One item, all candidates in one unit (2+ of them, or a part found from a description) ->
     // the whole unit diagram instead of more questions (owner 10.11).
     // Not before the first question (#564/565): a bare word may mean a part the catalog names
@@ -2177,7 +2288,7 @@ async function narrowingStart(extracted, messages, outcome) {
     // The keyword carries the customer's words from an earlier message («Задние тормозные колодки»,
     // then only the VIN -- 10.11 #552), the last message may add more.
     const cands = narrowing.applyRequestWords(rows, `${kw} ${text}`, kw).filter(p => { const k = laximo.normalizeOem(p.oem); if (seen.has(k)) return false; seen.add(k); return true; }).map(narrowing.compact);
-    items.push({ kw, cands, asked: [] });
+    items.push({ kw, cands, asked: [], text: String(text).slice(0, 300) });
     console.log(`[narrow] «${kw}»: ${rows.length} row(s) of the asked part, ${cands.length} after the request words`);
   }
   // Synonym keywords («тормозные колодки» + «накладки») found the same rows: keep the first.
@@ -2245,6 +2356,17 @@ async function narrowingFollowUp(messages) {
     return `Не понял ответ. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
   if (st.attr !== 'kb' && st.kbMap && st.kbMap[m.option]) st.attr = 'kb'; // a knowledge option in the kind question
+  if (st.attr === 'group' || st.attr === 'unitpick') {
+    const item = st.items[st.cur];
+    const map = st.attr === 'group' ? st.groupMap : st.unitPickMap;
+    const code = (map || {})[m.option];
+    const attr = st.attr;
+    delete st.attr; delete st.question; delete st.options; delete st.groupMap; delete st.unitPickMap;
+    if (!code) { st.items[st.cur] = { ...item, gaveUp: true }; return narrowContinue(st, ''); } // «Не знаю» -> cards with diagrams
+    st.items[st.cur] = attr === 'group' ? { ...item, groupCode: code } : { ...item, unitCode: code };
+    console.log(`[narrow] «${item.kw}» ${attr} = ${code}`);
+    return narrowContinue(st, '');
+  }
   if (st.attr === 'unit') {
     const oems = (st.unitMap || {})[m.option];
     const item = st.items[st.cur];
