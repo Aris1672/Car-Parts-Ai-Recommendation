@@ -2012,7 +2012,12 @@ async function narrowingStart(extracted, messages, outcome) {
     const vocab = (extracted.partSearchNames || {})[kw] || [];
     const fixed = rows.filter(p => p.fixedName); // names-table rows (owner's pairs) = the asked part
     if (fixed.length) rows = fixed;
-    else rows = narrowing.headFilter(rows, narrowing.stemsFor(kw, vocab));
+    else {
+      // The customer's own word first; the AI's search words only when no row has it (10.11 #556:
+      // «патрубок» for «воздуховод» brought «Патрубок маслоналивной»; «колодки» -> «накладки» stays).
+      const own = narrowing.headFilter(rows, narrowing.stemsFor(kw, []));
+      rows = own.length ? own : narrowing.headFilter(rows, narrowing.stemsFor(kw, vocab));
+    }
     const seen = new Set();
     // The keyword carries the customer's words from an earlier message («Задние тормозные колодки»,
     // then only the VIN -- 10.11 #552), the last message may add more.
