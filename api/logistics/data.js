@@ -186,8 +186,13 @@ module.exports = async function handler(req, res) {
       case 'shadowStats': {
         const days = Math.min(180, Math.max(7, parseInt(body.days, 10) || 60));
         const [rows, sup] = await Promise.all([shadow.rows(days), suppliers.supplierStats(120).catch(() => [])]);
-        return res.json({ success: true, role, days, rows, suppliers: sup, margin: Number(process.env.LOGISTICS_SWITCH_MARGIN) || 0.05,
+        return res.json({ success: true, role, days, rows, backfill: shadow.backfill, suppliers: sup, margin: Number(process.env.LOGISTICS_SWITCH_MARGIN) || 0.05,
           ownStock: String(process.env.LOGISTICS_OWN_STOCK || 'наше наличие').split(',').map(x => x.trim()).filter(Boolean) });
+      }
+      case 'shadowBackfill': {
+        if (role === 'logistics') return res.status(403).json({ error: 'Только для владельца' });
+        const days = Math.min(14, Math.max(1, parseInt(body.days, 10) || 3));
+        return res.json({ success: true, result: await shadow.runBackfill(await store.listOrders(days + 1), days, clean(body.author, 60) || role) });
       }
       case 'shadowReset': {
         // Михаил / owner only — managers can't wipe the statistics

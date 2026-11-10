@@ -22,6 +22,7 @@
   .logo { font-weight:800; font-size:16px; }
   .badge { font-family:var(--mono); font-size:10px; color:var(--text2); border:1px solid var(--border2); border-radius:6px; padding:2px 6px; }
   header .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  button.lnk:disabled { opacity:.7; cursor:default; }
   .lnk { color:var(--text2); text-decoration:none; font-weight:600; font-size:13px; border:1px solid var(--border2); border-radius:8px; padding:7px 11px; background:none; font-family:var(--font); }
   button.lnk:hover { color:var(--red2); border-color:var(--red2); }
   main { padding:18px; max-width:1500px; margin:0 auto; }
@@ -72,6 +73,9 @@
   <div class="right">
     <div class="filters"><span class="small">Период</span>
       <select id="days"><option value="14">14 дней</option><option value="30">30 дней</option><option value="60" selected>60 дней</option><option value="120">120 дней</option></select></div>
+    <div class="filters"><span class="small">Данные</span>
+      <select id="src"><option value="all">все</option><option value="live">только живые</option><option value="retro">только ретро</option></select></div>
+    <button class="lnk hidden" id="retroBtn">Ретро-проверка за 3 дня</button>
     <button class="lnk hidden" id="resetBtn" style="background:none;cursor:pointer">Начать статистику заново</button>
     <a class="lnk" href="/logistics">← Логистика</a>
   </div>
@@ -86,6 +90,7 @@
 
   <div class="stats big" id="tiles"></div>
   <p class="summary" id="summary"></p>
+  <div class="small" id="retroInfo" style="margin:-6px 0 12px"></div>
   <div class="charts">
     <div class="chart wide"><h3>Из чего складывается итог</h3><div class="sub">Позиции, где агент выбрал бы другого поставщика. Зелёным — дешевле у надёжных поставщиков, синим — у новых, жёлтым — «проверить» (дешевле на 40%+, оригинал ли?), оранжевым — агент заплатил бы больше ради срока или надёжности.</div><div id="chDiff"></div><div class="scroll" id="totals" style="margin-top:12px"></div></div>
     <div class="chart wide"><h3>Решения по дням</h3><div class="sub">Сколько позиций менеджеры заказали за день и сколько из них совпали с выбором агента</div><div class="legend" id="lgDays"></div><div id="chDays"></div></div>
@@ -124,6 +129,13 @@
   function showLogin() { $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
   $('loginForm').onsubmit = async e => { e.preventDefault(); pass = $('lgPass').value; try { await load(); st.set('lg_pass', pass); } catch (err) { $('lgErr').textContent = err.message; } };
   $('days').onchange = () => load().catch(() => {});
+  $('src').onchange = () => data && render();
+  let retroPoll = null;
+  $('retroBtn').onclick = async () => {
+    if (!confirm('Агент возьмёт позиции за последние 3 дня, которые менеджеры уже заказали, и запишет, какого поставщика выбрал бы он — по сегодняшним предложениям (цены могли измениться). Такие строки помечаются «ретро». Запустить?')) return;
+    try { await api('shadowBackfill', { days: 3, author: st.get('lg_name') || '' }); await load(); }
+    catch (err) { alert(err.message); }
+  };
   $('resetBtn').onclick = async () => {
     if (!confirm('Удалить все записанные сравнения «агент vs менеджер» и начать считать заново по текущим правилам агента? Это нельзя отменить.')) return;
     try { const r = await api('shadowReset', { author: st.get('lg_name') || '' }); alert(`Готово: удалено ${r.deleted} записей. Новые сравнения начнут появляться через пару минут.`); await load(); }
@@ -181,6 +193,12 @@
     data = await api('shadowStats', { days: $('days').value });
     $('login').classList.add('hidden'); $('app').classList.remove('hidden');
     $('resetBtn').classList.toggle('hidden', data.role === 'logistics');
+    $('retroBtn').classList.toggle('hidden', data.role === 'logistics');
+    const bf = data.backfill || {};
+    $('retroBtn').disabled = !!bf.running;
+    $('retroBtn').textContent = bf.running ? `Ретро-проверка: ${bf.done + bf.skipped + bf.errors} из ${bf.total}…` : 'Ретро-проверка за 3 дня';
+    clearTimeout(retroPoll);
+    if (bf.running) retroPoll = setTimeout(() => load().catch(() => {}), 5000);
     render();
   }
   let rzT; addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => data && render(), 150); });
@@ -189,7 +207,11 @@
   const BANDS = ['до 5 000 ₽', '5–20 тыс. ₽', '20–50 тыс. ₽', 'от 50 тыс. ₽'];
 
   function render() {
-    const rows = data.rows || [];
+    const src = $('src').value;
+    const allRows = data.rows || [];
+    const rows = allRows.filter(r => src === 'all' || (src === 'retro' ? r.retro : !r.retro));
+    const retroN = allRows.filter(r => r.retro).length;
+    $('retroInfo').textContent = retroN ? `В статистике есть ретро-строки: ${retroN} — агент выбирал по сегодняшним предложениям для уже заказанных позиций, это приблизительно. Переключатель «Данные» вверху.` : '';
     const supStats = new Map((data.suppliers || []).map(s => [nk(s.supplier), s]));
     const typeOf = r => { if (r.agent_trusted) return 'доверенный'; const s = supStats.get(nk(r.mgr_supplier || r.cur_supplier)); return s && s.judged >= 5 ? 'с историей' : 'новый'; };
     // 10.11: own stock is never replaced (rows recorded before the fix are excluded); same supplier = same name
@@ -312,7 +334,7 @@
       : 'Последние расхождения: что выбрал менеджер, что предлагал агент и чем закончилось (поставка по истории статусов). Нажмите строку в таблице итогов выше, чтобы увидеть все позиции группы.';
     $('diffs').innerHTML = shown.length ? `<table><tr><th>Дата</th><th>Заказ / деталь</th><th>Менеджер</th><th>Агент</th><th>Разница</th><th>Почему агент так выбрал</th><th>Поставка</th></tr>${shown.map(r => {
       const d = diffRub(r), ot = onTime(r);
-      return `<tr><td class="small">${esc(day(r.ordered_at || r.picked_at).slice(8, 10) + '.' + day(r.ordered_at || r.picked_at).slice(5, 7))}</td>
+      return `<tr><td class="small">${esc(day(r.ordered_at || r.picked_at).slice(8, 10) + '.' + day(r.ordered_at || r.picked_at).slice(5, 7))}${r.retro ? '<div><span class="pill wait">ретро</span></div>' : ''}</td>
         <td><a href="/logistics" style="color:var(--text)">${esc(r.number)}</a><div class="small">${esc(r.brand || '')} ${esc(r.article || '')} × ${r.quantity || 1}</div></td>
         <td>${esc(r.mgr_supplier || '—')}<div class="small">${r.mgr_price_in ? rub(r.mgr_price_in) : ''}</div></td>
         <td>${esc(r.agent_supplier || '—')}<div class="small">${r.agent_price_in ? rub(r.agent_price_in) : ''}${r.agent_days != null ? ` · до ${r.agent_days} дн.` : ''}</div></td>

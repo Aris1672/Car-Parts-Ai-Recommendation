@@ -527,3 +527,18 @@ t('Bosch 0 445 110 435: a supplier the shop has ever ordered from is never «sus
   assert.strictEqual(sc[0].supplier, 'autoeuro.ru [online]');
 });
 console.log('test-logistics (replacements): ok');
+
+t('retro check: only positions the manager already ordered, from the last N days, no own stock, not recorded yet', () => {
+  const now = Date.parse('2026-11-10T18:00:00Z');
+  const row = (date, positions) => ({ summary: { number: 'N', date, positions } });
+  const rows = [
+    row('2026-11-09 12:00:00', [
+      { id: '1', supplier: 'ЦС Автодом Сток', status: 'Заказано' },
+      { id: '2', supplier: 'ЦС Автодом Сток', status: 'Заказ принят' },          // not decided yet
+      { id: '3', supplier: 'Наше наличие', status: 'Заказано' },                  // own stock
+      { id: '4', supplier: 'autoeuro.ru [online]', status: 'ВЫДАНО.' }]),
+    row('2026-11-01 12:00:00', [{ id: '5', supplier: 'X', status: 'Заказано' }]), // too old
+  ];
+  assert.deepStrictEqual(shadow.retroCandidates(rows, new Set(['4']), 3, now).map(x => x.p.id), ['1']);
+});
+console.log('test-logistics (retro): ok');
