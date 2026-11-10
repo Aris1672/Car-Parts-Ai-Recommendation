@@ -2353,7 +2353,31 @@ const fmtDate = s => {
 const fmtDay = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}` : null; };
 const fmtRub = n => `${Math.round(Number(n)).toLocaleString('ru-RU').replace(/\u00a0/g, ' ')} ₽`;
 
-async function orderStatusReply(extracted, ip) {
+// «Пришёл ли заказ? Можно забрать?» (Диалоги ✗ 10.11 #468): the reply repeated the full
+// status without answering. Code answers first: yes / part of it / not yet (+ expected date).
+const PICKUP_ASK_RE = /пришл|пришел|пришёл|приш[её]л|прибыл|приехал|забрать|заб[её]рать|готов|можно\s+(уже\s+)?(подъехать|приехать|получить)|выдач/i;
+const ARRIVED_RE = /пришл|пришел|пришёл|прибыл|готов\S*\s+к\s+выдач|на\s+складе\s+магазин|в\s+сервис|в\s+пункт/i;
+const ISSUED_RE = /выдан/i;
+/** One lead line for a pickup question, or '' when the message isn't one. */
+function pickupAnswer(question, orders) {
+  if (!PICKUP_ASK_RE.test(String(question || '')) || !orders || !orders.length) return '';
+  const o = orders[0];
+  const pos = o.positions || [];
+  if (!pos.length) return '';
+  const issued = pos.filter(p => ISSUED_RE.test(p.status || ''));
+  const ready = pos.filter(p => !ISSUED_RE.test(p.status || '') && ARRIVED_RE.test(p.status || ''));
+  const rest = pos.length - issued.length - ready.length;
+  const where = o.deliveryOffice ? ` в ${o.deliveryOffice}` : '';
+  const days = Math.max(0, ...pos.map(p => p.deliveryDaysMax || p.deliveryDays || 0));
+  const base = Date.parse(String(o.date || '').replace(' ', 'T'));
+  const due = days && !Number.isNaN(base) && base + days * 86400000 > Date.now() ? fmtDate(new Date(base + days * 86400000).toISOString()) : '';
+  if (issued.length === pos.length) return `Заказ №${o.number} уже выдан.`;
+  if (!rest && ready.length) return `**Да, заказ №${o.number} пришёл — можно забирать${where}.**`;
+  if (ready.length) return `**Пришла часть заказа №${o.number} (${ready.length} из ${pos.length - issued.length} поз.)** — остальное ещё в пути${due ? `, ориентировочно до ${due}` : ''}. Можно подождать и забрать всё сразу.`;
+  return `**Пока нет — заказ №${o.number} ещё не пришёл, забирать рано.**${due ? ` Ориентировочно до ${due}.` : ''} Когда придёт, статус сменится на «Пришло».`;
+}
+
+async function orderStatusReply(extracted, ip, question) {
   const number = abcpOrders.normalizeOrderNumber(extracted.orderNumber);
   const phone = extracted.contactPhone, email = extracted.contactEmail;
   if (!abcpOrders.enabled()) {
@@ -2379,6 +2403,8 @@ async function orderStatusReply(extracted, ip) {
   if (r.status === 'deleted') {
     return `Заказ №${r.number} сейчас не активен: возможно, он был объединён с другим заказом или отменён. Напишите, пожалуйста, нам ${ORDER_CONTACTS} — менеджер подскажет актуальный номер и статус.\n<<<MANAGER_BUTTON>>>`;
   }
+  const lead = r.viaCode ? '' : pickupAnswer(question, r.orders);
+  if (lead) console.log(`[order] pickup question -> «${lead.replace(/\*/g, '').slice(0, 80)}»`);
   const short = t => { const x = String(t || ''); return x.length > 70 ? x.slice(0, 67).replace(/[\s,.;:]+\S*$/, '') + '…' : x; };
   const lines = [];
   if (r.viaCode) lines.push(r.orders.length > 1 ? `По коду заказа ${r.code} нашёл ${r.orders.length} заказа:` : `По коду заказа ${r.code}:`);
@@ -2416,6 +2442,7 @@ async function orderStatusReply(extracted, ip) {
     else if (o.sum) lines.push('Заказ оплачен.');
   }
   if (r.orders.length > 3) lines.push(`\n…и ещё ${r.orders.length - 3} заказ(а).`);
+  if (lead) lines.unshift(lead, '');
   lines.push(`\nЕсли нужны подробности по срокам — напишите нам ${ORDER_CONTACTS}.`);
   return lines.join('\n');
 }
@@ -3636,7 +3663,7 @@ console.log(JSON.stringify(extracted, null, 2));
     if (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true') {
       const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
       progress.step('Проверяю статус заказа…');
-      let reply = await orderStatusReply(extracted, ip);
+      let reply = await orderStatusReply(extracted, ip, lastUserMessage(messages));
       // «Писал в телеграм - нет ответа» (Диалоги ✗ 05.11): the reply ended with
       // «напишите нам в Telegram или MAX» -- exactly what didn't work for them.
       if (NO_ANSWER_RE.test(lastUserMessage(messages) || '')) {
@@ -4762,7 +4789,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;

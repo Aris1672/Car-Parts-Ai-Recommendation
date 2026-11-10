@@ -385,3 +385,15 @@ console.log('test-cards: side-question guard compiled');
   a.strictEqual(n({ partKeywords: null }), null);
   console.log('test-cards: no-car reply ok');
 }
+
+// «Пришёл ли заказ, можно забрать?» (Диалоги ✗ 10.11 #468): a direct answer first.
+{
+  const { _pickupAnswer: pa } = require('../api/chat');
+  const o = st => [{ number: '288674242', date: '2099-01-01 10:00:00', deliveryOffice: 'ПВЗ Химки Сервис', positions: st.map(s => ({ status: s, deliveryDaysMax: 4 })) }];
+  a.ok(/Пока нет/.test(pa('288674242 этот заказ пришёл его можно забрать сейчас?', o(['Заказ в работе', 'Комплектуется на складе поставщика']))));
+  a.ok(/Да, заказ .* можно забирать в ПВЗ Химки Сервис/.test(pa('можно забрать?', o(['Пришло в СЕРВИС Химки', 'Пришло в СЕРВИС Химки']))));
+  a.ok(/Пришла часть заказа .*1 из 2/.test(pa('пришёл?', o(['Пришло в СЕРВИС Химки', 'В пути на склад']))));
+  a.ok(/уже выдан/.test(pa('готов?', o(['ВЫДАНО']))));
+  a.strictEqual(pa('где мой заказ', o(['Заказ в работе'])), '');
+  console.log('test-cards: pickup answer ok');
+}
