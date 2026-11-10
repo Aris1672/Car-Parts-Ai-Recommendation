@@ -95,3 +95,11 @@ const XM = [['13715A1F9C2','Воздуховод'],['51749451352','Воздух�
   a.deepStrictEqual(n.applyRequestWords(rows, `${kw} VIN: WBS11CS0609158489`, kw).map(x => x.oem), ['34208842966']);
   console.log('test-narrowing: words from the earlier message ok');
 }
+{
+  // «Тормозные диски»: «Диск датчика» skipped -> straight to the axle (owner 10.11).
+  const rows = [{ oem: '34116889456', name: 'Тормозной диск Л', axle: 'передняя ось' }, { oem: '34116889457', name: 'Тормозной диск П', axle: 'передняя ось' }, { oem: '34216889467', name: 'Тормозной диск', axle: 'задняя ось' }, { oem: '34526884421', name: 'Диск датчика' }];
+  const c = n.applyRequestWords(n.headFilter(rows, n.stemsFor('тормозные диски', ['диск'])), 'тормозные диски VIN: WBS11CS0609158489', 'тормозные диски');
+  a.strictEqual(c.length, 3);
+  a.strictEqual(n.nextStep({ kw: 'тормозные диски', cands: c, asked: [] }).attr, 'frontRear');
+  console.log('test-narrowing: brake discs ok');
+}
