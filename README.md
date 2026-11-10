@@ -114,6 +114,29 @@ Precise requests («датчик температуры охлаждающей �
 
 **✅ 04.11: Laximo direct API built — switch `LAXIMO_SOURCE=api` in Coolify to use it** (see «🔌 Laximo web service (04.11)» right below). Default stays `site` until the owner has tested.
 
+### 🚚 10.11 — LOGISTICS AGENT: CURRENT STATE (read this first; the 07.11 sections below are the build history)
+**Live on the shop's server, confirmed working by the owner 10.11.** Plan + decisions: project doc «logistics-agent-plan.md». Pages: **/logistics** (managers' workplace) and **/logistics/stats** («Агент vs менеджер»). Phase 1 (watch + alerts) and phase 2 (prepare / test send / test switch) are built; **writing to ABCP is OFF** (`LOGISTICS_SEND_ENABLED` unset) until Михаил's OK for the first live test.
+
+**Files:** `lib/logistics/watch.js` (pass every 2 min, read-only), `stages.js` (statuses → stages, alerts), `store.js` (tables; ONE shared pg pool `LOGISTICS_DB_POOL`=4; only changed orders written per pass), `suppliers.js` (status history → reliability, offers + scoring + explanations, replacements), `decisions.js` («Нужно ваше решение», send / switch with re-checks), `shadow.js` (agent vs manager, retro check, reset), `lib/abcpWrite.js` (the ONLY ABCP write client: `cp/orders/online` POST, `cp/order` POST), `api/logistics/data.js`, `logistics/index.html`, `logistics/stats.html`. Tests: `scripts/test-logistics.js` (in `npm test`); DB code also checked end-to-end on a local Postgres (embedded-postgres, see «Working notes»).
+
+**Agent's supplier rules (in this order):**
+1. Never a loss: no pick / switch with purchase above the customer's price while the order's supplier is within it; all offers above → «согласуйте цену с клиентом», no switch button.
+2. Never slower than the delivery the customer chose (whole days); once that date has passed, the best available now (2 %/day weight, owner 08.11).
+3. Own stock (`LOGISTICS_OWN_STOCK`, default «наше наличие») is never replaced.
+4. Same supplier = same NAME (`sameSup`; ids only when a name is missing — a shared id made «Алексей Химки» = autoskyimport.ru).
+5. Compare purchase `priceIn` (= ABCP «Цена поставщика») with the order's supplier's LIVE price; if it has no offer now, its purchase from the order is the reference and nothing > 10 % dearer or unknown is recommended («предложения сейчас нет — оставить»).
+6. Trusted (`LOGISTICS_TRUSTED_SUPPLIERS`, default `борисхоф,рольф`) = solid: ≥ 85 % on time, ≤ 2 % refusals. Others: history weighted by number of deliveries (prior 10 at 70 % / 5 %).
+7. Never a DEARER unknown supplier (no history, not trusted) over the order's one; switch only if ≥ 5 % better (`LOGISTICS_SWITCH_MARGIN`) and never > 10 % dearer unless the current one is known-unreliable.
+8. «Подозрительно дёшево» only for suppliers the shop has never ordered from: < 60 % of the median AND ≥ 15 % below the next-cheapest other supplier; other brand never picked. No exact offers → replacements / analogs listed (`replacementsFor`, never picked). Online offers flicker → switch retries once. Supplier stats on a DB error → last good list; shadow never records a pick made without history.
+
+**Alerts:** `loss` red from `LOGISTICS_LOSS_MIN_PCT` (10 %) / `loss_small` yellow (dealers are 2–9 % «below cost» in ABCP — probably a dealer discount not recorded there; question to Михаил), `forgotten` (siblings ordered > 4 h ago), `no_stock`, `not_ordered` (paid / part-paid only), `supplier_late` (after ordering), `not_shipped`, `delivery_long`, `silent`. Unpaid «Заказ принят» → stage «Ждём оплату».
+
+**Shadow mode / stats page:** the watcher records the agent's pick for every new position (paid, or unpaid ≤ `LOGISTICS_SHADOW_DAYS` 14 days, newest first, max `LOGISTICS_SHADOW_PER_PASS` 20 / pass) and the manager's supplier when ordered. Page: 4 headline numbers + one sentence, «Из чего складывается итог» chart + totals table (click a row → every position of that group below), match < 1 % = same, savings split надёжный / новый / проверить (≥ 40 % cheaper), own stock excluded. Owner / Михаил only: **«Ретро-проверка за 3 дня»** (positions already ordered, agent picks with TODAY's offers, rows tagged «ретро», filter «Данные: все / живые / ретро») and **«Начать статистику заново»** (clears `logistics_shadow`, logged `shadow_reset`).
+
+**Diagnostics:** `node scripts/check-abcp-order-api.js` (online ordering on the tariff — ✅ 07.11), `node scripts/check-loss.js` (raw price fields behind loss alerts). Logs: `[logistics] pass: N active, M changed, … ms`, `[shadow] agent picks recorded`, `[shadow] retro check …`, `[logistics] SENT / SUPPLIER SWITCH …`.
+
+**Next:** Михаил's answers (statuses, dealer discounts, trusted list, Brest price lists, staff orders at a loss), then the first live test (`LOGISTICS_SEND_ENABLED=1`: one switch, one send, watched in ABCP), then phase 3 (autopilot for groups the stats page marks ready) and phase 4 (СДЭК / Яндекс.Доставка, keys from Михаил).
+
 ### 📦 07.11 — logistics agent, phase 1 (read-only watcher + /logistics page) — NOT live yet, needs env vars
 Plan: project doc «logistics-agent-plan.md» (order → supplier → Яндекс.Доставка / СДЭК / pickup). Phase 1 never writes to ABCP.
 - `lib/logistics/stages.js` (pure, tests `scripts/test-logistics.js`): ABCP status name → board stage by keywords (`STAGE_RULES`; override `LOGISTICS_STAGE_MAP` = JSON {"<status>": "<stage>"}); order stage = slowest live position; carrier from delivery type; alerts: `not_ordered` (new > 4 h), `supplier_late` (deadlineMax + 12 h), `not_shipped` (on stock > 24 h), `delivery_long` (shipped > 7 d), `silent` (no status change 3 d), `unknown_status`.
@@ -274,6 +297,7 @@ Background: on this car the quick group «Колодки тормозные ди
 - Push: commit on the session branch, then `git push origin HEAD:main` (owner's instruction 03.11). Run `npm test` first.
 - `node_modules` is partly tracked in git on purpose (288 files) — never run `npm install` inside the repo; install deps elsewhere and use `NODE_PATH`: `mkdir -p $SCRATCH/deps && cp package*.json $SCRATCH/deps && (cd $SCRATCH/deps && npm install --omit=dev)`, then `NODE_PATH=$SCRATCH/deps/node_modules npm test`. `.gitignore` is UTF-16 — don't append to it with shell tools.
 - Network: the environment allows `laximo.ru`, `*.laximo.ru`, `laximo.net`, `*.laximo.net` (docs + service). bmwclub77.ru and max.ru are not reachable. Node's fetch needs `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt` here (curl works as is). Never call the Laximo API with the real login from the session.
+- Logistics DB code against a real Postgres (10.11): `npm i embedded-postgres` in a scratch folder; initdb refuses root → create a user (`useradd -m pgu`), run `initdb -D /tmp/pgdata -U postgres --auth=trust` and `pg_ctl -D /tmp/pgdata -o '-p 5433 -k /tmp' start` as that user (binaries under `node_modules/@embedded-postgres/*/native/bin`), then point `SUPABASE_DB_URL=postgres://postgres@127.0.0.1:5433/t` at it with ABCP stubbed (`abcp.apiGet` replaced) and drive `store.savePass`, `decisions.queue`, `shadow.step / runBackfill / reset`. Only push when `npm test` AND this check pass.
 - Lift the Laximo site pause on the server (only after ABCP fixed the block): Coolify Terminal → `node -e "fetch('http://localhost:'+(process.env.PORT||3000)+'/api/admin/clear-cache',{method:'POST',headers:{'x-admin-secret':process.env.CACHE_CLEAR_SECRET}}).then(r=>r.text()).then(console.log)"`.
 
 ## 📍 PROJECT STATUS — history up to 03.11 (newer state: «▶️ RESUME HERE» above)
