@@ -2172,7 +2172,8 @@ async function narrowContinue(st, lead, opts = {}) {
       if (item.groups && item.groups.length) {
         const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
         const multi = st.items.length > 1 ? `(деталь ${i + 1} из ${st.items.length}) ` : '';
-        const lead2 = [lead, before, multi.trim()].filter(Boolean).join('\n\n');
+        // The cards of the resolved items first, the next question after them (<<<AFTER>>>, #574).
+        const lead2 = [[lead, before].filter(Boolean).join('\n\n'), before ? '<<<AFTER>>>' : '', multi.trim()].filter(Boolean).join('\n');
         const r = await narrowGroupStep(st, item, i, lead2).catch(err => { console.error('[narrow] group step failed:', err.message); return null; });
         if (r) return r;
       }
@@ -2224,7 +2225,7 @@ async function narrowContinue(st, lead, opts = {}) {
     const multi = st.items.length > 1 ? ` (деталь ${i + 1} из ${st.items.length})` : '';
     const nForms = k => (k % 10 === 1 && k % 100 !== 11 ? 'вариант' : k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 12 || k % 100 > 14) ? 'варианта' : 'вариантов');
     const intro = !before && !(item.asked || []).length ? `В оригинальном каталоге для вашего ${st.car} по запросу «${item.kw}» — ${item.cands.length} ${nForms(item.cands.length)}. Уточню, какой нужен.\n` : '';
-    return `${lead ? lead + '\n\n' : ''}${before ? before + '\n\n' : ''}${intro}${step.question}${multi}`
+    return `${lead ? lead + '\n\n' : ''}${before ? before + '\n<<<AFTER>>>\n' : ''}${intro}${step.question}${multi}`
       + `\n<<<BUTTONS>>>\n${JSON.stringify(step.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
   // Everything resolved. Several products blocks: the widget shows one -> merge into one.

@@ -2951,8 +2951,13 @@
     // Every \n renders as <br>, so those show up as a large empty gap in the
     // bubble. Collapse any run of blank lines to a single blank line.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    // <<<AFTER>>> (10.11 #574): the text after it is shown AFTER the cards / diagram
+    // (a list of parts: the pads card first, then «(деталь 2 из 2) … Где находится?»).
+    let textAfter = '';
+    const am = text.indexOf('<<<AFTER>>>');
+    if (am !== -1) { textAfter = text.slice(am + 11).trim(); text = text.slice(0, am).trim(); }
 
-    return { text, products, buttons, buttonsOpts, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram };
+    return { text, textAfter, products, buttons, buttonsOpts, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram };
   }
 
   // ─── SEND ────────────────────────────────────────────────────────────────────
@@ -3025,7 +3030,7 @@
 
       removeTypingIndicator();
 
-      const { text, products, buttons, buttonsOpts, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram } = parseBotResponse(raw);
+      const { text, textAfter, products, buttons, buttonsOpts, showManager, contactForm, partLinks, diagram, diagrams, unitDiagram } = parseBotResponse(raw);
 
       if (!sessionStartPromise) {
         await startSession();
@@ -3085,6 +3090,10 @@
         addProductCarousel(products);
         displayLog.push({ type: 'products', payload: products });
         logEvent('products_shown', { products: products.map(cardInfo) });
+      }
+      if (textAfter) {
+        addBotBubble(textAfter);
+        displayLog.push({ type: 'bot', payload: textAfter });
       }
       if (buttons && buttons.length > 0) {
         addButtonsBubble(buttons, buttonsOpts);
