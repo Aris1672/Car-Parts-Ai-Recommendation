@@ -413,3 +413,27 @@ console.log('test-cards: side-question guard compiled');
   a.ok(/22116860458/.test(out) && /<<<PRODUCTS>>>/.test(out), out);
   console.log('test-cards: single part card added ok');
 }
+
+// Gearbox mount (Диалоги ✗ 10.11 #483–491, XM G09 50e).
+{
+  const lx = require('../lib/laximo');
+  const rows = [
+    { oem: '22116860458', name: 'Подушка крепления двигателя П', unit: 'Подвеска двигателя', query: 'крепление коробки передач' },
+    { oem: '22116860457', name: 'Подушка крепления двигателя Л', unit: 'Подвеска двигателя', query: 'крепление коробки передач' },
+    { oem: '22325A16555', name: 'Несущий кронштейн коробки передач', unit: 'Крепление КПП', query: 'крепление коробки передач' },
+  ];
+  a.deepStrictEqual(lx.dropEngineRowsForGearbox(rows, ['крепление коробки передач']).map(r => r.oem), ['22325A16555']);
+  a.strictEqual(lx.dropEngineRowsForGearbox(rows, ['крепление коробки передач', 'подушка двигателя']).length, 3, 'engine named -> kept');
+  const h = lx.HUMAN_NAMES.find(x => x.label === 'gearboxMount');
+  a.ok(h.ask.test('подушка крепления коробки передач') && h.ask.test('опора КПП') && !h.ask.test('кронштейн коробки передач'));
+  if (lx.applyHumanNames) {
+    const kw = 'подушка крепления коробки передач';
+    const out = lx.applyHumanNames([
+      { oem: '22326860533', name: 'Подшипник коробки передач', unit: 'Крепление КПП', query: kw },
+      { oem: '22319844631', name: 'Подшипник коробки передач', unit: 'Детали раздаточной коробки ATC 13', query: kw },
+      { oem: '22116860458', name: 'Подушка крепления двигателя П', unit: 'Подвеска двигателя', query: kw },
+    ], [kw]);
+    a.deepStrictEqual(out.map(r => r.oem), ['22326860533']);
+  }
+  console.log('test-cards: gearbox mount ok');
+}
