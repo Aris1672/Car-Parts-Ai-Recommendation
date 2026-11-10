@@ -75,3 +75,5 @@
 | 503, 504 | 2026-11-10_1212 | positions 5, 2 → cards, buttons stay | ✓ | ok | — |
 | 507 | 2026-11-10_1229 | XM «Воздуховод Подготовка и регулир. рабочей смеси» (catalog path) → air filter element 13715A24FB2 (quick group «Фильтр воздушный»; the group title read as a part) | ✗ | ✅ fixed | `e8b73c6` catalog path → title keyword dropped, unit «Воздуховод» shown whole with multi-select positions; a quick group with no row / name holding the keyword's noun → also by words |
 | 505, 506 | 2026-11-10_1229 | gearbox unit + «10, 8, 9» → 3 cards | ✓ | ok | — |
+| 518 | 2026-11-10_1426 | NARROWING=1: XM «Воздуховод» → «… — впуск воздуха …» → card 13715A1F9C2 without a picture | ✗ | ✅ fixed | `0ad2a76` the narrowing cards took the catalog reference from the chat's vehicle object (no query there) → empty diagram link; now from the catalog rows |
+| 508–517 | 2026-11-10_1426 | catalog path unit «Воздуховод» + positions, order status, ТО without car, first narrowing question (XM воздуховод, 15 candidates) | ✓ | ok | — |
