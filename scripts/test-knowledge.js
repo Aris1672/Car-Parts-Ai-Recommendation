@@ -12,9 +12,10 @@ const k = require('../lib/knowledge');
   a.ok(/впускной канал/.test(inlet.system), 'the group\'s flow is attached');
   a.ok(list.some(e => !e.approved), 'drafts exist and are marked');
   // only approved entries are selected
-  a.deepStrictEqual(k.select('Нет я имею в виду откуда двигатель берёт воздух до воздушного фильтра').map(e => e.title), ['Впускной канал']);
-  a.ok(!k.select('воздуховод после фильтра').some(e => e.title === 'Трубопровод чистого воздуха'), 'draft not used');
-  a.ok(k.select('воздуховод после фильтра', { all: true }).some(e => e.title === 'Трубопровод чистого воздуха'));
+  a.strictEqual(k.select('Нет я имею в виду откуда двигатель берёт воздух до воздушного фильтра')[0].title, 'Впускной канал', 'best match first (the AI decides between close entries)');
+  a.ok(!k.select('нужен шноркель').some(e => e.title === 'Воздухозаборный шноркель'), 'draft not used');
+  a.ok(k.select('нужен шноркель', { all: true }).some(e => e.title === 'Воздухозаборный шноркель'));
+  a.ok(k.select('воздуховод после фильтра').some(e => e.title === 'Трубопровод чистого воздуха'), 'approved 10.11');
   // a bare word does not pull an entry
   a.strictEqual(k.select('воздуховод').length, 0);
   a.deepStrictEqual(k.select('подушка КПП').map(e => e.title), ['Подшипник коробки передач']);
