@@ -576,7 +576,7 @@ t('11.11: an unproven supplier is never paid more than the cheapest proven one �
   assert.ok(!sc2[0].riskGated);
 });
 t('11.11: Михаил\'s trusted list', () => {
-  for (const n of ['Рольф Ясенево нал', 'ЦС Автодом Сток', 'zlataauto.ru [online]', 'Мезенцев', 'ОригаТо', 'germsp.ru [online]', 'Марат', 'БорисХоф Север'])
+  for (const n of ['Рольф Ясенево нал', 'ЦС Автодом Сток', 'Автд Вернадка', 'Злата-авто', 'Иван Мезенцев', 'ОригаТО', 'zlataauto.ru [online]', 'Мезенцев', 'ОригаТо', 'germsp.ru [online]', 'Марат', 'БорисХоф Север'])
     assert.ok(sup.isTrusted(n), n);
   assert.ok(!sup.isTrusted('adeo.pro [online]'));
 });
