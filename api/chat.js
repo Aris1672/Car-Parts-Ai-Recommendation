@@ -1975,11 +1975,46 @@ async function narrowMapAnswer(text, step) {
     return {};
   }
 }
+/**
+ * Owner 10.11: when the narrowing has come down to ONE catalog unit («13 → Воздуховод»), stop
+ * asking -- show the whole unit diagram with multi-select position chips (the confirm flow).
+ * Units come from the catalog (one diagram request per candidate, cached). mark = the part to
+ * mark (knowledge path / one candidate). -> reply | null
+ */
+async function narrowUnitView(st, item, lead, mark) {
+  const cands = item.cands.slice(0, 8);
+  if (!st.schema || !st.schema.vid || !cands.length || item.cands.length > 8) return null;
+  const infos = [];
+  for (const c of cands) {
+    const d = await laximo.getPartDiagram({ oem: laximo.normalizeOem(c.oem), schema: { ...st.schema, number: c.oem } }).catch(() => null);
+    if (!d || !d.unitName || !d.image) return null;
+    infos.push({ c, unit: d.unitName });
+  }
+  const units = new Set(infos.map(x => x.unit));
+  if (units.size !== 1) return null;
+  const unit = [...units][0];
+  const pick = mark || (cands.length === 1 ? cands[0] : null);
+  const base = pick || cands[0];
+  const cst = { oem: laximo.normalizeOem(base.oem), name: base.name, position: null, unit,
+    schema: { ...st.schema, number: base.oem }, car: st.car, ask: item.kw, allPositions: true, ...(pick ? { multi: true } : { noMarker: true }) };
+  const reply = await wholeUnitReply(cst, '');
+  if (!reply) return null;
+  console.log(`[narrow] «${item.kw}»: ${item.cands.length} candidate(s) in one unit «${unit}» -> whole unit${pick ? `, marked ${pick.oem}` : ''}`);
+  const what = pick ? ` Отмечена деталь «${pick.name}».` : '';
+  return `${lead ? lead + ' ' : ''}Вот схема узла «${unit}» для вашего ${st.car}.${what} Отметьте нужные позиции (можно несколько) и нажмите «Подобрать выбранное» — или напишите номера числами.${reply}`;
+}
+
 /** Walk the items: cards for the resolved ones, the next question for the first open one. */
-async function narrowContinue(st, lead) {
+async function narrowContinue(st, lead, opts = {}) {
   const done = [];
   for (let i = st.cur || 0; i < st.items.length; i++) {
     const item = st.items[i];
+    // One item, all candidates in one unit (2+ of them, or a part found from a description) ->
+    // the whole unit diagram instead of more questions (owner 10.11).
+    if (st.items.length === 1 && !item.gaveUp && (item.cands.length >= 2 || opts.unitView)) {
+      const uv = await narrowUnitView(st, item, lead, opts.unitView ? item.cands[0] : null).catch(err => { console.error('[narrow] unit view failed:', err.message); return null; });
+      if (uv) return uv;
+    }
     const step = item.gaveUp ? { done: true, pick: item.cands.slice(0, narrowing.MAX_CARDS), gaveUp: true } : narrowing.nextStep(item);
     if (step.done) {
       const cards = await narrowCards(st, step.pick);
@@ -2115,7 +2150,7 @@ async function narrowingFollowUp(messages) {
       st.items[st.cur] = { kw: kr.entry.title.toLowerCase(), cands: kr.rows.map(narrowing.compact), asked: [] };
       delete st.attr; delete st.question; delete st.options;
       const why = kr.entry.where ? ` (${kr.entry.where.split(/[—;]/)[0].trim()})` : '';
-      return narrowContinue(st, `Понял: это «${kr.entry.title}»${why}.`);
+      return narrowContinue(st, `Понял: это «${kr.entry.title}»${why}.`, { unitView: kr.rows.length <= 8 });
     }
     if (kr && !kr.rows.length) {
       return `Понял: это «${kr.entry.title}». В оригинальном каталоге вашего ${st.car} такой детали не нашёл. Оставьте заявку — менеджер проверит по VIN.\n<<<MANAGER_BUTTON>>>`;
@@ -2272,7 +2307,7 @@ async function wholeUnitReply(st, lead) {
 }
 /** Whole-unit request (owner 10.11 #502): position chips are multi-select, sent as «2, 10». */
 function unitButtons(st, items) {
-  return st && st.noMarker ? { multi: true, numbers: true, items } : items;
+  return st && (st.noMarker || st.multi) ? { multi: true, numbers: true, items } : items;
 }
 /**
  * Pure: the customer's answer to «Это она?» / the unit diagram -> { yes, no, other, num }.
@@ -2340,7 +2375,7 @@ async function confirmFollowUp(messages) {
   }
   // Whole-unit request (#501): several positions at once («2, 10», «2 и 10») and the
   // position buttons stay after each card, so more parts of the unit can be added.
-  const multi = st.noMarker && /^[\d\s,;.и-]+$/i.test(u) ? [...new Set(u.match(/\d{1,3}/g) || [])] : null;
+  const multi = (st.noMarker || st.multi) && /^[\d\s,;.и-]+$/i.test(u) ? [...new Set(u.match(/\d{1,3}/g) || [])] : null;
   if (multi && multi.length > 1) {
     const rs = await loadRows();
     const hit = rs.filter(r => multi.some(n => r.position === String(Number(n)) || r.position === n));
@@ -2364,7 +2399,7 @@ async function confirmFollowUp(messages) {
     console.log(`[confirm] position ${num[1]}: ${hit.map(h => h.oem).join(', ')}`);
     return `Позиция ${num[1]} — «${hit[0].name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
       + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
-      + (st.noMarker ? `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, posButtons(rs)))}\n<<<END_BUTTONS>>>` + confirmBlock(st) : '');
+      + (st.noMarker || st.multi ? `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, posButtons(rs)))}\n<<<END_BUTTONS>>>` + confirmBlock(st) : '');
   }
   return null; // something else -- normal path
 }
