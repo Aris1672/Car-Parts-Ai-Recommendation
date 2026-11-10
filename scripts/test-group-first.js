@@ -35,8 +35,8 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   r = await chat._narrow.narrowContinue(st, '');
   msgs = [{ role: 'user', content: 'Воздуховод' }, { role: 'assistant', content: r }, { role: 'user', content: '51 Оснащение кузова' }];
   r = await chat._narrow.narrowingFollowUp(msgs);
-  a.ok(/Какой узел показать/.test(r) && /Воздуховоды \(51_8782\)/.test(r) && /Облицовка днища кузова \(51_8868\)/.test(r), r.slice(0, 400));
-  msgs.push({ role: 'assistant', content: r }, { role: 'user', content: 'Воздуховоды (51_8782)' });
+  a.ok(/Какой узел показать/.test(r) && /"Воздуховоды"/.test(r) && /"Облицовка днища кузова"/.test(r) && !/51_8782/.test(r.split('<<<NARROW_STATE>>>')[0]), r.slice(0, 400));
+  msgs.push({ role: 'assistant', content: r }, { role: 'user', content: 'Воздуховоды' });
   r = await chat._narrow.narrowingFollowUp(msgs);
   a.ok(/<<<UNIT_DIAGRAM>>>/.test(r), r.slice(0, 300));
   console.log('test-group-first: XM воздуховод ok');
@@ -71,6 +71,18 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   const next = await (async () => { const h = require('../api/chat'); return h._confirmFollowUp ? h._confirmFollowUp(msgs) : null; })();
   if (next !== null) a.ok(/34216888825/.test(next), 'next part = the pads card: ' + String(next).slice(0, 300));
   console.log('test-group-first: list of parts ok');
+
+  // Pads in two units that differ only by axle (owner 10.11): «Передние / Задние тормозные колодки / Обе оси».
+  UNITS['34108842390'] = [{ group: '34', unitCode: '34_3255', unitName: 'Датчик износа торм.накладки пер.колеса', ref: 'api:C:1:u34f:s' }];
+  UNITS['34208842966'] = [{ group: '34', unitCode: '34_3256', unitName: 'Датчик износа торм.накладки колеса Зд', ref: 'api:C:1:u34r:s' }];
+  const padsBoth = [{ oem: '34108842390', name: 'Ремкомплект тормозных колодок', axle: 'передняя ось' }, { oem: '34208842966', name: 'Ремкомплект тормозных колодок безасбест.', axle: 'задняя ось' }];
+  st = st0([{ kw: 'тормозные колодки', cands: padsBoth, asked: [], text: 'и тормозные колодки' }]);
+  r = await chat._narrow.narrowContinue(st, '');
+  a.ok(/Передние тормозные колодки/.test(r) && /Задние тормозные колодки/.test(r) && /Обе оси/.test(r) && !/Датчик износа/.test(r.split('<<<NARROW_STATE>>>')[0]), r.slice(0, 400));
+  msgs = [{ role: 'user', content: 'и тормозные колодки' }, { role: 'assistant', content: r }, { role: 'user', content: 'Обе оси (передние и задние)' }];
+  r = await chat._narrow.narrowingFollowUp(msgs);
+  a.ok(/34108842390/.test(r) && /34208842966/.test(r) && !/<<<NARROW_STATE>>>/.test(r), 'both axles -> both cards: ' + r.slice(0, 300));
+  console.log('test-group-first: pads front / rear / both ok');
 })().catch(e => { console.error(e); process.exit(1); });
 {
   // Foreign catalog names are detected (translated by the AI live; offline: nothing changes).

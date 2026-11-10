@@ -2118,9 +2118,30 @@ async function narrowGroupStep(st, item, i, lead) {
   item.groupCode = g.code;
   let u = item.unitCode ? g.units.find(x => x.code === item.unitCode) : g.units.length === 1 ? g.units[0] : null;
   if (!u) {
-    const options = [...g.units.map(x => `${x.name} (${x.code})`), narrowing.DONT_KNOW];
+    // Units that differ only by axle (pads: «Датчик износа торм.накладки пер.колеса» / «… колеса Зд»,
+    // owner 10.11): ask like a person -- «Передние / Задние тормозные колодки / Обе оси».
+    const axleOfUnit = x => {
+      const set = new Set(x.oems.map(o => laximo.axleOf(o)).filter(Boolean));
+      if (!set.size) { if (/(^|[^а-яё])(пер\.|передн|пд)/i.test(x.name)) set.add('передняя ось'); if (/(^|[^а-яё])(зд|задн)/i.test(x.name)) set.add('задняя ось'); }
+      return set.size === 1 ? [...set][0] : null;
+    };
+    const axles = g.units.map(axleOfUnit);
+    if (axles.every(Boolean) && new Set(axles).size === 2) {
+      const kw = String(item.kw || '').replace(/^(передн\S*|задн\S*)\s+/i, '');
+      const front = `Передние ${kw}`, rear = `Задние ${kw}`, both = 'Обе оси (передние и задние)';
+      const options = [front, rear, both, narrowing.DONT_KNOW];
+      st.cur = i; st.attr = 'unitpick'; st.question = `Какие ${kw} нужны?`; st.options = options;
+      st.unitPickMap = { [front]: g.units[axles.indexOf('передняя ось')].code, [rear]: g.units[axles.indexOf('задняя ось')].code, [both]: 'both' };
+      console.log(`[narrow] «${item.kw}»: group ${g.code} units by axle -> front / rear / both`);
+      return `${lead ? lead + '\n\n' : ''}Какие ${kw} нужны — передние, задние или для обеих осей?`
+        + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+    }
+    // Unit names as buttons, without catalog codes (a code only when two names are the same).
+    const dup = n => g.units.filter(x => x.name === n).length > 1;
+    const label = x => (dup(x.name) ? `${x.name} (${x.code})` : x.name);
+    const options = [...g.units.map(label), narrowing.DONT_KNOW];
     st.cur = i; st.attr = 'unitpick'; st.question = 'Какой узел показать?'; st.options = options;
-    st.unitPickMap = Object.fromEntries(g.units.map(x => [`${x.name} (${x.code})`, x.code]));
+    st.unitPickMap = Object.fromEntries(g.units.map(x => [label(x), x.code]));
     console.log(`[narrow] «${item.kw}»: group ${g.code} -> unit question ${g.units.map(x => x.code).join(', ')}`);
     return `${lead ? lead + '\n\n' : ''}В группе «${g.code} ${g.name}» деталь есть в нескольких узлах. Какой узел показать?`
       + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
@@ -2171,7 +2192,7 @@ async function narrowContinue(st, lead, opts = {}) {
     // question by the catalog's group names (or the customer's context) -> unit -> unit diagram.
     // Lists too (owner 10.11: the new logic everywhere): items are handled one by one; cards of
     // the items already resolved come first; a unit view carries the rest of the list (narrowRest).
-    if (!item.gaveUp && !opts.unitView && (item.cands.length >= 2 || item.groupCode)) {
+    if (!item.gaveUp && !item.groupDone && !opts.unitView && (item.cands.length >= 2 || item.groupCode)) {
       if (!item.groups) item.groups = await narrowGroups(st, item).catch(err => { console.error('[narrow] groups failed:', err.message); return []; });
       if (item.groups && item.groups.length) {
         const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
@@ -2381,6 +2402,15 @@ async function narrowingFollowUp(messages) {
     const attr = st.attr;
     delete st.attr; delete st.question; delete st.options; delete st.groupMap; delete st.unitPickMap;
     if (!code) { st.items[st.cur] = { ...item, gaveUp: true }; return narrowContinue(st, ''); } // «Не знаю» -> cards with diagrams
+    if (code === 'both') {
+      // Both axles: the found parts of both units as cards (no diagrams to pick from).
+      const g = (item.groups || []).find(x => x.code === item.groupCode);
+      const oems = new Set((g ? g.units : []).flatMap(u => u.oems));
+      const cands = item.cands.filter(c => oems.has(c.oem));
+      st.items[st.cur] = { ...item, cands: cands.length ? cands : item.cands, groupDone: true, asked: ['kind', 'place', 'frontRear', 'topBottom', 'side'] };
+      console.log(`[narrow] «${item.kw}» both axles: ${cands.map(c => c.oem).join(', ')}`);
+      return narrowContinue(st, '');
+    }
     st.items[st.cur] = attr === 'group' ? { ...item, groupCode: code } : { ...item, unitCode: code };
     console.log(`[narrow] «${item.kw}» ${attr} = ${code}`);
     return narrowContinue(st, '');
