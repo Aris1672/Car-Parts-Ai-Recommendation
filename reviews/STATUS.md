@@ -73,3 +73,5 @@
 | 499 | 2026-11-10_1204 | XM «Подушка крепления коробки передач» → 22326860533 (gearboxMount) | ✓ | ok | — |
 | 502 | 2026-11-10_1212 | XM «крепления коробки передач» → unit diagram + positions (works), owner: several parts at once should be possible (like the category chips) | ✗ | ✅ fixed | `2045b3b` position buttons sent as {multi, numbers, items} → multi-select chips, «Подобрать выбранное (N)» sends «2, 10» → all cards |
 | 503, 504 | 2026-11-10_1212 | positions 5, 2 → cards, buttons stay | ✓ | ok | — |
+| 507 | 2026-11-10_1229 | XM «Воздуховод Подготовка и регулир. рабочей смеси» (catalog path) → air filter element 13715A24FB2 (quick group «Фильтр воздушный»; the group title read as a part) | ✗ | ✅ fixed | `e8b73c6` catalog path → title keyword dropped, unit «Воздуховод» shown whole with multi-select positions; a quick group with no row / name holding the keyword's noun → also by words |
+| 505, 506 | 2026-11-10_1229 | gearbox unit + «10, 8, 9» → 3 cards | ✓ | ok | — |
