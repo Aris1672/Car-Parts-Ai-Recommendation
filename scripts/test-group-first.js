@@ -102,6 +102,14 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   a.ok(/Передние тормозные колодки/.test(r) && /Колодки стояночного тормоза/.test(r) && !/Value Line/.test(r.split('<<<NARROW_STATE>>>')[0]), r.slice(0, 400));
   const map = JSON.parse(r.match(/<<<NARROW_STATE>>>([\s\S]*?)<<<END_NARROW_STATE>>>/)[1]).unitPickMap;
   a.strictEqual(map['Передние тормозные колодки'], '34_3255'); a.strictEqual(map['Задние тормозные колодки'], '34_3256');
+  a.strictEqual(map['Обе оси (передние и задние)'], 'both', 'two one-axle service kits (230i) -> both axles as cards');
+  // The car on the owner's screenshot: ONE service kit 34_3133 with both axles -> «Обе оси» opens it.
+  UNITS['34106888459'] = [{ group: '34', unitCode: '34_2270', unitName: 'Датчик износа торм.накладки пер.колеса', ref: 'f' }, { group: '34', unitCode: '34_3133', unitName: 'Сервисный к-т торм.колодки / Value Line', ref: 'v' }];
+  UNITS['34216888825'] = [{ group: '34', unitCode: '34_2271', unitName: 'Датчик износа торм.накладки колеса Зд', ref: 'r' }, { group: '34', unitCode: '34_3133', unitName: 'Сервисный к-т торм.колодки / Value Line', ref: 'v' }];
+  st = st0([{ kw: 'тормозные колодки', cands: f22pads.slice(0, 2), asked: [], text: 'тормозные колодки' }]);
+  r = await chat._narrow.narrowContinue(st, '');
+  const map2 = JSON.parse(r.match(/<<<NARROW_STATE>>>([\s\S]*?)<<<END_NARROW_STATE>>>/)[1]).unitPickMap;
+  a.deepStrictEqual([map2['Передние тормозные колодки'], map2['Задние тормозные колодки'], map2['Обе оси (передние и задние)']], ['34_2270', '34_2271', '34_3133'], JSON.stringify(map2));
   console.log('test-group-first: pads 5 units -> axle + parking ok');
 })().catch(e => { console.error(e); process.exit(1); });
 {

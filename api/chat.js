@@ -2132,7 +2132,9 @@ async function narrowGroupStep(st, item, i, lead) {
     // parking brake): units sorted by axle, the parking brake its own button, the main unit of an
     // axle = most found parts, not a «Value Line» / «Сервисный» kit (those mostly repeat).
     const parking = g.units.filter(x => /стояноч/i.test(x.name));
-    const axleUnits = g.units.filter(x => !parking.includes(x));
+    // A unit that holds BOTH axles' parts (a service kit) is not an axle unit -- it is the «Обе оси» unit.
+    const twoAxleUnit = x => new Set(x.oems.map(o => laximo.axleOf(o)).filter(Boolean)).size === 2;
+    const axleUnits = g.units.filter(x => !parking.includes(x) && !twoAxleUnit(x));
     const axles = axleUnits.map(axleOfUnit);
     if (axleUnits.length >= 2 && axles.every(Boolean) && new Set(axles).size === 2) {
       const kw = String(item.kw || '').replace(/^(передн\S*|задн\S*)\s+/i, '');
@@ -2142,7 +2144,19 @@ async function narrowGroupStep(st, item, i, lead) {
       const park = parking[0] ? 'Колодки стояночного тормоза' : null;
       const options = [front, rear, both, ...(park ? [park] : []), narrowing.DONT_KNOW];
       st.cur = i; st.attr = 'unitpick'; st.question = `Какие ${kw} нужны?`; st.options = options;
-      st.unitPickMap = { [front]: mainOf('передняя ось').code, [rear]: mainOf('задняя ось').code, [both]: 'both', ...(park ? { [park]: parking[0].code } : {}) };
+      // Owner's rule in the knowledge base («Узел по оси», 10.11): pads -> both axles = «Сервисный
+      // к-т торм.колодки», front / rear = the wear-sensor units; matched by NAME (codes differ by car).
+      const rule = knowledge.axleUnitRule(item.kw);
+      const nm = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+      const byName = want => (want ? g.units.find(x => nm(x.name).startsWith(nm(want))) : null);
+      const ruleFront = rule && byName(rule.front), ruleRear = rule && byName(rule.rear);
+      // «Обе оси»: the service-kit unit that holds both axles (on some cars there are two such
+      // units, one per axle, e.g. 230i 34_3133 / 34_3134 -> then both axles' cards instead).
+      const bothCands = rule && rule.both ? g.units.filter(x => nm(x.name).startsWith(nm(rule.both))) : [];
+      const ruleBoth = bothCands.find(twoAxleUnit) || (bothCands.length === 1 ? bothCands[0] : null);
+      if (rule) console.log(`[narrow] «${item.kw}»: knowledge unit rule -> front ${ruleFront ? ruleFront.code : '-'}, rear ${ruleRear ? ruleRear.code : '-'}, both ${ruleBoth ? ruleBoth.code : '-'}`);
+      st.unitPickMap = { [front]: (ruleFront || mainOf('передняя ось')).code, [rear]: (ruleRear || mainOf('задняя ось')).code,
+        [both]: ruleBoth ? ruleBoth.code : 'both', ...(park ? { [park]: parking[0].code } : {}) };
       console.log(`[narrow] «${item.kw}»: group ${g.code} ${g.units.length} units by axle -> front ${mainOf('передняя ось').code} / rear ${mainOf('задняя ось').code}${park ? ` / parking ${parking[0].code}` : ''}`);
       return `${lead ? lead + '\n\n' : ''}Какие ${kw} нужны — передние, задние или для обеих осей?`
         + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
