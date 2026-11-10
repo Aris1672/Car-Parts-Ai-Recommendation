@@ -39,7 +39,12 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 10.11.2026 late evening) — **GROUP-FIRST narrowing ✅ confirmed live by the owner (10.11 20:17: «difficult tests work remarkably well»)** — newest: «🧹 10.11 — cleanup» right below, then «🗂 10.11 evening — GROUP-FIRST narrowing», «📚 10.11 — knowledge base», «🧭 10.11 — narrowing dialog»; then 09.11 and older. — read this block first
+## ▶️ RESUME HERE (state 10.11.2026 night) — **GROUP-FIRST narrowing ✅ confirmed live by the owner, cleanup ✅ (owner tests #602–699 all ✓)** — newest: «✅ 10.11 night — state» right below, then «🧹 10.11 — cleanup», «🗂 10.11 evening — GROUP-FIRST narrowing», «📚 10.11 — knowledge base», «🧭 10.11 — narrowing dialog»; then 09.11 and older. — read this block first
+
+### ✅ 10.11 night — state
+- Owner's test series after the cleanup (`bot-reviews` 2026-11-10_2050, turns #602–699: pads per axle / service kit, ТО + pads, колпак ступицы, поперечный рычаг, гидроопора, ступица, приводной вал Л / П / оба, стартер, карданный вал, lists with «Готово, дальше») — all ✓, «All work nicely» (owner 20:50). Counted as tests only.
+- `bot-reviews` handled up to **2026-11-10_2050** (#699); the next review starts after #699 (`reviews/STATUS.md`).
+- Coolify: `NARROWING` no longer needed (on by default; `NARROWING=0` = old logic). Thinking ON by default for the final answer and the narrowing's AI steps.
 
 ### 🧹 10.11 late — cleanup after the owner confirmed group-first live
 - **Narrowing is ON by default** (`NARROWING` unset = on; `NARROWING=0` = the old logic, emergency only).
