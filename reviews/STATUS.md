@@ -79,3 +79,5 @@
 | 508–517 | 2026-11-10_1426 | catalog path unit «Воздуховод» + positions, order status, ТО without car, first narrowing question (XM воздуховод, 15 candidates) | ✓ | ok | — |
 | 531, 533–535 | 2026-11-10_1436 | NARROWING=1: XM «(Задние) тормозные колодки» → «Ремкомплект для черной дизайн. накладки» (trim kit) | ✗ | ✅ fixed | `40f36b1` the narrowing search skipped the quick groups (XM pads only in «Колодки тормозные дисковые») → now groups + words for every keyword; no row that IS the part → old flow instead of a wrong part; pads = group 34 only, «накладки» synonym not a separate item |
 | 519–530, 532 | 2026-11-10_1436 | narrowing воздуховод: buttons, «Не знаю» (8 of 15 cards), typed «тот, что у радиатора снизу» → Верхний/Нижний → card | ✓ | ok | — |
+| 552 | 2026-11-10_1456 | NARROWING: «Задние тормозные колодки» → VIN → still «Передний или задний?» | ✗ | ✅ fixed | `ebf0166` request words read only from the VIN message → now the keyword's own words count too |
+| 536–551, 553 | 2026-11-10_1456 | narrowing XM pads (axle question, «Оба» → both cards), discs (kind → axle → side → 3 cards), pads + discs list item by item, ТО by VIN | ✓ | ok | — |
