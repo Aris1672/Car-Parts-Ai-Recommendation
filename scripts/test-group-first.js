@@ -98,3 +98,19 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   a.ok(/NOT_A_PLACE_GROUP_RE = \/\^88\//.test(src) && /NOT_A_PLACE_UNITS = new Set\(\['02_0006'\]\)/.test(src), 'group 88 and unit 02_0006 out, 02_0084 stays');
   console.log('test-group-first: group 88 excluded ok');
 }
+{
+  // After the picked positions' cards: only the positions not picked yet (owner 10.11).
+  const chat = require('../api/chat');
+  (async () => {
+    const cst = { oem: '1', name: 'x', unit: 'U', schema: { catalog: 'C', vid: '1', ssd: 's', number: '1' }, car: 'BMW', noMarker: true, allPositions: true,
+      positions: [1, 2, 3, 4, 5].map(i => ({ position: String(i), oem: `3411211206${i}`, name: `Деталь ${i}` })) };
+    const msgs = [{ role: 'assistant', content: 'схема\n<<<CONFIRM_STATE>>>\n' + JSON.stringify(cst) + '\n<<<END_CONFIRM_STATE>>>' }, { role: 'user', content: '1, 2, 3' }];
+    let r = await chat._confirmFollowUp(msgs);
+    const b = JSON.parse(r.match(/<<<BUTTONS>>>([\s\S]*?)<<<END_BUTTONS>>>/)[1]);
+    a.deepStrictEqual(b.items, ['4 — Деталь 4', '5 — Деталь 5'], JSON.stringify(b));
+    msgs.push({ role: 'assistant', content: r }, { role: 'user', content: '4, 5' });
+    r = await chat._confirmFollowUp(msgs);
+    a.ok(!/<<<BUTTONS>>>/.test(r), 'all picked -> no chips: ' + r.slice(-300));
+    console.log('test-group-first: only not-picked positions ok');
+  })().catch(e => { console.error(e); process.exit(1); });
+}

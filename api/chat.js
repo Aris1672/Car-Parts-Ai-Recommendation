@@ -2583,6 +2583,20 @@ async function wholeUnitReply(st, lead) {
   return `${lead}\n<<<UNIT_DIAGRAM>>>\n${JSON.stringify(big)}\n<<<END_UNIT_DIAGRAM>>>`
     + `\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, buttons))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
 }
+/**
+ * After cards for picked positions (owner 10.11): only the positions NOT picked yet come back as
+ * chips (st.picked keeps every pick of this unit). Nothing left -> no chips; a waiting list part
+ * -> only «Готово, дальше». -> text + buttons block + state, or '' when nothing to offer.
+ */
+function unitRestBlock(st, rs, pickedNow) {
+  const posButtons = list => [...new Map(list.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+  st.picked = [...new Set([...(st.picked || []), ...pickedNow.map(String)])];
+  const left = rs.filter(r => !st.picked.includes(String(r.position)));
+  const buttons = withNext(st, posButtons(left));
+  if (!buttons.length) return '';
+  const text = left.length ? 'Нужна ещё деталь из этого узла — отметьте её номер.' : 'Все позиции узла выбраны. Дальше — следующая деталь из вашего списка.';
+  return `\n\n${text}\n<<<BUTTONS>>>\n${JSON.stringify(left.length ? unitButtons(st, buttons) : buttons)}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+}
 /** A list of parts waiting (narrowRest): «Готово, дальше» after the positions. */
 const withNext = (st, buttons) => (st && st.narrowRest ? [...buttons, NARROW_NEXT] : buttons);
 /** Whole-unit request (owner 10.11 #502): position chips are multi-select, sent as «2, 10». */
@@ -2670,7 +2684,7 @@ async function confirmFollowUp(messages) {
       console.log(`[confirm] unit positions ${multi.join(', ')}: ${hit.map(h => h.oem).join(', ')}`);
       return `Позиции ${multi.join(', ')} узла «${st.unit || 'Крепление КПП'}» для вашего ${st.car}. Все предложения по цене и сроку — на страницах товаров.`
         + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
-        + `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, withNext(st, posButtons(rs))))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+        + unitRestBlock(st, rs, hit.map(h => h.position));
     }
   }
   if (num) {
@@ -2685,7 +2699,7 @@ async function confirmFollowUp(messages) {
     console.log(`[confirm] position ${num[1]}: ${hit.map(h => h.oem).join(', ')}`);
     return `Позиция ${num[1]} — «${hit[0].name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
       + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
-      + (st.noMarker || st.multi ? `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, withNext(st, posButtons(rs))))}\n<<<END_BUTTONS>>>` + confirmBlock(st) : '');
+      + (st.noMarker || st.multi ? unitRestBlock(st, rs, hit.map(h => h.position)) : '');
   }
   return null; // something else -- normal path
 }
