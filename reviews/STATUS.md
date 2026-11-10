@@ -62,3 +62,5 @@
 | 390 | 2026-11-09_1920 (from 14:55 UTC) | 225xe «тормозные колодки/диски» → «Передние и задние» → front pads missing, «менеджер подскажет замену» | ✗ | ✅ same cause as #400 / #427 | `51f618a`, `af820b6` (missed in the earlier STATUS rows; checked 10.11) |
 | 468 | 2026-11-10_1044 | «288674242 этот заказ пришёл его можно забрать сейчас?» → the same full status again, no answer | ✗ | ✅ fixed | `b9ab6f6` pickup question → a direct lead line (Да, можно забирать / Пришла часть / Пока нет + expected date), then the status |
 | 430–467 | 2026-11-10_1044 | brake chips multi-select / no-car reply, X5 / X6 axle + sides, колпак ступицы, F16 pads, order status | ✓ | ok | — |
+| 472 | 2026-11-10_1051 | «этот заказ пришёл, можно забрать?» → answer good («Пока нет…»), but the full order details repeated | ✗ | ✅ fixed | `ea712f8` order already shown in this chat → only the answer line |
+| 469–471 | 2026-11-10_1051 | order status 288674242 | ✓ | ok | — |
