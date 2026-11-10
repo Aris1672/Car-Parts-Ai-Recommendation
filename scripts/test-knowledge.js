@@ -39,7 +39,7 @@ const k = require('../lib/knowledge');
     const q = await chat._narrow.narrowContinue(st, '');
     const msgs = [{ role: 'user', content: 'Воздуховод VIN' }, { role: 'assistant', content: q }, { role: 'user', content: 'Нет я имею в виду откуда двигатель берёт воздух до воздушного фильтра' }];
     const r = await chat._narrow.narrowingFollowUp(msgs);
-    a.ok(/Понял: это «Впускной канал»/.test(r), r.slice(0, 400)); // card or its unit diagram
+    a.ok(/Понял: (это «Впускной канал»|подготовка)/i.test(r), r.slice(0, 400)); // one entry or the system -> card / unit
     console.log('test-knowledge: #563 path ok');
   })().catch(e => { console.error(e); process.exit(1); });
 }
@@ -55,10 +55,10 @@ const k = require('../lib/knowledge');
     const st = { v: 1, car: 'BMW 230i (F22N)', schema: { catalog: 'C', vid: '1', ssd: 'x' }, items: [{ kw: 'воздуховод', cands, asked: [] }], cur: 0 };
     const q = await chat._narrow.narrowContinue(st, '');
     a.ok(!/UNIT_DIAGRAM/.test(q), 'no unit view before the first question');
-    a.ok(/Впускной канал — перед воздушным фильтром/.test(q), q.slice(0, 600));
-    const msgs = [{ role: 'user', content: 'Воздуховод, VIN' }, { role: 'assistant', content: q }, { role: 'user', content: 'Впускной канал — перед воздушным фильтром' }];
+    a.ok(/Впуск воздуха и подача топлива в двигатель \(по базе знаний\)/.test(q), q.slice(0, 600));
+    const msgs = [{ role: 'user', content: 'Воздуховод, VIN' }, { role: 'assistant', content: q }, { role: 'user', content: 'Впуск воздуха и подача топлива в двигатель (по базе знаний)' }];
     const r = await chat._narrow.narrowingFollowUp(msgs);
-    a.ok(/Впускной канал/.test(r), r.slice(0, 300));
+    a.ok(/Понял: впуск воздуха/.test(r), r.slice(0, 300));
     console.log('test-knowledge: 230i воздуховод probe ok');
   })().catch(e => { console.error(e); process.exit(1); });
 }
