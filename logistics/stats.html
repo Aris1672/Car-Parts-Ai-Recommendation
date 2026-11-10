@@ -22,7 +22,8 @@
   .logo { font-weight:800; font-size:16px; }
   .badge { font-family:var(--mono); font-size:10px; color:var(--text2); border:1px solid var(--border2); border-radius:6px; padding:2px 6px; }
   header .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
-  a.lnk { color:var(--text2); text-decoration:none; font-weight:600; font-size:13px; border:1px solid var(--border2); border-radius:8px; padding:7px 11px; }
+  .lnk { color:var(--text2); text-decoration:none; font-weight:600; font-size:13px; border:1px solid var(--border2); border-radius:8px; padding:7px 11px; background:none; font-family:var(--font); }
+  button.lnk:hover { color:var(--red2); border-color:var(--red2); }
   main { padding:18px; max-width:1500px; margin:0 auto; }
   .intro { color:var(--text2); line-height:1.6; max-width:900px; margin-bottom:16px; font-size:13px; }
   .intro b { color:var(--text); }
@@ -71,6 +72,7 @@
   <div class="right">
     <div class="filters"><span class="small">Период</span>
       <select id="days"><option value="14">14 дней</option><option value="30">30 дней</option><option value="60" selected>60 дней</option><option value="120">120 дней</option></select></div>
+    <button class="lnk hidden" id="resetBtn" style="background:none;cursor:pointer">Начать статистику заново</button>
     <a class="lnk" href="/logistics">← Логистика</a>
   </div>
 </header>
@@ -122,6 +124,11 @@
   function showLogin() { $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
   $('loginForm').onsubmit = async e => { e.preventDefault(); pass = $('lgPass').value; try { await load(); st.set('lg_pass', pass); } catch (err) { $('lgErr').textContent = err.message; } };
   $('days').onchange = () => load().catch(() => {});
+  $('resetBtn').onclick = async () => {
+    if (!confirm('Удалить все записанные сравнения «агент vs менеджер» и начать считать заново по текущим правилам агента? Это нельзя отменить.')) return;
+    try { const r = await api('shadowReset', { author: st.get('lg_name') || '' }); alert(`Готово: удалено ${r.deleted} записей. Новые сравнения начнут появляться через пару минут.`); await load(); }
+    catch (err) { alert(err.message); }
+  };
 
   // ── charts ──
   function hbars(el, rows, opts = {}) {
@@ -173,6 +180,7 @@
   async function load() {
     data = await api('shadowStats', { days: $('days').value });
     $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+    $('resetBtn').classList.toggle('hidden', data.role === 'logistics');
     render();
   }
   let rzT; addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => data && render(), 150); });
@@ -312,7 +320,8 @@
         <td class="small">${esc(r.agent_why || '')}</td>
         <td>${ot == null ? '<span class="small">ещё не пришло</span>' : ot ? '<span class="pill ok">вовремя</span>' : '<span class="pill no">опоздал</span>'}${r.refused ? ' <span class="pill no">отказ</span>' : ''}</td></tr>`;
     }).join('')}</table>` : '<div class="small">Расхождений пока нет.</div>';
-    $('foot').textContent = `Данные за ${data.days} дн. · «Разница» = закупка менеджера минус закупка агента × количество; зелёным — агент дешевле.`;
+    const first = rows.length ? rows.reduce((m, r) => (r.picked_at < m ? r.picked_at : m), rows[0].picked_at) : null;
+    $('foot').textContent = `${first ? `Статистика собирается с ${new Date(first).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. ` : ''}Данные за ${data.days} дн. · «Разница» = закупка менеджера минус закупка агента × количество; зелёным — агент дешевле.`;
   }
 
   if (pass) load().catch(err => { console.error(err); if (/пароль/i.test(err.message)) showLogin(); else { $('app').classList.remove('hidden'); $('tiles').innerHTML = `<div class="empty">Ошибка: ${esc(err.message)}</div>`; } }); else showLogin();
