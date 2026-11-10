@@ -55,4 +55,20 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   const cst = (r.match(/<<<CONFIRM_STATE>>>([\s\S]*?)<<<END_CONFIRM_STATE>>>/) || [])[1];
   a.ok(cst && JSON.parse(cst).noMarker && JSON.parse(cst).positions.length === 2);
   console.log('test-group-first: unit state for the position chips ok');
+
+  // A list (owner 10.11: the new logic everywhere): pads (one part) + воздуховод (groups).
+  const pads = [{ oem: '34216888825', name: 'Рем.к-т торм.накладок', axle: 'задняя ось' }];
+  st = st0([{ kw: 'задние тормозные колодки', cands: pads, asked: [], text: 'x' }, { kw: 'воздуховод', cands: xm, asked: [], text: 'Задние колодки и воздуховод' }]);
+  r = await chat._narrow.narrowContinue(st, '');
+  a.ok(/34216888825/.test(r) && /деталь 2 из 2/.test(r) && /64 Отопление/.test(r), 'pads card first, then the group question for item 2: ' + r.slice(0, 300));
+  // воздуховод first, pads second: the unit view carries the rest of the list
+  st = st0([{ kw: 'воздуховод', cands: xm, asked: [], text: 'Воздуховод и задние колодки' }, { kw: 'задние тормозные колодки', cands: pads, asked: [], text: 'x' }]);
+  r = await chat._narrow.narrowContinue(st, '');
+  msgs = [{ role: 'user', content: 'Воздуховод и задние колодки' }, { role: 'assistant', content: r }, { role: 'user', content: '64 Отопление и кондиционирование' }];
+  r = await chat._narrow.narrowingFollowUp(msgs);
+  a.ok(/<<<UNIT_DIAGRAM>>>/.test(r) && /Готово, дальше/.test(r), r.slice(0, 300));
+  msgs.push({ role: 'assistant', content: r }, { role: 'user', content: 'Готово, дальше' });
+  const next = await (async () => { const h = require('../api/chat'); return h._confirmFollowUp ? h._confirmFollowUp(msgs) : null; })();
+  if (next !== null) a.ok(/34216888825/.test(next), 'next part = the pads card: ' + String(next).slice(0, 300));
+  console.log('test-group-first: list of parts ok');
 })().catch(e => { console.error(e); process.exit(1); });

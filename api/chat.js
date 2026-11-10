@@ -2125,6 +2125,7 @@ async function narrowGroupStep(st, item, i, lead) {
   }
   return narrowUnitPageView(st, item, g, u, lead);
 }
+const NARROW_NEXT = 'Готово, дальше';
 /** The unit diagram from its catalog page (whole unit, multi-select chips, the confirm flow). */
 async function narrowUnitPageView(st, item, g, u, lead) {
   const page = await laximo.unitPage(u.ref).catch(err => { console.error('[narrow] unit page failed:', err.message); return null; });
@@ -2140,7 +2141,15 @@ async function narrowUnitPageView(st, item, g, u, lead) {
   const cst = { oem: base.oem, name: base.name, position: marked ? marked.position : null, unit: unitName,
     schema: { ...st.schema, number: base.oem, unit: unitName }, car: st.car, ask: item.kw, allPositions: true,
     positions: rows.map(({ box, ...r }) => r), image: page.image, ...(marked ? { multi: true } : { noMarker: true }) };
-  const buttons = [...new Map(rows.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+  let buttons = [...new Map(rows.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+  // Other parts of the list still waiting: the rest goes with the unit state; «Готово, дальше» moves on.
+  const idx = st.items.indexOf(item);
+  if (idx >= 0 && idx < st.items.length - 1) {
+    const rest = JSON.parse(JSON.stringify(st)); rest.cur = idx + 1;
+    delete rest.attr; delete rest.question; delete rest.options; delete rest.groupMap; delete rest.unitPickMap; delete rest.kbMap;
+    cst.narrowRest = rest;
+    buttons = [...buttons, NARROW_NEXT];
+  }
   const big = { image: page.image, unit: unitName, ...(marked && marked.box ? { box: marked.box } : {}) };
   console.log(`[narrow] «${item.kw}»: group ${g.code} -> unit «${unitName}» (${u.code}), ${rows.length} position(s)${marked ? `, marked ${marked.oem}` : ''}`);
   const what = marked ? ` Отмечена деталь «${marked.name}».` : '';
@@ -2156,11 +2165,15 @@ async function narrowContinue(st, lead, opts = {}) {
     const item = st.items[i];
     // GROUP-FIRST (owner 10.11, the manager's way): the search rows' catalog groups -> group
     // question by the catalog's group names (or the customer's context) -> unit -> unit diagram.
-    // One item at a time; lists keep the attribute questions for now.
-    if (st.items.length === 1 && !item.gaveUp && !opts.unitView && (item.cands.length >= 2 || item.groupCode)) {
+    // Lists too (owner 10.11: the new logic everywhere): items are handled one by one; cards of
+    // the items already resolved come first; a unit view carries the rest of the list (narrowRest).
+    if (!item.gaveUp && !opts.unitView && (item.cands.length >= 2 || item.groupCode)) {
       if (!item.groups) item.groups = await narrowGroups(st, item).catch(err => { console.error('[narrow] groups failed:', err.message); return []; });
       if (item.groups && item.groups.length) {
-        const r = await narrowGroupStep(st, item, i, lead).catch(err => { console.error('[narrow] group step failed:', err.message); return null; });
+        const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
+        const multi = st.items.length > 1 ? `(деталь ${i + 1} из ${st.items.length}) ` : '';
+        const lead2 = [lead, before, multi.trim()].filter(Boolean).join('\n\n');
+        const r = await narrowGroupStep(st, item, i, lead2).catch(err => { console.error('[narrow] group step failed:', err.message); return null; });
         if (r) return r;
       }
     }
@@ -2533,6 +2546,8 @@ async function wholeUnitReply(st, lead) {
   return `${lead}\n<<<UNIT_DIAGRAM>>>\n${JSON.stringify(big)}\n<<<END_UNIT_DIAGRAM>>>`
     + `\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, buttons))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
 }
+/** A list of parts waiting (narrowRest): «Готово, дальше» after the positions. */
+const withNext = (st, buttons) => (st && st.narrowRest ? [...buttons, NARROW_NEXT] : buttons);
 /** Whole-unit request (owner 10.11 #502): position chips are multi-select, sent as «2, 10». */
 function unitButtons(st, items) {
   return st && (st.noMarker || st.multi) ? { multi: true, numbers: true, items } : items;
@@ -2562,6 +2577,11 @@ async function confirmFollowUp(messages) {
   const st = confirmStateOf(messages);
   if (!st || !st.schema) return null;
   const u = String(lastUserMessage(messages) || '').trim();
+  // A list of parts (owner 10.11): «Готово, дальше» -> the next part of the list.
+  if (st.narrowRest && /^(готово|дальше|следующ|далее)/i.test(u)) {
+    console.log(`[confirm] next part of the list (${st.narrowRest.cur + 1} of ${st.narrowRest.items.length})`);
+    return narrowContinue(st.narrowRest, 'Следующая деталь.');
+  }
   const ans = parseConfirmAnswer(u);
   console.log(`[confirm] answer «${u.slice(0, 40)}»: ${JSON.stringify(ans)}`);
   // A number wins over «да» («Да 3» = position 3); «да» alone = the marked part.
@@ -2569,7 +2589,8 @@ async function confirmFollowUp(messages) {
     const cards = await confirmCards([{ oem: st.oem, name: st.name, position: st.position }], st);
     console.log(`[confirm] yes: ${st.oem}`);
     return `Отлично — «${st.name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
-      + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+      + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
+      + (st.narrowRest ? `\n\nДальше — следующая деталь из вашего списка.\n<<<BUTTONS>>>\n${JSON.stringify([NARROW_NEXT])}\n<<<END_BUTTONS>>>` + confirmBlock(st) : '');
   }
   if (ans.other) {
     st.allPositions = true;
@@ -2612,7 +2633,7 @@ async function confirmFollowUp(messages) {
       console.log(`[confirm] unit positions ${multi.join(', ')}: ${hit.map(h => h.oem).join(', ')}`);
       return `Позиции ${multi.join(', ')} узла «${st.unit || 'Крепление КПП'}» для вашего ${st.car}. Все предложения по цене и сроку — на страницах товаров.`
         + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
-        + `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, posButtons(rs)))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+        + `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, withNext(st, posButtons(rs))))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
     }
   }
   if (num) {
@@ -2627,7 +2648,7 @@ async function confirmFollowUp(messages) {
     console.log(`[confirm] position ${num[1]}: ${hit.map(h => h.oem).join(', ')}`);
     return `Позиция ${num[1]} — «${hit[0].name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
       + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
-      + (st.noMarker || st.multi ? `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, posButtons(rs)))}\n<<<END_BUTTONS>>>` + confirmBlock(st) : '');
+      + (st.noMarker || st.multi ? `\n\nНужна ещё деталь из этого узла — отметьте её номер.\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(st, withNext(st, posButtons(rs))))}\n<<<END_BUTTONS>>>` + confirmBlock(st) : '');
   }
   return null; // something else -- normal path
 }
@@ -5421,7 +5442,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._confirmFollowUp = confirmFollowUp; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
