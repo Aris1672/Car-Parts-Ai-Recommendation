@@ -71,3 +71,5 @@
 | 492–498 | 2026-11-10_1150 | XM gearbox brackets (owner ✓), X1 F48 LCI коврики flow | ✓ | ok | — |
 | 500, 501 | 2026-11-10_1204 | XM «крепления коробки передач» → only the gearbox mount 22326860533; owner: «Крепление КПП» is the whole unit — show the schema and ask the positions | ✗ | ✅ fixed | `ebb47ec` unit request (`isUnitRequest`) → whole unit diagram without marker + one button per position; several numbers at once («2, 10»); buttons stay after each card |
 | 499 | 2026-11-10_1204 | XM «Подушка крепления коробки передач» → 22326860533 (gearboxMount) | ✓ | ok | — |
+| 502 | 2026-11-10_1212 | XM «крепления коробки передач» → unit diagram + positions (works), owner: several parts at once should be possible (like the category chips) | ✗ | ✅ fixed | `2045b3b` position buttons sent as {multi, numbers, items} → multi-select chips, «Подобрать выбранное (N)» sends «2, 10» → all cards |
+| 503, 504 | 2026-11-10_1212 | positions 5, 2 → cards, buttons stay | ✓ | ok | — |
