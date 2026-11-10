@@ -437,3 +437,16 @@ console.log('test-cards: side-question guard compiled');
   }
   console.log('test-cards: gearbox mount ok');
 }
+
+// «Крепление коробки передач» = the whole unit «Крепление КПП» (owner, Диалоги ✗ 10.11 #501).
+{
+  const c = require('../api/chat');
+  a.ok(c._isUnitRequest('крепления коробки передач VIN WBS11CS0609158489'));
+  a.ok(c._isUnitRequest('крепление КПП'));
+  a.ok(!c._isUnitRequest('Подушка крепления коробки передач'));
+  a.ok(!c._isUnitRequest('кронштейн крепления КПП'));
+  const sch = { vid: '1', catalog: 'BMW', ssd: 'x' };
+  a.strictEqual(c._gearboxUnitRow([{ oem: '22116860458', name: 'Подушка', schema: sch }, { oem: '22326860533', name: 'Подшипник коробки передач', unit: 'Крепление КПП', schema: sch }]).oem, '22326860533');
+  a.strictEqual(c._gearboxUnitRow([{ oem: '22325A16555', name: 'Несущий кронштейн', schema: sch }]).oem, '22325A16555');
+  console.log('test-cards: gearbox unit request ok');
+}

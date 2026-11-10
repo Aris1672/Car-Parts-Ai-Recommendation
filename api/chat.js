@@ -1916,10 +1916,43 @@ async function confirmCards(entries, st) {
   const live = await abcpPrices.livePrices(entries.map(e => e.oem), 'BMW', 6).catch(() => ({}));
   return entries.map(e => diagramCardFor({ oem: e.oem, name: e.name, position: e.position, unit: st.unit, schema: st.schema }, live[laximo.normalizeOem(e.oem)], st.car));
 }
+// «Крепление коробки передач / КПП» is a whole catalog unit («Крепление КПП», 22_0506), not one
+// part (owner, Диалоги ✗ 10.11 #501): show the whole unit diagram and let the customer pick the
+// positions. A named part in the message («подушка / опора / кронштейн …») keeps the normal path.
+const UNIT_ASK_RE = /креплен\S*\s+(коробк|[ам]?кпп(?![а-яё]))/i;
+const UNIT_PART_WORD_RE = /подушк|опор|кронштейн|болт|винт|гайк|шарнир|подшипник|сайлентблок/i;
+function isUnitRequest(text) {
+  const t = String(text || '');
+  return UNIT_ASK_RE.test(t) && !UNIT_PART_WORD_RE.test(t);
+}
+/** A row of the gearbox mounting unit: unit «Крепление КПП», else a BMW 22 32 … number. */
+function gearboxUnitRow(parts) {
+  const ok = p => p && p.oem && p.schema && p.schema.vid && !p.crossSell;
+  const unitOf = p => p.unit || (p.schema && p.schema.unit) || '';
+  return (parts || []).find(p => ok(p) && /креплен\S*\s+(кпп|коробк)/i.test(unitOf(p)))
+    || (parts || []).find(p => ok(p) && /^2232/.test(laximo.normalizeOem(p.oem))) || null;
+}
+
 async function confirmQuestionIfUnsure(laximoResult, extracted, messages) {
   const kws = (extracted.partKeywords || []).filter(Boolean);
-  if (!laximoResult.vehicle || laximoResult.clarify || laximoResult.needsChoice) return null;
+  if (!laximoResult.vehicle || laximoResult.needsChoice) return null;
   if (confirmStateOf(messages)) return null; // just answered one -- no second question in a row
+  if (isUnitRequest(lastUserMessage(messages))) {
+    const cand = gearboxUnitRow(laximoResult.parts);
+    if (cand) {
+      const v = laximoResult.vehicle;
+      const car = `${v.brand || 'BMW'} ${v.name || ''}${v.options && v.options['Код модели'] ? ' (' + v.options['Код модели'] + ')' : ''}`.trim();
+      const st = { oem: laximo.normalizeOem(cand.oem), name: cand.name, position: null, unit: cand.unit || (cand.schema && cand.schema.unit) || null,
+        schema: { number: cand.schema.number || cand.oem, catalog: cand.schema.catalog, vid: cand.schema.vid, ssd: cand.schema.ssd, ...(cand.schema.unit ? { unit: cand.schema.unit } : {}) },
+        car, ask: kws[0] || 'крепление КПП', allPositions: true, noMarker: true };
+      const reply = await wholeUnitReply(st, '');
+      if (reply) {
+        console.log(`[confirm] unit request «${String(lastUserMessage(messages)).slice(0, 50)}» -> whole unit «${st.unit || '?'}»`);
+        return `«Крепление КПП» — это узел из нескольких деталей. Вот его схема для вашего ${car}. Нажмите номер нужной позиции ниже или напишите его числом (можно по одной: после карточки напишите следующий номер).${reply}`;
+      }
+    }
+  }
+  if (laximoResult.clarify) return null;
   // Vague request («датчик температуры»), then a pick from our clarify buttons (owner 09.11):
   // the customer chose by a catalog name he may not know -> the whole unit diagram with the
   // picked part marked and one button per position (picked first), so he points at the part.
@@ -1976,10 +2009,11 @@ async function wholeUnitReply(st, lead) {
   const head = (requestStems(st.ask || st.name)[0]) || '';
   const sameKind = r => head && String(r.name || '').toLowerCase().replace(/ё/g, 'е').includes(head);
   const shown = st.allPositions || !head ? rows : rows.filter(r => r === mine || sameKind(r));
-  const buttons = [...new Map([...(mine ? [mine] : []), ...shown].map(r => [r.position, label(r)])).values()].slice(0, 30);
+  const buttons = [...new Map([...(mine && !st.noMarker ? [mine] : []), ...shown].map(r => [r.position, label(r)])).values()].slice(0, 30);
   if (shown.length < rows.length) buttons.push(CONFIRM_OTHER);
   // A big picture of its own, not a product card (owner 09.11): only the image + the marker.
-  const big = { image: d.image, unit: st.unit || d.unitName || null, ...(d.box ? { box: d.box } : {}) };
+  if (!st.unit && d.unitName) st.unit = d.unitName;
+  const big = { image: d.image, unit: st.unit || d.unitName || null, ...(d.box && !st.noMarker ? { box: d.box } : {}) };
   console.log(`[confirm] whole unit «${big.unit || '?'}», ${rows.length} row(s), marked ${st.position || '-'}`);
   return `${lead}\n<<<UNIT_DIAGRAM>>>\n${JSON.stringify(big)}\n<<<END_UNIT_DIAGRAM>>>`
     + `\n<<<BUTTONS>>>\n${JSON.stringify(buttons)}\n<<<END_BUTTONS>>>` + confirmBlock(st);
@@ -2048,6 +2082,20 @@ async function confirmFollowUp(messages) {
       + (st.image ? `\n<<<PRODUCTS>>>\n${JSON.stringify([whole])}\n<<<END_PRODUCTS>>>` : '')
       + `\n<<<BUTTONS>>>\n${JSON.stringify(posButtons(rs))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
   }
+  // Whole-unit request (#501): several positions at once («2, 10», «2 и 10») and the
+  // position buttons stay after each card, so more parts of the unit can be added.
+  const multi = st.noMarker && /^[\d\s,;.и-]+$/i.test(u) ? [...new Set(u.match(/\d{1,3}/g) || [])] : null;
+  if (multi && multi.length > 1) {
+    const rs = await loadRows();
+    const hit = rs.filter(r => multi.some(n => r.position === String(Number(n)) || r.position === n));
+    if (hit.length) {
+      const cards = await confirmCards(hit, st);
+      console.log(`[confirm] unit positions ${multi.join(', ')}: ${hit.map(h => h.oem).join(', ')}`);
+      return `Позиции ${multi.join(', ')} узла «${st.unit || 'Крепление КПП'}» для вашего ${st.car}. Все предложения по цене и сроку — на страницах товаров.`
+        + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
+        + `\n\nНужна ещё деталь из этого узла — нажмите её номер.\n<<<BUTTONS>>>\n${JSON.stringify(posButtons(rs))}\n<<<END_BUTTONS>>>` + confirmBlock(st);
+    }
+  }
   if (num) {
     const rs = await loadRows();
     const hit = rs.filter(r => r.position === String(Number(num[1])) || r.position === num[1]);
@@ -2059,7 +2107,8 @@ async function confirmFollowUp(messages) {
     const cards = await confirmCards(hit, st);
     console.log(`[confirm] position ${num[1]}: ${hit.map(h => h.oem).join(', ')}`);
     return `Позиция ${num[1]} — «${hit[0].name}» для вашего ${st.car}. Все предложения по цене и сроку — на странице товара.`
-      + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`;
+      + `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>`
+      + (st.noMarker ? `\n\nНужна ещё деталь из этого узла — нажмите её номер.\n<<<BUTTONS>>>\n${JSON.stringify(posButtons(rs))}\n<<<END_BUTTONS>>>` + confirmBlock(st) : '');
   }
   return null; // something else -- normal path
 }
@@ -4803,7 +4852,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._gearboxUnitRow = gearboxUnitRow;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
