@@ -453,9 +453,13 @@ t('order 280523680: customer pays 5 900 ₽ -> never pick an 11 144 ₽ offer, e
   const why = sup.explainPick(kept, cur);
   assert.ok(why[0].includes('дороже цены клиента (5\u00a0900 ₽)'), why[0]);
   assert.ok(why.some(w => w.includes('часто опаздывает')));
-  // with a customer price that covers the dearer offer, a late current supplier may still be replaced
+  // customer price covers the dearer offers: a late current supplier is NOT replaced by an unknown, dearer one (10.11) …
   const kept2 = sup.preferCurrent(sc, { ...cur, priceOut: 15000 });
-  assert.notStrictEqual(kept2[0].supplier, 'VAG Brest 26.11.2025');
+  assert.strictEqual(kept2[0].supplier, 'VAG Brest 26.11.2025');
+  // … but it may be replaced by a PROVEN one
+  const stats3 = [...stats, { supplier: 'adeo.pro [online]', judged: 30, onTimeShare: 0.95, positions: 30, refusedShare: 0 }];
+  const sc3 = sup.scoreOffers(sup.normalizeOffers('1T0075111', raw, names), stats3, 1, 'VAG', cur);
+  assert.strictEqual(sup.preferCurrent(sc3, { ...cur, priceOut: 15000 })[0].supplier, 'adeo.pro [online]');
 });
 console.log('test-logistics (shadow): ok');
 
@@ -540,5 +544,22 @@ t('retro check: only positions the manager already ordered, from the last N days
     row('2026-11-01 12:00:00', [{ id: '5', supplier: 'X', status: 'Заказано' }]), // too old
   ];
   assert.deepStrictEqual(shadow.retroCandidates(rows, new Set(['4']), 3, now).map(x => x.p.id), ['1']);
+});
+t('10.11: Рольф cheaper -> Рольф; manager\'s supplier missing now -> not replaced by a much dearer / unknown one', () => {
+  // MANN C26042: Рольф Ясенево нал 1 101 ₽ (11 % refusals in history) vs autoeuro.ru 1 158 ₽ (86 % of 118)
+  const o = sup.normalizeOffers('C26042', [
+    { number: 'C26042', brand: 'MANN-FILTER', price: 1200, priceIn: 1101, deliveryPeriod: 24, distributorId: 1 },
+    { number: 'C26042', brand: 'MANN-FILTER', price: 1250, priceIn: 1158, deliveryPeriod: 24, distributorId: 2 }],
+    new Map([['1', 'Рольф Ясенево нал'], ['2', 'autoeuro.ru [online]']]));
+  const stats = [{ supplier: 'Рольф Ясенево нал', judged: 50, onTimeShare: 0.6, positions: 55, refusedShare: 0.11 },
+                 { supplier: 'autoeuro.ru [online]', judged: 118, onTimeShare: 0.86, positions: 120, refusedShare: 0.02 }];
+  const sc = sup.scoreOffers(o, stats, 1, 'MANN-FILTER', { supplier: 'Рольф Ясенево нал' });
+  assert.strictEqual(sup.preferCurrent(sc, { supplier: 'Рольф Ясенево нал', priceIn: 1101 })[0].supplier, 'Рольф Ясенево нал');
+  // Toyota 5310178210: Рольф (62 833 ₽ in the order) has no offer now; froza 78 413 ₽ -> keep Рольф
+  const o2 = sup.scoreOffers(sup.normalizeOffers('5310178210', [
+    { number: '5310178210', brand: 'TOYOTA', price: 80000, priceIn: 78413, deliveryPeriod: 96, distributorId: 7 }], new Map([['7', 'froza.ru [online]']])), [], 1, 'TOYOTA');
+  const k2 = sup.preferCurrent(o2, { supplier: 'Рольф Ясенево нал', priceIn: 62833 });
+  assert.strictEqual(k2[0].supplier, 'Рольф Ясенево нал'); assert.ok(k2[0].missingNow);
+  assert.ok(sup.explainPick(k2, { supplier: 'Рольф Ясенево нал', priceIn: 62833 })[0].startsWith('у поставщика из заказа сейчас нет предложения'));
 });
 console.log('test-logistics (retro): ok');
