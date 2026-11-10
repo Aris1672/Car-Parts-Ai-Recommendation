@@ -79,3 +79,12 @@ const XM = [['13715A1F9C2','Воздуховод'],['51749451352','Воздух�
   a.strictEqual(n.headFilter(rows, n.stemsFor('тормозные колодки', ['накладка', 'колодка'])).length, 2);
   console.log('test-narrowing: XM front pads name ok');
 }
+{
+  // XM rear pads «Ремкомплект тормозных колодок безасбест.» 34 20 8 842 966 (owner's screenshot 10.11).
+  const rows = [{ oem: '34108842390', name: 'Ремкомплект тормозных колодок', axle: 'передняя ось' }, { oem: '34208842966', name: 'Ремкомплект тормозных колодок безасбест.', axle: 'задняя ось' }];
+  const c = n.headFilter(rows, n.stemsFor('задние тормозные колодки', ['накладка', 'колодка']));
+  a.deepStrictEqual(n.applyRequestWords(c, 'Задние тормозные колодки, VIN: WBS11CS0609158489', 'задние тормозные колодки').map(x => x.oem), ['34208842966']);
+  const s = n.nextStep({ kw: 'тормозные колодки', cands: c, asked: [] });
+  a.strictEqual(s.attr, 'frontRear', 'front «колодок» vs rear «колодок безасбест.» = one kind, the axle is asked');
+  console.log('test-narrowing: XM rear pads name ok');
+}
