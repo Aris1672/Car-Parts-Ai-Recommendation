@@ -1350,15 +1350,15 @@
   // The latest carousel -- unless all its parts are already in an earlier, bigger one
   // (05.11 live: «Сколько свечи нужно заказать?» answered with 1 card of the 10-card
   // ТО kit, and the strip shrank to «1 из 1»): then that bigger list stays the selection.
+  // Every card shown in the chat, in order, without repeats (owner 10.11: a list of parts comes
+  // in several replies -- the pads card, then the unit's positions; the bar showed only the last
+  // reply's cards, so the pads page had no bar). The most recent 24 parts.
   function currentSelection() {
     const lists = displayLog.filter(e => e.type === 'products' && Array.isArray(e.payload)).map(e => selectionItems(e.payload)).filter(Boolean);
     if (!lists.length) return null;
-    const last = lists[lists.length - 1];
-    for (let i = lists.length - 2; i >= 0; i--) {
-      const codes = new Set(lists[i].map(x => x.code));
-      if (lists[i].length > last.length && last.every(x => codes.has(x.code))) return lists[i];
-    }
-    return last;
+    const seen = new Set(), all = [];
+    for (const l of lists) for (const x of l) if (!seen.has(x.code)) { seen.add(x.code); all.push(x); }
+    return all.slice(-24);
   }
   function selectionItems(payload) {
         const items = payload.map(p => {
