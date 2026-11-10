@@ -403,3 +403,13 @@ console.log('test-cards: side-question guard compiled');
   a.ok(!sb([{ role: 'assistant', content: 'Напишите номер заказа' }], '288674242'));
   console.log('test-cards: order shown before ok');
 }
+
+// One part, the AI forgot the card (Диалоги ✗ 10.11 #478, XM 50e right engine mount).
+{
+  const ens = require('../api/chat').ensureCardPerKeyword;
+  const feed = new Map([['22116860458', { article: '22116860458', name: 'Подушка крепления двигателя П', price: 13748 }]]);
+  const parts = [{ oem: '22116860458', name: 'Подушка крепления двигателя П', unit: 'Подвеска двигателя', query: 'правая подушка крепления двигателя' }];
+  const out = ens('Вот правая подушка.', { keywords: ['правая подушка крепления двигателя'], parts, feedByOem: feed, carLabel: 'BMW XM 50e' });
+  a.ok(/22116860458/.test(out) && /<<<PRODUCTS>>>/.test(out), out);
+  console.log('test-cards: single part card added ok');
+}

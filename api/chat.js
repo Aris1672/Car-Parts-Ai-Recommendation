@@ -2652,7 +2652,10 @@ const mentionsKw = (sentence, kw) => {
 };
 function ensureCardPerKeyword(text, { keywords, parts, feedByOem, carLabel }) {
   const kws = [...new Set((keywords || []).map(k => String(k || '').trim()).filter(Boolean))];
-  if (kws.length < 2) return text;
+  // One part: only when the reply has no card at all (Диалоги ✗ 10.11 #478: XM «Правая» engine
+  // mount -- 22116860458 found and in the price list, the AI wrote 9 tokens, no card ->
+  // «не удалось найти»). With cards shown, a single request is left to the AI filter.
+  if (!kws.length || (kws.length < 2 && /<<<PRODUCTS>>>/.test(String(text || '')))) return text;
   const norm = x => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const re = /<<<PRODUCTS>>>([\s\S]*?)<<<END_PRODUCTS>>>/;
   const m = String(text || '').match(re);
