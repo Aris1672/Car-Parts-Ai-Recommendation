@@ -91,7 +91,7 @@
     <div class="chart"><h3>Совпадение по типу поставщика</h3><div class="sub">Доверенный (БорисХоф…), с историей у магазина (5+ поставок), новый</div><div id="chType"></div></div>
     <div class="chart"><h3>Совпадение по поставщику менеджера</h3><div class="sub">Поставщики с 5+ решениями</div><div id="chSup"></div></div>
     <div class="chart wide"><h3>Готовность к автопилоту</h3><div class="sub">Группа «сумма × тип поставщика». Зелёным — 20+ решений и совпадение 95%+: такие заказы агент мог бы оформлять сам.</div><div class="scroll" id="ready"></div></div>
-    <div class="chart wide"><h3>Где агент и менеджер разошлись</h3><div class="sub">Последние расхождения: что выбрал менеджер, что предлагал агент и чем закончилось (поставка по истории статусов)</div><div class="scroll" id="diffs"></div></div>
+    <div class="chart wide" id="diffsBox"><h3>Где агент и менеджер разошлись</h3><div class="sub" id="diffsHead"></div><div class="scroll" id="diffs"></div></div>
   </div>
   <div class="small" id="foot"></div>
 </main>
@@ -164,7 +164,12 @@
   }
 
   // ── data ──
-  let data = null;
+  let data = null, diffFilter = '';
+  document.addEventListener('click', e => {
+    const g = e.target.closest('[data-grp]');
+    if (g && g.dataset.grp) { diffFilter = g.dataset.grp; render(); $('diffsBox').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (e.target.id === 'diffsAll') { e.preventDefault(); diffFilter = ''; render(); }
+  });
   async function load() {
     data = await api('shadowStats', { days: $('days').value });
     $('login').classList.add('hidden'); $('app').classList.remove('hidden');
@@ -261,14 +266,14 @@
 
     // 10.11 (owner): the totals as a table under the chart
     const sign = v => (v > 0 ? '−' : v < 0 ? '+' : '') + rub(Math.abs(v));
-    const trow = (label, n, v, bold) => `<tr${bold ? ' style="font-weight:800;border-top:2px solid var(--border2)"' : ''}><td>${label}</td><td class="num">${num(n)}</td><td class="num" style="color:${v > 0 ? 'var(--green)' : v < 0 ? 'var(--amber)' : 'inherit'}">${sign(v)}</td></tr>`;
+    const trow = (label, n, v, bold, key) => `<tr data-grp="${key || ''}" style="cursor:pointer${bold ? ';font-weight:800;border-top:2px solid var(--border2)' : ''}${diffFilter === (key || '') && key ? ';background:var(--bg3)' : ''}" title="Показать все позиции этой группы ниже"><td>${label} <span class="small">↓ подробно</span></td><td class="num">${num(n)}</td><td class="num" style="color:${v > 0 ? 'var(--green)' : v < 0 ? 'var(--amber)' : 'inherit'}">${sign(v)}</td></tr>`;
     $('totals').innerHTML = `<table><tr><th>Группа</th><th style="text-align:right">Позиций</th><th style="text-align:right">Разница (минус — выбор агента дешевле)</th></tr>
-      ${trow('🟢 Агент дешевле — надёжные поставщики', byG('reliable').length, saved)}
-      ${trow('🔵 Агент дешевле — новые поставщики', byG('new').length, savedNew)}
-      ${trow('🟡 Агент дешевле — проверить (дешевле на 40%+)', byG('check').length, savedCheck)}
-      ${trow('Агент дешевле, всего', cheaper.length, allCheaper, true)}
-      ${trow('🟠 Агент дороже (ради срока или надёжности)', agentDearer.length, -extra)}
-      ${trow('ИТОГО разница', cheaper.length + agentDearer.length, net, true)}
+      ${trow('🟢 Агент дешевле — надёжные поставщики', byG('reliable').length, saved, false, 'reliable')}
+      ${trow('🔵 Агент дешевле — новые поставщики', byG('new').length, savedNew, false, 'new')}
+      ${trow('🟡 Агент дешевле — проверить (дешевле на 40%+)', byG('check').length, savedCheck, false, 'check')}
+      ${trow('Агент дешевле, всего', cheaper.length, allCheaper, true, 'cheaper')}
+      ${trow('🟠 Агент дороже (ради срока или надёжности)', agentDearer.length, -extra, false, 'dearer')}
+      ${trow('ИТОГО разница', cheaper.length + agentDearer.length, net, true, 'all')}
     </table>`;
 
     // readiness table: price band × supplier type
@@ -282,7 +287,22 @@
     }).join('')}</table>` : '<div class="small">Пока нет решений менеджеров.</div>';
 
     // disagreements
-    $('diffs').innerHTML = differ.length ? `<table><tr><th>Дата</th><th>Заказ / деталь</th><th>Менеджер</th><th>Агент</th><th>Разница</th><th>Почему агент так выбрал</th><th>Поставка</th></tr>${differ.slice(0, 60).map(r => {
+    // 10.11 (owner): a click on a totals row shows EVERY position of that group here, largest difference first
+    const FILTER = {
+      reliable: ['надёжные поставщики, агент дешевле', r => diffRub(r) > 0 && groupOf(r) === 'reliable'],
+      new: ['новые поставщики, агент дешевле', r => diffRub(r) > 0 && groupOf(r) === 'new'],
+      check: ['проверить — агент дешевле на 40%+', r => diffRub(r) > 0 && groupOf(r) === 'check'],
+      cheaper: ['агент дешевле, всего', r => diffRub(r) > 0],
+      dearer: ['агент дороже', r => diffRub(r) < 0],
+      all: ['все расхождения с разницей в цене', r => diffRub(r) !== 0],
+    };
+    const f = FILTER[diffFilter];
+    const shown = f ? differ.filter(f[1]).sort((a, b) => Math.abs(diffRub(b)) - Math.abs(diffRub(a))) : differ.slice(0, 60);
+    const shownSum = shown.reduce((a, r) => a + diffRub(r), 0);
+    $('diffsHead').innerHTML = f
+      ? `Показано: <b>${esc(f[0])}</b> — ${num(shown.length)} поз., сумма <b>${shownSum > 0 ? '−' : shownSum < 0 ? '+' : ''}${rub(Math.abs(shownSum))}</b>, по убыванию разницы. <a href="#" id="diffsAll" style="color:var(--blue)">Показать последние расхождения</a>`
+      : 'Последние расхождения: что выбрал менеджер, что предлагал агент и чем закончилось (поставка по истории статусов). Нажмите строку в таблице итогов выше, чтобы увидеть все позиции группы.';
+    $('diffs').innerHTML = shown.length ? `<table><tr><th>Дата</th><th>Заказ / деталь</th><th>Менеджер</th><th>Агент</th><th>Разница</th><th>Почему агент так выбрал</th><th>Поставка</th></tr>${shown.map(r => {
       const d = diffRub(r), ot = onTime(r);
       return `<tr><td class="small">${esc(day(r.ordered_at || r.picked_at).slice(8, 10) + '.' + day(r.ordered_at || r.picked_at).slice(5, 7))}</td>
         <td><a href="/logistics" style="color:var(--text)">${esc(r.number)}</a><div class="small">${esc(r.brand || '')} ${esc(r.article || '')} × ${r.quantity || 1}</div></td>
