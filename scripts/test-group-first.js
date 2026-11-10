@@ -95,6 +95,6 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
 {
   // Group 88 «Детали и пакеты: ремонт и обслуживание» is never a group (owner 10.11 #590).
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'lib', 'laximo.js'), 'utf8');
-  a.ok(/NOT_A_PLACE_GROUP_RE = \/\^\(02\|88\)\//.test(src));
+  a.ok(/NOT_A_PLACE_GROUP_RE = \/\^88\//.test(src) && /NOT_A_PLACE_UNITS = new Set\(\['02_0006'\]\)/.test(src), 'group 88 and unit 02_0006 out, 02_0084 stays');
   console.log('test-group-first: group 88 excluded ok');
 }
