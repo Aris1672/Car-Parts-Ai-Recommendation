@@ -22,7 +22,12 @@ const LLM_MODEL    = process.env.LLM_MODEL || 'deepseek-v4-pro';
 // The clarifying question and the manager summary keep the provider default.
 let thinkingOffSupported = true; // false once the provider rejects thinking:disabled
 const FAST_THINKING_OFF   = (process.env.LLM_FAST_THINKING   || 'disabled').toLowerCase() !== 'enabled';
-const ANSWER_THINKING_OFF = (process.env.LLM_ANSWER_THINKING || 'disabled').toLowerCase() !== 'enabled';
+// Owner 10.11: thinking ON by default where the bot talks with the customer (a weak reply is
+// felt at once): the final answer and the narrowing dialog's reading of typed answers.
+//   LLM_ANSWER_THINKING=disabled -> off for the final answer
+//   LLM_NARROW_THINKING=disabled -> off for the narrowing answer mapping
+const ANSWER_THINKING_OFF = (process.env.LLM_ANSWER_THINKING || 'enabled').toLowerCase() !== 'enabled';
+const NARROW_THINKING_OFF = (process.env.LLM_NARROW_THINKING || 'enabled').toLowerCase() !== 'enabled';
 async function llmFetch(payload, ms, thinkingOff) {
   const send = () => fetch(`${LLM_BASE_URL}/v1/messages`, {
     method: 'POST',
@@ -1942,14 +1947,14 @@ async function narrowMapAnswer(text, step) {
   if (!LLM_API_KEY) return {};
   const prompt = `Ассистент магазина автозапчастей уточняет у клиента, какая деталь нужна.\nВопрос: ${step.question}\nВарианты:\n${step.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}\nОтвет клиента: «${String(text).slice(0, 300)}»\n\nК какому варианту относится ответ? Если клиент не знает или просит показать всё -- это вариант «${narrowing.DONT_KNOW}». Если клиент спрашивает о другой детали / новый запрос -- newRequest true. Ответь только JSON: {"option": номер варианта или null, "newRequest": true|false}`;
   try {
-    const res = await llmFastFetch({ model: LLM_MODEL, max_tokens: 200, messages: [{ role: 'user', content: prompt }] }, 20000);
+    const res = await llmFetch({ model: LLM_MODEL, max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }, 60000, NARROW_THINKING_OFF); // room for thinking
     if (!res.ok) throw await llmHttpError(LLM_MODEL, res);
     const data = await res.json();
     trackUsage(LLM_MODEL, data);
     const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
     const j = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
     const i = Number(j.option);
-    console.log(`[narrow] AI read «${String(text).slice(0, 40)}» -> ${JSON.stringify(j)}`);
+    console.log(`[narrow] AI read «${String(text).slice(0, 40)}» -> ${JSON.stringify(j)} (thinking ${NARROW_THINKING_OFF && thinkingOffSupported ? 'off' : 'on'})`);
     if (i >= 1 && i <= step.options.length) return { option: step.options[i - 1] };
     return j.newRequest ? { newRequest: true } : {};
   } catch (err) {
