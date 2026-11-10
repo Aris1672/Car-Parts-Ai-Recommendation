@@ -114,7 +114,7 @@ Precise requests («датчик температуры охлаждающей �
 
 **✅ 04.11: Laximo direct API built — switch `LAXIMO_SOURCE=api` in Coolify to use it** (see «🔌 Laximo web service (04.11)» right below). Default stays `site` until the owner has tested.
 
-### 🚚 10.11 — LOGISTICS AGENT: CURRENT STATE (read this first; the 07.11 sections below are the build history)
+### 🚚 11.11 — LOGISTICS AGENT: CURRENT STATE (read this first; the 07.11 sections below are the build history)
 **Live on the shop's server, confirmed working by the owner 10.11.** Plan + decisions: project doc «logistics-agent-plan.md». Pages: **/logistics** (managers' workplace) and **/logistics/stats** («Агент vs менеджер»). Phase 1 (watch + alerts) and phase 2 (prepare / test send / test switch) are built; **writing to ABCP is OFF** (`LOGISTICS_SEND_ENABLED` unset) until Михаил's OK for the first live test.
 
 **Files:** `lib/logistics/watch.js` (pass every 2 min, read-only), `stages.js` (statuses → stages, alerts), `store.js` (tables; ONE shared pg pool `LOGISTICS_DB_POOL`=4; only changed orders written per pass), `suppliers.js` (status history → reliability, offers + scoring + explanations, replacements), `decisions.js` («Нужно ваше решение», send / switch with re-checks), `shadow.js` (agent vs manager, retro check, reset), `lib/abcpWrite.js` (the ONLY ABCP write client: `cp/orders/online` POST, `cp/order` POST), `api/logistics/data.js`, `logistics/index.html`, `logistics/stats.html`. Tests: `scripts/test-logistics.js` (in `npm test`); DB code also checked end-to-end on a local Postgres (embedded-postgres, see «Working notes»).
@@ -136,7 +136,11 @@ Precise requests («датчик температуры охлаждающей �
 
 **Diagnostics:** `node scripts/check-abcp-order-api.js` (online ordering on the tariff — ✅ 07.11), `node scripts/check-loss.js` (raw price fields behind loss alerts). Logs: `[logistics] pass: N active, M changed, … ms`, `[shadow] agent picks recorded`, `[shadow] retro check …`, `[logistics] SENT / SUPPLIER SWITCH …`.
 
-**Next:** Михаил's answers (statuses, dealer discounts, trusted list, Brest price lists, staff orders at a loss), then the first live test (`LOGISTICS_SEND_ENABLED=1`: one switch, one send, watched in ABCP), then phase 3 (autopilot for groups the stats page marks ready) and phase 4 (СДЭК / Яндекс.Доставка, keys from Михаил).
+**Open question (11.11, waiting for Михаил — do NOT code it before his answer):** managers keep picking ЦС Автодом Сток over «Наличие БорисХофы» that is 1–4 % cheaper but «без возврата». `noReturn` is shown in the pick but NOT in the score; proposed rule: a non-returnable offer wins only when ≥ 5–7 % cheaper (threshold from Михаил). Reasons marked on the stats page («у варианта агента нет возврата») confirm it.
+
+**How reasons are used:** stored only — they never change the agent automatically. Every week or two: read the summary on /logistics/stats → a frequent reason becomes a coded rule with a test → the match % shows whether it worked.
+
+**Next:** Михаил's answers (no-return threshold, statuses, dealer discounts, Brest price lists, staff orders at a loss), then the first live test (`LOGISTICS_SEND_ENABLED=1`: one switch, one send, watched in ABCP), then phase 3 (autopilot for groups the stats page marks ready) and phase 4 (СДЭК / Яндекс.Доставка, keys from Михаил).
 
 ### 📦 07.11 — logistics agent, phase 1 (read-only watcher + /logistics page) — NOT live yet, needs env vars
 Plan: project doc «logistics-agent-plan.md» (order → supplier → Яндекс.Доставка / СДЭК / pickup). Phase 1 never writes to ABCP.
