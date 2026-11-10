@@ -123,7 +123,7 @@ module.exports = async function handler(req, res) {
       }
       case 'suppliers': {
         const days = Math.min(365, Math.max(14, parseInt(body.days, 10) || 120));
-        return res.json({ success: true, days, suppliers: await suppliers.supplierStats(days) });
+        return res.json({ success: true, days, suppliers: (await suppliers.supplierStats(days)).map(x => ({ ...x, trusted: suppliers.isTrusted(x.supplier), earned: !suppliers.isTrusted(x.supplier) && suppliers.isEarned(x) })) });
       }
       // ─── «Нужно ваше решение» (phase 2) ───
       case 'decisions': {

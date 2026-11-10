@@ -580,4 +580,15 @@ t('11.11: Михаил\'s trusted list', () => {
     assert.ok(sup.isTrusted(n), n);
   assert.ok(!sup.isTrusted('adeo.pro [online]'));
 });
+t('11.11: earned trust — 30+ deliveries, 85 %+ on time, ≤ 5 % refusals', () => {
+  assert.ok(sup.isEarned({ judged: 40, onTimeShare: 0.89, refusedShare: 0.03 }));
+  assert.ok(!sup.isEarned({ judged: 96, onTimeShare: 0.87, refusedShare: 0.13 }));  // favorit-parts: too many refusals
+  assert.ok(!sup.isEarned({ judged: 20, onTimeShare: 0.95, refusedShare: 0 }));     // not enough history yet
+  const o = sup.normalizeOffers('X1', [{ number: 'X1', price: 1000, priceIn: 1000, deliveryPeriod: 24, distributorId: 1 }], new Map([['1', 'Злата-авто']]));
+  const plain = sup.normalizeOffers('X1', [{ number: 'X1', price: 1000, priceIn: 1000, deliveryPeriod: 24, distributorId: 1 }], new Map([['1', 'goodshop.ru']]));
+  const sc = sup.scoreOffers(plain, [{ supplier: 'goodshop.ru', judged: 40, onTimeShare: 0.9, positions: 40, refusedShare: 0.02 }], 1);
+  assert.ok(sc[0].earned && !sc[0].trusted);
+  assert.ok(sup.explainPick(sc, {}).some(x => x.startsWith('проверенный поставщик')));
+  assert.ok(sup.scoreOffers(o, [], 1)[0].trusted);
+});
 console.log('test-logistics (retro): ok');
