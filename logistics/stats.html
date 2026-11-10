@@ -85,7 +85,7 @@
   <div class="stats big" id="tiles"></div>
   <p class="summary" id="summary"></p>
   <div class="charts">
-    <div class="chart wide"><h3>Из чего складывается итог</h3><div class="sub">Позиции, где агент выбрал бы другого поставщика. Зелёным — дешевле у надёжных поставщиков, синим — у новых, жёлтым — «проверить» (дешевле на 40%+, оригинал ли?), оранжевым — агент заплатил бы больше ради срока или надёжности.</div><div id="chDiff"></div></div>
+    <div class="chart wide"><h3>Из чего складывается итог</h3><div class="sub">Позиции, где агент выбрал бы другого поставщика. Зелёным — дешевле у надёжных поставщиков, синим — у новых, жёлтым — «проверить» (дешевле на 40%+, оригинал ли?), оранжевым — агент заплатил бы больше ради срока или надёжности.</div><div id="chDiff"></div><div class="scroll" id="totals" style="margin-top:12px"></div></div>
     <div class="chart wide"><h3>Решения по дням</h3><div class="sub">Сколько позиций менеджеры заказали за день и сколько из них совпали с выбором агента</div><div class="legend" id="lgDays"></div><div id="chDays"></div></div>
     <div class="chart"><h3>Совпадение по сумме позиции</h3><div class="sub">Доля решений, где менеджер выбрал того же поставщика, что и агент</div><div id="chPrice"></div></div>
     <div class="chart"><h3>Совпадение по типу поставщика</h3><div class="sub">Доверенный (БорисХоф…), с историей у магазина (5+ поставок), новый</div><div id="chType"></div></div>
@@ -258,6 +258,18 @@
       { label: 'Проверить (40%+)', value: savedCheck, text: rub(savedCheck) + ` · ${byG('check').length}`, color: C.warning, tip: `Агент дешевле на 40% и больше — проверьте, оригинал ли: <b>${rub(savedCheck)}</b>` },
       { label: 'Агент дороже', value: extra, text: rub(extra) + ` · ${agentDearer.length}`, color: C.orange, tip: `Агент выбрал бы дороже (быстрее или надёжнее): <b>${rub(extra)}</b>` },
     ].filter(r => r.value > 0));
+
+    // 10.11 (owner): the totals as a table under the chart
+    const sign = v => (v > 0 ? '−' : v < 0 ? '+' : '') + rub(Math.abs(v));
+    const trow = (label, n, v, bold) => `<tr${bold ? ' style="font-weight:800;border-top:2px solid var(--border2)"' : ''}><td>${label}</td><td class="num">${num(n)}</td><td class="num" style="color:${v > 0 ? 'var(--green)' : v < 0 ? 'var(--amber)' : 'inherit'}">${sign(v)}</td></tr>`;
+    $('totals').innerHTML = `<table><tr><th>Группа</th><th style="text-align:right">Позиций</th><th style="text-align:right">Разница (минус — выбор агента дешевле)</th></tr>
+      ${trow('🟢 Агент дешевле — надёжные поставщики', byG('reliable').length, saved)}
+      ${trow('🔵 Агент дешевле — новые поставщики', byG('new').length, savedNew)}
+      ${trow('🟡 Агент дешевле — проверить (дешевле на 40%+)', byG('check').length, savedCheck)}
+      ${trow('Агент дешевле, всего', cheaper.length, allCheaper, true)}
+      ${trow('🟠 Агент дороже (ради срока или надёжности)', agentDearer.length, -extra)}
+      ${trow('ИТОГО разница', cheaper.length + agentDearer.length, net, true)}
+    </table>`;
 
     // readiness table: price band × supplier type
     const seg = {};
