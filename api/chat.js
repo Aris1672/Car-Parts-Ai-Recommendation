@@ -21,6 +21,7 @@ const LLM_MODEL    = process.env.LLM_MODEL || 'deepseek-v4-pro';
 //   LLM_ANSWER_THINKING=enabled -> on for the final answer
 // The clarifying question and the manager summary keep the provider default.
 let thinkingOffSupported = true; // false once the provider rejects thinking:disabled
+let thinkingOnSupported = true;  // false once the provider rejects thinking:enabled
 const FAST_THINKING_OFF   = (process.env.LLM_FAST_THINKING   || 'disabled').toLowerCase() !== 'enabled';
 // Owner 10.11: thinking ON by default where the bot talks with the customer (a weak reply is
 // felt at once): the final answer and the narrowing dialog's reading of typed answers.
@@ -32,10 +33,21 @@ async function llmFetch(payload, ms, thinkingOff) {
   const send = () => fetch(`${LLM_BASE_URL}/v1/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': LLM_API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ ...payload, ...(thinkingOff && thinkingOffSupported ? { thinking: { type: 'disabled' } } : {}) }),
+    // Thinking ON is asked for explicitly (owner 10.11: «is it really thinking?») -- not left to the
+    // provider's default. budget < max_tokens (Anthropic format); a provider that rejects it -> default.
+    body: JSON.stringify({ ...payload, ...(thinkingOff && thinkingOffSupported ? { thinking: { type: 'disabled' } }
+      : !thinkingOff && thinkingOnSupported ? { thinking: { type: 'enabled', budget_tokens: Math.max(1024, Math.min(8000, (payload.max_tokens || 4000) - 1024)) } } : {}) }),
     signal: AbortSignal.timeout(ms),
   });
   let res = await send();
+  if (res.status === 400 && !thinkingOff && thinkingOnSupported) {
+    const body = await res.clone().text().catch(() => '');
+    if (/thinking|budget/i.test(body)) {
+      console.warn(`[llm] provider rejected thinking:enabled, using its default from now on: ${body.slice(0, 200)}`);
+      thinkingOnSupported = false;
+      res = await send();
+    }
+  }
   if (res.status === 400 && thinkingOff && thinkingOffSupported) {
     const body = await res.clone().text().catch(() => '');
     if (/thinking/i.test(body)) {
@@ -1954,7 +1966,7 @@ async function narrowMapAnswer(text, step) {
     const raw = ((data.content || []).find(b => b.type === 'text') || {}).text || '';
     const j = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
     const i = Number(j.option);
-    console.log(`[narrow] AI read «${String(text).slice(0, 40)}» -> ${JSON.stringify(j)} (thinking ${NARROW_THINKING_OFF && thinkingOffSupported ? 'off' : 'on'})`);
+    console.log(`[narrow] AI read «${String(text).slice(0, 40)}» -> ${JSON.stringify(j)} (thinking ${NARROW_THINKING_OFF && thinkingOffSupported ? 'off' : 'on'} -- ${thinkingProof(data)})`);
     if (i >= 1 && i <= step.options.length) return { option: step.options[i - 1] };
     return j.newRequest ? { newRequest: true } : {};
   } catch (err) {
@@ -3687,6 +3699,14 @@ function priceOf(model) {
   if (pin == null || pout == null) return null;
   return [Number(pin), Number(pout)];
 }
+/** What the model actually returned: a thinking block and its length (proof that it thought). */
+function thinkingProof(data) {
+  const blocks = (data && data.content) || [];
+  const th = blocks.filter(b => b && (b.type === 'thinking' || b.type === 'redacted_thinking'));
+  const chars = th.reduce((n, b) => n + String(b.thinking || b.data || '').length, 0);
+  return th.length ? `thought: ${chars} chars` : 'no thinking block in the reply';
+}
+
 function trackUsage(model, data) {
   const store = usageStore.getStore();
   const u = data && data.usage;
@@ -4872,7 +4892,7 @@ ${optionsForPrompt.map(g => `- ${g.generation}${g.years ? ` (${g.years})` : ''}`
 
     const data = await claudeRes.json();
     trackUsage(LLM_MODEL, data);
-    console.log(`[answer] ${LLM_MODEL}: ${Date.now() - answerStarted} ms, out ${data.usage?.output_tokens ?? '?'} tokens, thinking ${ANSWER_THINKING_OFF && thinkingOffSupported ? 'off' : 'on'}`);
+    console.log(`[answer] ${LLM_MODEL}: ${Date.now() - answerStarted} ms, out ${data.usage?.output_tokens ?? '?'} tokens, thinking ${ANSWER_THINKING_OFF && thinkingOffSupported ? 'off' : 'on'} -- ${thinkingProof(data)}`);
     // Find the actual text block by TYPE, not by array position. Sonnet 5
     // (and any model with thinking/adaptive-thinking enabled) can return a
     // {type: "thinking", ...} block BEFORE the text block, so content[0]
