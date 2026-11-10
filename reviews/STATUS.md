@@ -66,3 +66,6 @@
 | 469–471 | 2026-11-10_1051 | order status 288674242 | ✓ | ok | — |
 | 478 | 2026-11-10_1109 | XM 50e «подушки крепления двигателя» → «Правая» → «не удалось найти» although 22116860458 was found and is in the price list | ✗ | ✅ fixed | `59e510a` the AI answer (9 tokens) gave no card; `ensureCardPerKeyword` ran only for 2+ parts → now also for one part when the reply has no card |
 | 473–477 | 2026-11-10_1109 | order status + pickup answer (confirmed), XM side question | ✓ | ok | — |
+| 483–490 | 2026-11-10_1150 | XM 50e «Подушка крепления коробка передач» → side question, «Правая» / «Обе стороны» → engine mount «Это она?», then the transfer-case bearing / engine mount as cards | ✗ | ✅ fixed | `7ad6c9b` names table `gearboxMount`: «подушка / опора КПП» = «Подшипник коробки передач», unit «Крепление КПП» wins (22326860533) |
+| 491 | 2026-11-10_1150 | XM «крепления коробка передач» → needless «Левая / Правая» (engine mounts Л/П mixed in) | ✗ | ✅ fixed | `7ad6c9b` gearbox request without «двигатель» → rows «… двигателя» dropped |
+| 492–498 | 2026-11-10_1150 | XM gearbox brackets (owner ✓), X1 F48 LCI коврики flow | ✓ | ok | — |
