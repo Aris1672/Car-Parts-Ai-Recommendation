@@ -282,6 +282,7 @@ t('lever 772: a suspicious offer is never picked while a normal one exists; «no
 t('trusted supplier (БорисХофы, every branch) wins lever 771 without own history', () => {
   assert.ok(sup.isTrusted('Наличие БорисХофы') && sup.isTrusted('БорисХоф МКАД29') && sup.isTrusted('БорисХоф Балашиха'));
   assert.ok(!sup.isTrusted('adeo.pro [online]'));
+  assert.ok(sup.isTrusted('Мерседес Каширка Рольф') && sup.isTrusted('Рольф Ясенево нал') && sup.isTrusted('Рольф Химки нал'));
   const o = sup.normalizeOffers('31108866771', [
     { number: '31108866771', brand: 'BMW', price: 10300, priceIn: 11047, deliveryPeriod: 48, distributorId: 1 },
     { number: '31108866771', brand: 'BMW', price: 19400, priceIn: 20983, deliveryPeriod: 24, distributorId: 2 },
