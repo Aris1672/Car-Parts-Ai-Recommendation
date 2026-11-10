@@ -83,6 +83,14 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   r = await chat._narrow.narrowingFollowUp(msgs);
   a.ok(/34108842390/.test(r) && /34208842966/.test(r) && !/<<<NARROW_STATE>>>/.test(r), 'both axles -> both cards: ' + r.slice(0, 300));
   console.log('test-group-first: pads front / rear / both ok');
+
+  // Group 02 is dropped when the part has its own group (owner 10.11 #599).
+  UNITS['P1'] = [{ group: '02', unitCode: '02_0084', unitName: 'ТО по регл.Oelservice / Inspektion', ref: 'r1' }, { group: '34', unitCode: '34_3133', unitName: 'Сервисный к-т торм.колодки', ref: 'r2' }];
+  UNITS['P2'] = [{ group: '34', unitCode: '34_3133', unitName: 'Сервисный к-т торм.колодки', ref: 'r2' }];
+  st = st0([{ kw: 'тормозные колодки', cands: [{ oem: 'P1', name: 'К-т' }, { oem: 'P2', name: 'К-т' }], asked: [], text: 'и тормозные колодки' }]);
+  r = await chat._narrow.narrowContinue(st, '');
+  a.ok(!/02 Объем/.test(r) && !/Где находится/.test(r), 'only group 34 -> no group question: ' + r.slice(0, 300));
+  console.log('test-group-first: group 02 dropped ok');
 })().catch(e => { console.error(e); process.exit(1); });
 {
   // Foreign catalog names are detected (translated by the AI live; offline: nothing changes).

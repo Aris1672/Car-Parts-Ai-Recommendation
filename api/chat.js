@@ -2075,6 +2075,9 @@ async function narrowGroups(st, item) {
     if (units.length) console.log(`[narrow] «${item.kw}»: knowledge group ${code} added (${units.map(u => u.unitName).join(', ')})`);
   }
   if (!groups.size) return [];
+  // Group 02 (service work: ТО kit, brake service) only repeats parts whose real place is another
+  // group (owner 10.11 #599: «only 34 for brakes, drop 02») -> out when any other group is there.
+  if (groups.has('02') && groups.size > 1) { groups.delete('02'); console.log(`[narrow] «${item.kw}»: group 02 dropped (the part has its own group)`); }
   const names = await laximo.mainGroupNames(st.schema).catch(() => ({}));
   const out = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code))
     .map(g => ({ code: g.code, name: names[g.code] || narrowing.PLACE[g.code] || `Группа ${g.code}`, units: [...g.units.values()] }));
