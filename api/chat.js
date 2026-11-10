@@ -2045,6 +2045,11 @@ async function narrowingFollowUp(messages) {
   }
   const item = st.items[st.cur];
   st.items[st.cur] = narrowing.applyAnswer(item, st.attr, m.option);
+  // A typed answer can say more than the option («тот, что у радиатора снизу» -> also «снизу», 10.11 #527).
+  if (!narrowing.matchOption(u, step.options) && m.option !== narrowing.DONT_KNOW) {
+    const cur = st.items[st.cur];
+    cur.cands = narrowing.applyRequestWords(cur.cands, u, item.kw);
+  }
   console.log(`[narrow] «${item.kw}» ${st.attr} = «${m.option}»: ${item.cands.length} -> ${st.items[st.cur].cands.length}`);
   delete st.attr; delete st.question; delete st.options;
   return narrowContinue(st, '');
