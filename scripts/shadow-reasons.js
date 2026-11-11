@@ -23,7 +23,11 @@ const rub = n => n == null ? '—' : Math.round(Number(n)).toLocaleString('ru-RU
   console.log('Заказ | Деталь | Менеджер | Агент | Причина | Комментарий');
   for (const r of rows) {
     const reason = r.mgr_reason ? (REASONS[r.mgr_reason] || r.mgr_reason) : '—';
-    const key = reason + (r.mgr_reason_note ? ' — ' + r.mgr_reason_note.trim().toLowerCase() : '');
+    // «другое» + a comment that IS a listed reason (e.g. «нет доставки») counts as that reason; a comment equal to the reason is dropped
+    const note = (r.mgr_reason_note || '').trim().toLowerCase();
+    const listed = Object.values(REASONS).find(v => v.toLowerCase() === note);
+    const base = r.mgr_reason === 'other' && listed ? listed : reason;
+    const key = base + (note && note !== base.toLowerCase() ? ' — ' + note : '');
     if (r.mgr_reason) cnt[key] = (cnt[key] || 0) + 1;
     console.log([r.number, `${r.brand || ''} ${r.article || ''}`.trim(), `${r.mgr_supplier} ${rub(r.mgr_price_in)}`,
       `${r.agent_supplier} ${rub(r.agent_price_in)}`, reason, r.mgr_reason_note || ''].join(' | '));
