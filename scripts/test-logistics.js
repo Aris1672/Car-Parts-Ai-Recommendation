@@ -258,13 +258,13 @@ t('suspiciously cheap / other brand offers lose and are flagged', () => {
     { number: '31108866771', brand: 'BMW', price: 19400, priceIn: 20983, deliveryPeriod: 24, distributorId: 2 },
     { number: '31108866771', brand: 'BMW', price: 22200, priceIn: 19300, deliveryPeriod: 24, distributorId: 3 },
     { number: '31108866771', brand: 'FEBI', price: 9000, priceIn: 15000, deliveryPeriod: 24, distributorId: 4 }],
-    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'БорисХоф МКАД29'], ['4', 'X']]));
+    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'Злата-авто'], ['4', 'X']]));
   const sc = sup.scoreOffers(o, [], 1, 'BMW');
   const adeo = sc.find(x => x.supplier.startsWith('adeo'));
   assert.ok(adeo.suspicious);
   assert.ok(adeo.reasons.some(r => r.startsWith('⚠ подозрительно дёшево')));
   assert.ok(sc.find(x => x.supplier === 'X').otherBrand);
-  assert.strictEqual(sc[0].supplier, 'БорисХоф МКАД29');
+  assert.strictEqual(sc[0].supplier, 'Злата-авто');
 });
 t('lever 772: a suspicious offer is never picked while a normal one exists; «no history» named as the reason', () => {
   const o = sup.normalizeOffers('31108866772', [
@@ -272,7 +272,7 @@ t('lever 772: a suspicious offer is never picked while a normal one exists; «no
     { number: '31108866772', brand: 'BMW', price: 19400, priceIn: 20983, deliveryPeriod: 24, distributorId: 2 },
     { number: '31108866772', brand: 'BMW', price: 22200, priceIn: 19300, deliveryPeriod: 24, distributorId: 3 },
     { number: '31108866772', brand: 'BMW', price: 22000, priceIn: 22000, deliveryPeriod: 0, distributorId: 4 }],
-    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'БорисХоф МКАД29'], ['4', 'Наше наличие']]));
+    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'Злата-авто'], ['4', 'Наше наличие']]));
   const stats = [{ supplier: 'ЦС Автодом Сток', judged: 909, onTimeShare: 0.70, positions: 950, refusedShare: 0.01 }];
   const sc = sup.scoreOffers(o, stats, 1, 'BMW');
   assert.ok(!sc[0].suspicious, sc[0].supplier);
@@ -280,16 +280,16 @@ t('lever 772: a suspicious offer is never picked while a normal one exists; «no
   if (sc[0].supplier === 'ЦС Автодом Сток') assert.ok(why.some(w => w.includes('нет истории доставок') || w.includes('подозрительно')), why.join(' | '));
 });
 t('trusted supplier (БорисХофы, every branch) wins lever 771 without own history', () => {
-  assert.ok(sup.isTrusted('БорисХоф МКАД29') && sup.isTrusted('БорисХоф МКАД29') && sup.isTrusted('БорисХоф Балашиха'));
+  assert.ok(sup.isTrusted('Наличие БорисХофы') && sup.isTrusted('Злата-авто') && sup.isTrusted('БорисХоф Балашиха'));
   assert.ok(!sup.isTrusted('adeo.pro [online]'));
   assert.ok(sup.isTrusted('Мерседес Каширка Рольф') && sup.isTrusted('Рольф Ясенево нал') && sup.isTrusted('Рольф Химки нал'));
   const o = sup.normalizeOffers('31108866771', [
     { number: '31108866771', brand: 'BMW', price: 10300, priceIn: 11047, deliveryPeriod: 48, distributorId: 1 },
     { number: '31108866771', brand: 'BMW', price: 19400, priceIn: 20983, deliveryPeriod: 24, distributorId: 2 },
     { number: '31108866771', brand: 'BMW', price: 22200, priceIn: 19300, deliveryPeriod: 24, distributorId: 3 }],
-    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'БорисХоф МКАД29']]));
+    new Map([['1', 'adeo.pro [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'Злата-авто']]));
   const sc = sup.scoreOffers(o, [{ supplier: 'ЦС Автодом Сток', judged: 909, onTimeShare: 0.70, positions: 950, refusedShare: 0.01 }], 1, 'BMW');
-  assert.strictEqual(sc[0].supplier, 'БорисХоф МКАД29');
+  assert.strictEqual(sc[0].supplier, 'Злата-авто');
   const why = sup.explainPick(sc, { supplier: 'ЦС Автодом Сток', priceIn: 20983 });
   assert.ok(why.includes('доверенный поставщик') && why[0].startsWith('дешевле текущего предложения ЦС Автодом Сток (20\u00a0983 ₽) на 1'), why.join(' | '));
 });
@@ -600,5 +600,13 @@ t('11.11: «Наличие БорисХофы» is not delivered — never picke
   assert.ok(sc[1].noDelivery && !sup.isNoDelivery('БорисХоф МКАД29'));
   const only = sup.scoreOffers(o.filter(x => x.supplier.startsWith('Наличие')), [], 1);
   assert.ok(sup.explainPick(only, {}).some(x => x.includes('нет доставки')));
+});
+t('11.11: БорисХоф paused by Михаил — never picked while another offer exists', () => {
+  const o = sup.normalizeOffers('X2', [
+    { number: 'X2', price: 900, priceIn: 900, deliveryPeriod: 24, distributorId: 1 },
+    { number: 'X2', price: 1000, priceIn: 1000, deliveryPeriod: 24, distributorId: 2 }], new Map([['1', 'БорисХоф МКАД29'], ['2', 'ЦС Автодом Сток']]));
+  const sc = sup.scoreOffers(o, [], 1);
+  assert.strictEqual(sc[0].supplier, 'ЦС Автодом Сток');
+  assert.ok(sc[1].paused && sc[1].reasons.some(r => r.includes('на паузе')));
 });
 console.log('test-logistics (retro): ok');
