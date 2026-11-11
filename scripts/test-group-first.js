@@ -142,3 +142,27 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
     console.log('test-group-first: only not-picked positions ok');
   })().catch(e => { console.error(e); process.exit(1); });
 }
+{
+  // A part number + the car (owner 11.11, Диалоги ✗ #727–729): fasteners -> the unit the part sits in.
+  const laximo3 = require('../lib/laximo');
+  const chat = require('../api/chat');
+  const savedFind = laximo3.findVehicleByVin, savedUnits = laximo3.partUnits, savedPage = laximo3.unitPage;
+  (async () => {
+    // wait for the main async block's mocks to settle
+    await new Promise(r => setTimeout(r, 50));
+    laximo3.findVehicleByVin = async () => ({ brand: 'BMW', name: '520d', options: {}, query: { c: 'BMW', vid: '1', ssd: 's' } });
+    laximo3.partUnits = async (schema, oem) => (oem === '33326861120' ? [{ group: '33', unitCode: '33_2120', unitName: 'Рычаг задней оси', ref: 'u33' }] : []);
+    laximo3.unitPage = async () => ({ image: 'https://img/x.png', unitName: 'Рычаг задней оси', rows: [{ position: '1', oem: '33326861120', name: 'Поперечный рычаг' }, { position: '5', oem: '07119905123', name: 'Болт с шестигр.гол.' }, { position: '6', oem: '07129904567', name: 'Гайка' }] });
+    const msgs = [{ role: 'user', content: '33 32 6 861 120' }, { role: 'assistant', content: 'карточка' }, { role: 'user', content: 'Какие болты ещё нужны для данной детали?' }];
+    let r = await chat._partNumberUnitReply({ vin: null }, msgs);
+    a.ok(/пришлите, пожалуйста, VIN/i.test(r), r);
+    msgs.push({ role: 'assistant', content: r }, { role: 'user', content: 'WBAJP31020BT73106' });
+    r = await chat._partNumberUnitReply({ vin: 'WBAJP31020BT73106' }, msgs);
+    a.ok(/<<<UNIT_DIAGRAM>>>/.test(r) && /Отмечена деталь/.test(r) && /5 — Болт/.test(r), r.slice(0, 500));
+    // the number again with the car known -> exact check, not in this car's catalog -> said plainly
+    r = await chat._partNumberUnitReply({ vin: 'WBAJP31020BT73106' }, [{ role: 'user', content: 'WBAJP31020BT73106' }, { role: 'assistant', content: 'x' }, { role: 'user', content: '11427808443' }]);
+    a.ok(/не значится в оригинальном каталоге/.test(r), r);
+    laximo3.findVehicleByVin = savedFind; laximo3.partUnits = savedUnits; laximo3.unitPage = savedPage;
+    console.log('test-group-first: part number -> unit / fasteners ok');
+  })().catch(e => { console.error(e); process.exit(1); });
+}

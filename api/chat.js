@@ -2350,6 +2350,89 @@ async function narrowingFollowUp(messages) {
   return narrowContinue(st, '');
 }
 
+// ─── A PART NUMBER + THE CAR: WHERE IT SITS (owner 10.11 / 11.11, Диалоги ✗ #727–729) ─────
+// The manager's way: number -> the unit it sits in for this VIN (GetOEMPartApplicability, exact,
+// no name search) -> that unit's diagram with the part marked; its bolts / nuts are positions of
+// the same diagram. Number not in the car's catalog -> said plainly + what sits there on this car.
+const FASTENER_RE = /(болт|гайк|винт|шайб|крепеж|крепёж|хомут|что (ещё|еще) нужно|что нужно (ещё|еще)|что (ещё|еще) (купить|взять|понадобится|заменить)|комплектующ)/i;
+const BMW_NUMBER_RE = /(^|[^0-9A-Za-z])(\d{2}\s?\d{2}\s?[0-9A-Z]\s?[0-9A-Z]{3}\s?[0-9A-Z]{3})(?![0-9A-Za-z])/i;
+const VIN_IN_TEXT_RE = /[A-HJ-NPR-Z0-9]{17}/i;
+const fmtBmw = n => (/^\d{2}\d{2}[0-9A-Z]{7}$/i.test(n) ? `${n.slice(0, 2)} ${n.slice(2, 4)} ${n.slice(4, 5)} ${n.slice(5, 8)} ${n.slice(8)}` : n);
+function bmwNumberIn(text) {
+  const t = String(text || '').replace(VIN_IN_TEXT_RE, ' ');
+  const m = t.match(BMW_NUMBER_RE);
+  if (!m) return null;
+  const n = m[2].replace(/\s+/g, '').toUpperCase();
+  return /^\d{4}[0-9A-Z]{7}$/.test(n) ? n : null;
+}
+/** The last BMW part number the customer typed (newest first, last 8 messages). */
+function lastPartNumber(messages) {
+  const users = (messages || []).filter(m => m.role === 'user').slice(-8).reverse();
+  for (const m of users) { const n = bmwNumberIn(m.content); if (n) return n; }
+  return null;
+}
+/**
+ * -> reply | null. Fasteners for «данной детали» (the last typed number), or a BMW number when the
+ * car (VIN) is known: the exact in-catalog check + the unit diagram with the part marked.
+ */
+async function partNumberUnitReply(extracted, messages) {
+  const users = (messages || []).filter(m => m.role === 'user').map(m => String(m.content || ''));
+  const last = users[users.length - 1] || '', prev = users[users.length - 2] || '';
+  const vinOnly = VIN_IN_TEXT_RE.test(last) && last.replace(VIN_IN_TEXT_RE, '').replace(/vin[:\s]*/gi, '').trim().length < 15;
+  // «… для данной детали / к ней / ещё нужны» -- a bolt request about the part already named, not a
+  // new part request («болт ступицы» stays a normal search).
+  const REF_RE = /(данн\S*|эт(ой|ого|ому|у)\s+детал|к\s+(ней|нему)|для\s+(неё|нее|него)|к\s+детали|для\s+детали|(ещё|еще)\s+нужн|нужн\S*\s+(ещё|еще))/i;
+  const asks = t => FASTENER_RE.test(t) && REF_RE.test(t);
+  const fasteners = asks(last) || (vinOnly && asks(prev));
+  const numberNow = bmwNumberIn(last);
+  const vin = laximo.normalizeVin(extracted.vin);
+  // A plain number with a known car (not in the same breath as a part request) -> the exact check.
+  const compat = !fasteners && !!numberNow && !!vin;
+  if (!fasteners && !compat) return null;
+  const oem = numberNow || lastPartNumber(messages);
+  if (!oem) return null;
+  if (!vin) {
+    console.log(`[partunit] fasteners for ${oem}: VIN asked`);
+    return `Покажу, какие болты, гайки и другие детали крепления идут к детали ${fmtBmw(oem)}. Пришлите, пожалуйста, VIN (17 символов из СТС) — открою схему узла, где эта деталь стоит на вашей машине.`;
+  }
+  const v = await laximo.findVehicleByVin(vin).catch(err => { console.error('[partunit] VIN failed:', err.message); return null; });
+  if (!v || !v.query || !v.query.vid) return null;
+  const schema = { catalog: v.query.c || v.catalog, vid: v.query.vid, ssd: v.query.ssd };
+  const car = carLabelOf(v);
+  const units = await laximo.partUnits(schema, oem).catch(err => { console.error('[partunit] units failed:', err.message); return null; });
+  if (units === null) return null;
+  const st = { v: 1, car, schema, items: [{ kw: fasteners ? 'крепёж' : fmtBmw(oem), cands: [{ oem }], asked: [] }], cur: 0 };
+  if (!units.length) {
+    // Not in this car's catalog: say so; what sits in that place on this car (by the part's name).
+    console.log(`[partunit] ${oem} not in the catalog of ${car}`);
+    const nm = await abcpPartName(oem, 'BMW').catch(() => null);
+    const name = nm && nm.description && /[а-яё]/i.test(nm.description) ? nm.description.replace(/\s+BMW.*$/i, '').trim().toLowerCase() : null;
+    let alt = null;
+    if (name && NARROWING) {
+      const ex = { ...extracted, partKeywords: [name], partSearchNames: { [name]: [name] }, vendorCode: null };
+      alt = await narrowingStart(ex, messages, {}).catch(() => null);
+    }
+    return `Номер ${fmtBmw(oem)} не значится в оригинальном каталоге вашего ${car} — на эту машину он не подходит.`
+      + (alt ? ` Вот что стоит на этом месте у вашей машины (${name}):\n\n${alt}` : ' Напишите, что это за деталь, — подберу подходящую по каталогу вашей машины.');
+  }
+  const u0 = units.find(u => u.group !== '02') || units[0];
+  const names = await laximo.mainGroupNames(schema).catch(() => ({}));
+  const g = { code: u0.group, name: names[u0.group] || narrowing.PLACE[u0.group] || '' };
+  const u = { code: u0.unitCode, name: u0.unitName, ref: u0.ref, oems: [oem] };
+  console.log(`[partunit] ${oem} (${fasteners ? 'fasteners' : 'number + car'}) -> unit «${u0.unitName}» (${u0.unitCode})`);
+  if (fasteners) {
+    return narrowUnitPageView(st, st.items[0], g, u, `Деталь ${fmtBmw(oem)} стоит в узле ниже — болты, гайки и другие детали крепления к ней видны на схеме.`);
+  }
+  // Number + car: the part's card (price) first, then where it sits.
+  const nm = await abcpPartName(oem, 'BMW').catch(() => null);
+  const cards = await narrowCards(st, [{ oem, name: (nm && nm.description) || fmtBmw(oem) }]).catch(() => []);
+  const view = await narrowUnitPageView(st, st.items[0], g, u, '');
+  if (!view) return null;
+  return `Деталь ${fmtBmw(oem)} есть в оригинальном каталоге вашего ${car} — подходит.`
+    + (cards.length ? `\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>\n<<<AFTER>>>\nГде она стоит: детали крепления и соседние детали можно выбрать на схеме.` : '')
+    + `\n${view}`;
+}
+
 async function confirmCards(entries, st) {
   const live = await abcpPrices.livePrices(entries.map(e => e.oem), 'BMW', 6).catch(() => ({}));
   return entries.map(e => diagramCardFor({ oem: e.oem, name: e.name, position: e.position, unit: st.unit, schema: st.schema }, live[laximo.normalizeOem(e.oem)], st.car));
@@ -4326,6 +4409,16 @@ console.log(JSON.stringify(extracted, null, 2));
       }
     }
 
+    // A part number + the car: where it sits / its fasteners (owner 11.11, Диалоги ✗ #727–729).
+    {
+      const reply = await partNumberUnitReply(extracted, messages).catch(err => { console.error('[partunit] failed:', err.message); return null; });
+      if (reply) {
+        Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        res.setHeader('Content-Type', 'application/json');
+        return res.status(200).json({ reply });
+      }
+    }
+
     // A non-BMW article typed alone («CS010502PN», Диалоги ✗ 06.11): the site's
     // own search (ABCP) -> brand, name, cheapest offer. BMW / MINI numbers keep
     // their catalog path below.
@@ -5421,7 +5514,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._confirmFollowUp = confirmFollowUp; module.exports._isForeignName = isForeignName; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._partNumberUnitReply = partNumberUnitReply; module.exports._bmwNumberIn = bmwNumberIn; module.exports._confirmFollowUp = confirmFollowUp; module.exports._isForeignName = isForeignName; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
