@@ -13,10 +13,11 @@ const stages = require('../lib/logistics/stages');
 const MONTHS = Math.min(36, Math.max(1, Number(process.argv[2]) || 12));
 const PAGE = 1000;
 
-async function fetchAll(start, isArchive) {
+// ABCP: «Диапазон выбора даты создания заказа не должен превышать 1 год» → one request range per month.
+async function fetchAll(start, end, isArchive) {
   const all = [];
   for (let page = 0; page < 200; page++) {
-    const data = await abcp.apiGet('cp/orders', { dateCreatedStart: start, isArchive, limit: PAGE, skip: page * PAGE });
+    const data = await abcp.apiGet('cp/orders', { dateCreatedStart: start, dateCreatedEnd: end, isArchive, limit: PAGE, skip: page * PAGE });
     const list = Array.isArray(data) ? data : (data && data.items) || [];
     all.push(...list);
     if (list.length < PAGE) return all;
@@ -29,9 +30,14 @@ async function fetchAll(start, isArchive) {
   if (!abcp.enabled()) { console.error('ABCP API env not set'); process.exit(1); }
   const now = new Date();
   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - MONTHS, 1));
-  const start = from.toISOString().slice(0, 10) + ' 00:00:00';
   const seen = new Map();
-  for (const isArchive of [0, 1]) for (const o of await fetchAll(start, isArchive)) if (o && o.number && !Number(o.isDelete)) seen.set(String(o.number), o);
+  for (let i = 0; i <= MONTHS; i++) {
+    const a = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + i, 1)), b = new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + 1, 0));
+    const start = a.toISOString().slice(0, 10) + ' 00:00:00', end = b.toISOString().slice(0, 10) + ' 23:59:59';
+    for (const isArchive of [0, 1]) for (const o of await fetchAll(start, end, isArchive)) if (o && o.number && !Number(o.isDelete)) seen.set(String(o.number), o);
+    process.stderr.write('.');
+  }
+  process.stderr.write('\n');
 
   const months = new Map();
   for (const o of seen.values()) {
