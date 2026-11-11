@@ -98,7 +98,9 @@
     <div class="chart"><h3>Совпадение по типу поставщика</h3><div class="sub">Доверенный (БорисХоф…), с историей у магазина (5+ поставок), новый</div><div id="chType"></div></div>
     <div class="chart"><h3>Совпадение по поставщику менеджера</h3><div class="sub">Поставщики с 5+ решениями</div><div id="chSup"></div></div>
     <div class="chart wide"><h3>Готовность к автопилоту</h3><div class="sub">Группа «сумма × тип поставщика». Зелёным — 20+ решений и совпадение 95%+: такие заказы агент мог бы оформлять сам.</div><div class="scroll" id="ready"></div></div>
-    <div class="chart wide"><h3>Почему менеджер выбрал иначе</h3><div class="sub">Агент не копирует менеджера — он учится на причинах. Отметьте причину у расхождения ниже (одно нажатие). Частые причины станут правилами агента, редкие останутся решением менеджера.</div><div id="reasons"></div></div>
+    <div class="chart wide"><h3>Почему менеджер выбрал иначе</h3><div class="sub">Агент не копирует менеджера — он учится на причинах. Отметьте причину у расхождения ниже (одно нажатие). Частые причины станут правилами агента, редкие останутся решением менеджера.</div><div id="reasons"></div>
+      <div style="margin-top:10px"><button class="btn" id="copyReasons">📋 Скопировать причины для Claude</button> <span class="small" id="copyMsg"></span></div>
+      <textarea id="copyBox" readonly style="display:none;width:100%;height:160px;margin-top:8px;font:12px monospace"></textarea></div>
     <div class="chart wide" id="diffsBox"><h3>Где агент и менеджер разошлись</h3><div class="sub" id="diffsHead"></div><div class="scroll" id="diffs"></div></div>
   </div>
   <div class="small" id="foot"></div>
@@ -204,6 +206,32 @@
     if (!el) return;
     const id = el.dataset.reason || el.dataset.note, tr = el.closest('tr');
     saveReason(id, tr.querySelector('[data-reason]').value, tr.querySelector('[data-note]').value.trim());
+  });
+  // 12.11: the same text as `node scripts/shadow-reasons.js`, one click — paste it to Claude
+  function reasonsText() {
+    const rub = n => n == null ? '—' : Math.round(Number(n)).toLocaleString('ru-RU') + ' ₽';
+    const rows = (data && data.rows || []).filter(r => r.mgr_reason)
+      .sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || '')));
+    const cnt = {}, lines = ['Заказ | Деталь | Менеджер | Агент | Причина | Комментарий'];
+    for (const r of rows) {
+      const reason = REASONS[r.mgr_reason] || r.mgr_reason, note = (r.mgr_reason_note || '').trim().toLowerCase();
+      const listed = Object.values(REASONS).find(v => v.toLowerCase() === note);
+      const base = r.mgr_reason === 'other' && listed ? listed : reason;
+      const key = base + (note && note !== base.toLowerCase() ? ' — ' + note : '');
+      cnt[key] = (cnt[key] || 0) + 1;
+      lines.push([r.number, `${r.brand || ''} ${r.article || ''}`.trim(), `${r.mgr_supplier || '—'} ${rub(r.mgr_price_in)}`,
+        `${r.agent_supplier || '—'} ${rub(r.agent_price_in)}`, reason, r.mgr_reason_note || ''].join(' | '));
+    }
+    lines.push('', `Строк: ${rows.length}. Итог по причинам:`);
+    for (const [k, n] of Object.entries(cnt).sort((a, b) => b[1] - a[1])) lines.push(`  ${n} × ${k}`);
+    return lines.join('\n');
+  }
+  document.addEventListener('click', async e => {
+    if (!e.target.closest('#copyReasons')) return;
+    const text = reasonsText(), box = $('copyBox');
+    box.value = text;
+    try { await navigator.clipboard.writeText(text); $('copyMsg').textContent = 'Скопировано — вставьте в чат с Claude.'; box.style.display = 'none'; }
+    catch { box.style.display = 'block'; box.select(); $('copyMsg').textContent = 'Выделите текст ниже и скопируйте (Ctrl+C).'; }
   });
   async function load() {
     data = await api('shadowStats', { days: $('days').value }); REASONS = data.reasons || {};
