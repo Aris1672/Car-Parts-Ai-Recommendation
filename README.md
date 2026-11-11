@@ -39,7 +39,11 @@ The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are r
 
 ---
 
-## ▶️ RESUME HERE (state 10.11.2026 night) — **GROUP-FIRST narrowing ✅ confirmed live by the owner, cleanup ✅ (owner tests #602–699 all ✓)** — newest: «✅ 10.11 night — state» right below, then «🧹 10.11 — cleanup», «🗂 10.11 evening — GROUP-FIRST narrowing», «📚 10.11 — knowledge base», «🧭 10.11 — narrowing dialog»; then 09.11 and older. — read this block first
+## ▶️ RESUME HERE (state 11.11.2026 evening) — GROUP-FIRST narrowing ✅ live; newest: «🔩 11.11 — part number + car» right below (built, owner retests), then «✅ 10.11 night — state», «🧹 10.11 — cleanup», «🗂 10.11 evening — GROUP-FIRST narrowing», «📚 10.11 — knowledge base»; then 09.11 and older. `bot-reviews` handled up to 2026-11-11_1929 (#752). — read this block first
+
+### 🔩 11.11 — part number + car: where it sits / its fasteners (owner, Диалоги ✗ #727–729)
+- `partNumberUnitReply` (api/chat.js), before the article lookups: (a) «Какие болты ещё нужны **для данной детали**?» (fastener words + a reference to the part) → the last BMW number the customer typed → no VIN: asks for it → with VIN: the unit the part sits in for this car (`laximo.partUnits`, exact GetOEMPartApplicability) → the unit diagram, the part marked, bolts / nuts / clamps as position chips. (b) A BMW number when the VIN is known → exact in-catalog check: in it → «подходит» + the part's card + where it sits (unit diagram); not in it → «не значится в оригинальном каталоге вашего …» + what sits in that place on this car (narrowing by the ABCP name). «Болт ступицы» etc. stay normal searches. Logs `[partunit] …`.
+- Noted 11.11, owner: leave as is for now — an old group button pressed after the state moved on repeats the question (#733/734); «Не знаю» on a group question inside a list repeated it (#752); Mercedes model wizard loop on «276.952» (#748–750); Mercedes group names («38 Группа 38», uppercase, #751); «шланг системы охлаждения» offered 7 groups although «системы охлаждения» says 17 (#732).
 
 ### ✅ 10.11 night — state
 - Owner's test series after the cleanup (`bot-reviews` 2026-11-10_2050, turns #602–699: pads per axle / service kit, ТО + pads, колпак ступицы, поперечный рычаг, гидроопора, ступица, приводной вал Л / П / оба, стартер, карданный вал, lists with «Готово, дальше») — all ✓, «All work nicely» (owner 20:50). Counted as tests only.
