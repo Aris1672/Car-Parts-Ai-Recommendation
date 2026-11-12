@@ -41,6 +41,9 @@ console.log('test-cards: all ok');
   const g30 = [{ oem: '11428583895', name: 'Масляный фильтр', unit: 'Масляный фильтр' }, { oem: '11425B95014', name: 'К-т сменного элемента масляного фильтра', unit: 'ТО по регл.Oelservice / Inspektion' }];
   a.deepStrictEqual(L.applyHumanNames(g30, ['масляный фильтр']).map(r => r.oem), ['11425B95014']);
   a.deepStrictEqual(L.applyHumanNames(g30.slice(0, 1), ['масляный фильтр']).map(r => r.oem), ['11428583895'], 'no element found -> the row stays');
+  // #803 / #807: the element's names are searched as they are — no short form «фильтр» (fuel / cabin filters in 5 groups)
+  a.deepStrictEqual(L.normalizeSearchNames({ 'масляный фильтр': ['к-т сменного элемента масляного фильтра', 'сменный элемент масляного фильтра'] }, ['масляный фильтр'])['масляный фильтр'],
+    ['к-т сменного элемента масляного фильтра', 'сменный элемент масляного фильтра']);
   console.log('test-cards: oil filter housing ok');
 }
 {
