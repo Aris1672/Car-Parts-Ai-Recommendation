@@ -37,6 +37,10 @@ console.log('test-cards: all ok');
   a.deepStrictEqual(L.applyHumanNames(rows, ['масляный фильтр']).map(r => r.oem), ['11427808443', '11427826799']);
   const xm = [{ oem: '11429453682', name: 'Масляный фильтр', unit: 'ТО по регл.Oelservice / Inspektion' }];
   a.deepStrictEqual(L.applyHumanNames(xm, ['масляный фильтр']).map(r => r.oem), ['11429453682'], 'element named «Масляный фильтр» stays');
+  // G30 530dX (Диалоги ✗ 12.11): the housing's unit has no «теплообменник» in its name; the element came from the service unit
+  const g30 = [{ oem: '11428583895', name: 'Масляный фильтр', unit: 'Масляный фильтр' }, { oem: '11425B95014', name: 'К-т сменного элемента масляного фильтра', unit: 'ТО по регл.Oelservice / Inspektion' }];
+  a.deepStrictEqual(L.applyHumanNames(g30, ['масляный фильтр']).map(r => r.oem), ['11425B95014']);
+  a.deepStrictEqual(L.applyHumanNames(g30.slice(0, 1), ['масляный фильтр']).map(r => r.oem), ['11428583895'], 'no element found -> the row stays');
   console.log('test-cards: oil filter housing ok');
 }
 {
