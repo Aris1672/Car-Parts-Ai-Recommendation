@@ -609,4 +609,19 @@ t('11.11: БорисХоф paused by Михаил — never picked while another
   assert.strictEqual(sc[0].supplier, 'ЦС Автодом Сток');
   assert.ok(sc[1].paused && sc[1].reasons.some(r => r.includes('на паузе')));
 });
+t('13.11 Михаил: autoeuro / favorit-parts only when nobody else has an ORIGINAL part; Автд Зорге = no delivery', () => {
+  const map = new Map([['1', 'autoeuro.ru [online]'], ['2', 'ЦС Автодом Сток'], ['3', 'favorit-parts.ru [online]']]);
+  const o = sup.normalizeOffers('34106884492', [
+    { number: '34106884492', brand: 'BMW', price: 5918, priceIn: 5918, deliveryPeriod: 24, distributorId: 1 },
+    { number: '34106884492', brand: 'BMW', price: 11145, priceIn: 11145, deliveryPeriod: 24, distributorId: 2 }], map);
+  const sc = sup.scoreOffers(o, [], 1, 'BMW');
+  assert.strictEqual(sc[0].supplier, 'ЦС Автодом Сток');
+  assert.ok(sc[1].fakeRisk && sc[1].reasons.some(r => r.includes('неоригинала')));
+  const only = sup.scoreOffers(o.filter(x => x.supplier.startsWith('autoeuro')), [], 1, 'BMW');
+  assert.strictEqual(only[0].supplier, 'autoeuro.ru [online]');           // nobody else -> still offered
+  assert.ok(sup.explainPick(only, {}).some(x => x.includes('больше нигде нет')));
+  assert.ok(!sup.isFakeRisk('autoeuro.ru [online]', 'Continental'));      // not an original part -> as usual
+  assert.ok(sup.isFakeRisk('favorit-parts.ru [online]', 'Mercedes-Benz') && sup.isFakeRisk('autoeuro.ru', 'VAG'));
+  assert.ok(sup.isNoDelivery('Автд Зорге') && sup.isPaused('БорисХоф МКАД29'));
+});
 console.log('test-logistics (retro): ok');
