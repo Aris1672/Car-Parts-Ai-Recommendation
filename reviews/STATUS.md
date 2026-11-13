@@ -103,3 +103,5 @@
 | 796–802, 804–806 | 2026-11-12_1625 | ТО by VIN, X3 G45 wheels, G30 pads, model steps | ✓ | ok | — |
 | 810, 813 | 2026-11-12_1629 | retest G30 530dX «Масляный фильтр»: same «в нескольких группах» 03/13/16/64/65 | ✗ | ✅ fixed | `f12535c` the trace showed the quick group HAD the element (no «also by words» line) — the narrowing dialog runs its own word search with the AI's names («фильтр»); now every plain oil-filter word search uses only the element's catalog names |
 | 808, 809, 811, 812 | 2026-11-12_1629 | model steps | ✓ | ok | — |
+| 823 | 2026-11-13_1456 | «12415A33FB7» (owner: BMW starter) → «код неполный: VIN состоит из 17 символов» | ✗ | ✅ fixed | `bf117ef` BMW numbers with letters (`\d{5}` + 6 letters/digits, spaces ok) taken as the part number by code (`takeBmwLetterNumber`), a short «VIN» dropped; the safety net in the compat check too; extraction prompt: such codes are part numbers |
+| 814–822 | 2026-11-13_1456 | G30 oil filter retest (S842A question → 3 element cards), ТО, Toyota number, «hi», 32727691990 | ✓ | ok | — |
