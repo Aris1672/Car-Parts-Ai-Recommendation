@@ -470,3 +470,12 @@ console.log('test-cards: side-question guard compiled');
   a.strictEqual(c._namedUnitRow([{ oem: '13715A24FB2', name: 'Сменный элемент', schema: sch }, { oem: '137151F9C2', name: 'Воздуховод', unit: 'Воздуховод', schema: sch }], 'воздуховод').oem, '137151F9C2');
   console.log('test-cards: catalog path unit ok');
 }
+{
+  // Диалоги ✗ 13.11 #823: «12415A33FB7» (starter) is a BMW part number, not a short VIN
+  const { bmwLetterNumbers: b } = require('../api/chat.js');
+  a.deepStrictEqual(b('12415A33FB7'), ['12415A33FB7']);
+  a.deepStrictEqual(b('нужен 12 41 5 A33 FB7 и 11 42 5 B95 014'), ['12415A33FB7', '11425B95014']);
+  a.deepStrictEqual(b('13627823945'), [], 'digits only: the old path');
+  a.deepStrictEqual(b('WBAJP31020BT73106'), [], 'a VIN is not cut into a number');
+  console.log('test-cards: BMW numbers with letters ok');
+}
