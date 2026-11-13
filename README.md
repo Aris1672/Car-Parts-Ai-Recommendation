@@ -150,6 +150,8 @@ Precise requests («датчик температуры охлаждающей �
 
 **Answered 11.11 by the managers' reasons:** they skip «Наличие БорисХофы» because it has NO DELIVERY (34 of 38 marked reasons), not because of «без возврата» → rule 6c. `noReturn` is still shown but not scored. Михаил 11.11: no purchases from ANY БорисХоф for now (rule 6d) — back after autopilot frees the managers. Марат: left as is, more data needed.
 
+**Deployed 13.11 (owner):** `LOGISTICS_FAKE_RISK_SUPPLIERS`, `LOGISTICS_NO_DELIVERY`, `LOGISTICS_PAUSED_SUPPLIERS` set explicitly in Coolify, redeploy OK.
+
 **Answered by Михаил 13.11:** autoeuro.ru / favorit-parts.ru may sell non-originals → only when the original part is nowhere else (rule 6e); Автд Зорге and БорисХоф → only when the part is nowhere else (rules 6c / 6d).
 
 **How reasons are used:** stored only — they never change the agent automatically. Every week or two: read the summary on /logistics/stats → a frequent reason becomes a coded rule with a test → the match % shows whether it worked.
