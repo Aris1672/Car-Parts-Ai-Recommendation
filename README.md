@@ -19,6 +19,59 @@ Full architecture reasoning (pluggable matching strategies, pluggable catalog co
 
 ---
 
+## 🤖 NEXT WORK SESSION — ABCP ORDER AUTOPILOT (15.11.2026)
+
+### Client procedure to automate
+
+The client currently processes new ABCP customer orders manually as follows:
+
+1. Open the new orders page (`https://cp.abcp.ru/?page=orders`).
+2. Identify the customer:
+   - **Blue clickable name** = customer is already registered in the database.
+   - **Black plain text** containing a name and phone number or email = guest/new customer.
+3. For each guest/new customer, open the order and click **«Создать клиентскую запись и перенести заказ»**.
+4. Confirm the ABCP system dialog with **«Ок»**. The dialog says that a client account will be created, the guest order copied into the account and deleted, and the online payment attached to the new order.
+5. Register **all new customers before sending any payment links**.
+6. Reopen/process all new orders after registration.
+7. In the **«Заказ/Счет»** column, click the mail icon. This opens:
+   `https://cp.abcp.ru/orders/{ORDER_NUMBER}/sendBill`
+8. In **«Заказы в работе»**, select the type **«Ссылка для пополнения баланса онлайн»**.
+9. Select the channels **Email** and **Telegram**.
+10. Enter **2000** in the **«Сумма»** field and click **«Отправить»**.
+11. Confirm the browser dialog: **«Клиенту будет отправлено сообщение с ссылкой для пополнения баланса. Продолжить?»** → **«Ок»**.
+12. Expected result:
+    - **«Письмо успешно отправлено.»** means the email was sent successfully.
+    - **«Не удалось отправить сообщение, попробуйте еще раз позже! (Telegram)»** may appear; Telegram failure must not be treated as email failure.
+13. Return to the new-orders page and continue with the next order.
+
+### Planned implementation
+
+This is **not implemented yet**. Before enabling live automation, inspect the browser Network requests for:
+
+- customer creation/order transfer;
+- the `sendBill` form submission;
+- the confirmation action.
+
+Prefer a documented/server-side ABCP API call over browser automation. If ABCP exposes no suitable API, use authenticated Playwright/Puppeteer automation only after explicit approval. The implementation must include:
+
+- `ORDER_AUTOPILOT_ENABLED=1` activation switch;
+- dry-run mode first;
+- persistent idempotency records so an order is never processed twice;
+- customer registration completed before payment-link sending;
+- re-read/recheck of the order before every write;
+- audit logs for registration, email success, Telegram failure, and errors;
+- email-success detection independent of Telegram result;
+- safe retries and no duplicate 2,000-ruble messages;
+- explicit handling of payment/order eligibility conditions.
+
+### Current technical gap
+
+The existing ABCP integration can read orders and write supplier actions, but it does not yet implement customer registration/order transfer or customer payment-link emails. See `lib/abcpOrders.js`, `lib/abcpWrite.js`, `lib/logistics/watch.js`, and `api/logistics/data.js` before continuing this work.
+
+**Resume here next session:** capture the ABCP browser Network requests while performing one complete manual order, then implement and test the autopilot in dry-run mode before any live send.
+
+---
+
 ## 🔌 WIDGET EMBED CODE (live) — restore this if the chat disappears from the site
 
 The chat widget on **bmwclub77.ru** is loaded by these **two lines**. Both are required, in this order:
