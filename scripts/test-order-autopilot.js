@@ -9,6 +9,7 @@ const htmlSent = '<tr><input id="inWorkSelectedOrders43"><a onclick="sendBill(43
 assert.strictEqual(a.paymentStateFromHtml(htmlPending, 42), 'pending');
 assert.strictEqual(a.paymentStateFromHtml(htmlSent, 43), 'sent');
 assert.strictEqual(a.customerStateFromHtml(htmlPending, 42), 'registered');
+assert.strictEqual(a.customerStateFromHtml('<tr><input id="inWorkSelectedOrders44">Guest, phone</tr>', 44), 'guest');
 assert.strictEqual(a.emailSucceeded({ message: ['Письмо успешно отправлено'] }), true);
 assert.strictEqual(a.telegramFailed({ errMessage: ['Не удалось отправить сообщение, попробуйте еще раз позже! (Telegram)'] }), true);
 assert.strictEqual(a.emailSucceeded({ message: [], errMessage: [] }), false);
