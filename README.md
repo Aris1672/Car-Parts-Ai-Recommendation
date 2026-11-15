@@ -46,7 +46,7 @@ The client currently processes new ABCP customer orders manually as follows:
 
 ### Planned implementation
 
-This is **not implemented yet**. Before enabling live automation, inspect the browser Network requests for:
+The request formats have been captured and a **dry-run implementation is present**, but live automation is not enabled or validated. Before enabling live automation, inspect the browser Network requests for:
 
 - customer creation/order transfer;
 - the `sendBill` form submission;
@@ -54,8 +54,8 @@ This is **not implemented yet**. Before enabling live automation, inspect the br
 
 Prefer a documented/server-side ABCP API call over browser automation. If ABCP exposes no suitable API, use authenticated Playwright/Puppeteer automation only after explicit approval. The implementation must include:
 
-- `ORDER_AUTOPILOT_ENABLED=1` activation switch;
-- dry-run mode first;
+- `ORDER_AUTOPILOT_ENABLED=1` activation switch (currently unset/off);
+- dry-run mode first (`ORDER_AUTOPILOT_DRY_RUN` defaults to enabled);
 - persistent idempotency records so an order is never processed twice;
 - customer registration completed before payment-link sending;
 - re-read/recheck of the order before every write;
@@ -68,7 +68,12 @@ Prefer a documented/server-side ABCP API call over browser automation. If ABCP e
 
 The existing ABCP integration can read orders and write supplier actions, but it does not yet implement customer registration/order transfer or customer payment-link emails. See `lib/abcpOrders.js`, `lib/abcpWrite.js`, `lib/logistics/watch.js`, and `api/logistics/data.js` before continuing this work.
 
-**Resume here next session:** capture the ABCP browser Network requests while performing one complete manual order, then implement and test the autopilot in dry-run mode before any live send.
+**Current implementation status (15.11.2026):** the browser requests have now been captured. Guest registration is `POST https://cp.abcp.ru/ajaxRoute/orders/changeOrderClient/regGuestAsCustomer` with form data `orderId=<ORDER_ID>`; a successful response returns JSON containing a redirect URL with the transferred order ID. The payment-link form is `POST https://cp.abcp.ru/orders/<ORDER_ID>/sendBill/ajax` with `billType=pdf&cashMemoType=pdf&expenditureWaybillType=pdf&updType=pdf&sendBlankType=pdf&linkType=pdf&email=on&telegram=on&advanceLinkAmount=2000&sendType=advanceLink`. A successful response contains `message: ["Письмо успешно отправлено"]`; Telegram may simultaneously return an `errMessage` without making email unsuccessful.
+
+A disabled-by-default dry-run implementation now exists in `lib/logistics/orderAutopilot.js`, with persistent state helpers in `lib/logistics/store.js` and watcher integration in `lib/logistics/watch.js`. It plans registration and payment-link actions, records idempotency/audit state, and never sends unless `ORDER_AUTOPILOT_ENABLED=1` and `ORDER_AUTOPILOT_DRY_RUN=0`. Live mode requires a fresh authenticated ABCP web-panel cookie in `ORDER_AUTOPILOT_COOKIE`; do not commit or share that cookie. The unit test is `scripts/test-order-autopilot.js`.
+
+**Resume here next session:** run the unit test and full test suite, inspect the dry-run records on a staging database, add exact eligibility rules, and only then consider a controlled live test. The live browser cookie transport has not been enabled or validated.
+
 
 ---
 
