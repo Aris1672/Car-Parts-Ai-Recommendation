@@ -5,6 +5,10 @@ WORKDIR /app
 # Install dependencies first (cache layer — only re-runs when package.json changes)
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
+# Playwright is used only for the controlled ABCP login bootstrap. Install
+# Chromium and its Debian runtime libraries into the image; no browser worker
+# is enabled by default at runtime.
+RUN npx playwright install --with-deps chromium
 
 # Copy the rest of the app
 COPY . .
