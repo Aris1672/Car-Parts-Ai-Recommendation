@@ -1,5 +1,9 @@
 const assert = require('assert');
 const a = require('../lib/logistics/orderAutopilot');
+const browser = require('../lib/logistics/abcpBrowser');
+assert.strictEqual(browser.transferredOrderIdFromUrl('/orders/view?id_order=289831906'), '289831906');
+assert.strictEqual(browser.transferredOrderIdFromUrl('/orders/289831906'), '289831906');
+assert.strictEqual(browser.transferredOrderIdFromUrl('/orders/view'), null);
 
 assert.strictEqual(a.registrationBody('123'), 'orderId=123');
 assert.strictEqual(a.isGuest({ customerId: '426394', customer: 'Гость' }), true);
