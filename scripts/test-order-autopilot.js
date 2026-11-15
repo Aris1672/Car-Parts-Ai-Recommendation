@@ -6,12 +6,15 @@ assert.strictEqual(a.isGuest({ customerId: '426394', customer: 'Гость' }), 
 assert.strictEqual(a.isGuest({ customerId: '7', customer: 'Registered' }), false);
 const body = a.billBody();
 for (const x of ['billType=pdf', 'linkType=pdf', 'email=on', 'telegram=on', 'advanceLinkAmount=2000', 'sendType=advanceLink']) assert.ok(body.includes(x), x);
-const htmlPending = '<tr><input id="inWorkSelectedOrders42"><a onclick="sendBill(42)"><img src="mail-closed-send.svg"></a><a href="/clientinfo/7">Клиент</a></tr>';
-const htmlSent = '<tr><input id="inWorkSelectedOrders43"><a onclick="sendBill(43)"><img src="mail-closed-send-disabled.svg"></a></tr>';
+const htmlPending = '<table><tr><th>Заказ</th><th>Клиент</th><th>Действия</th></tr><tr><td><input id="inWorkSelectedOrders42"></td><td><a href="/clientinfo/7">Иван</a></td><td><a onclick="sendBill(42)"><img src="mail-closed-send.svg"></a></td></tr></table>';
+const htmlSent = '<table><tr><th>Заказ</th><th>Клиент</th><th>Действия</th></tr><tr><td><input id="inWorkSelectedOrders43"></td><td>Иван</td><td><a onclick="sendBill(43)"><img src="mail-closed-send-disabled.svg"></a></td></tr></table>';
+const htmlGuestWithUnrelatedClientLink = '<table><tr><th>Заказ</th><th>Клиент</th><th>Действия</th></tr><tr><td><input id="inWorkSelectedOrders44"></td><td>Гость, phone</td><td><a href="/clientinfo/999">unrelated</a><a onclick="sendBill(44)"><img src="mail-closed-send.svg"></a></td></tr></table>';
 assert.strictEqual(a.paymentStateFromHtml(htmlPending, 42), 'pending');
 assert.strictEqual(a.paymentStateFromHtml(htmlSent, 43), 'sent');
 assert.strictEqual(a.customerStateFromHtml(htmlPending, 42), 'registered');
-assert.strictEqual(a.customerStateFromHtml('<tr><input id="inWorkSelectedOrders44">Guest, phone</tr>', 44), 'guest');
+assert.strictEqual(a.customerStateFromHtml(htmlGuestWithUnrelatedClientLink, 44), 'guest');
+assert.strictEqual(a.customerStateFromHtml('<table><tr><th>Заказ</th><th>Клиент</th></tr><tr><td><input id="inWorkSelectedOrders45"></td><td>Гость, phone</td></tr></table>', 45), 'guest');
+assert.strictEqual(a.customerStateFromHtml('<table><tr><th>Заказ</th><th>Клиент</th></tr><tr><td><input id="inWorkSelectedOrders46"></td><td><a href="/clientinfo/7">Иван</a></td></tr></table>', 46), 'registered');
 assert.strictEqual(a.emailSucceeded({ message: ['Письмо успешно отправлено'] }), true);
 assert.strictEqual(a.telegramFailed({ errMessage: ['Не удалось отправить сообщение, попробуйте еще раз позже! (Telegram)'] }), true);
 assert.strictEqual(a.emailSucceeded({ message: [], errMessage: [] }), false);
