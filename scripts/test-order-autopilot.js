@@ -2,6 +2,8 @@ const assert = require('assert');
 const a = require('../lib/logistics/orderAutopilot');
 
 assert.strictEqual(a.registrationBody('123'), 'orderId=123');
+assert.strictEqual(a.isGuest({ customerId: '426394', customer: 'Гость' }), true);
+assert.strictEqual(a.isGuest({ customerId: '7', customer: 'Registered' }), false);
 const body = a.billBody();
 for (const x of ['billType=pdf', 'linkType=pdf', 'email=on', 'telegram=on', 'advanceLinkAmount=2000', 'sendType=advanceLink']) assert.ok(body.includes(x), x);
 const htmlPending = '<tr><input id="inWorkSelectedOrders42"><a onclick="sendBill(42)"><img src="mail-closed-send.svg"></a><a href="/clientinfo/7">Клиент</a></tr>';
