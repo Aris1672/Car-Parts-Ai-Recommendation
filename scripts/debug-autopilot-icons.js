@@ -23,16 +23,13 @@ const stages = require('../lib/logistics/stages');
   const result = candidates.map(o => {
     const number = String(o.number);
     const escaped = number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const row = html.match(new RegExp(
-      `<tr\\b[\\s\\S]*?inWorkSelectedOrders${escaped}[\\s\\S]*?</tr>`, 'i'
-    ))?.[0] || '';
+    const rowFound = new RegExp(`sendBill\\s*\\(\\s*['"]?${escaped}\\s*\\)`, 'i').test(html);
     return {
       order: number,
       stage: o.stage,
       customerState: auto.customerStateFromHtml(html, number),
       paymentState: auto.paymentStateFromHtml(html, number),
-      rowFound: !!row,
-      icons: [...row.matchAll(/mail-[^"' ]+\\.svg/gi)].map(m => m[0])
+      rowFound
     };
   });
 
