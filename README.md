@@ -19,7 +19,7 @@ Full architecture reasoning (pluggable matching strategies, pluggable catalog co
 
 ---
 
-## 🤖 NEXT WORK SESSION — ABCP ORDER AUTOPILOT (15.11.2026)
+## 🤖 ABCP ORDER AUTOPILOT — LIVE STATUS (16.11.2026)
 
 ### Client procedure to automate
 
@@ -44,17 +44,16 @@ The client currently processes new ABCP customer orders manually as follows:
     - **«Не удалось отправить сообщение, попробуйте еще раз позже! (Telegram)»** may appear; Telegram failure must not be treated as email failure.
 13. Return to the new-orders page and continue with the next order.
 
-### Planned implementation
+### Implemented architecture
 
-The request formats have been captured and a **dry-run implementation is present**, but live automation is not enabled or validated. Before enabling live automation, inspect the browser Network requests for:
+The request formats were captured and the implementation is now live-validated. Playwright uses the persistent profile for the two undocumented browser actions:
 
 - customer creation/order transfer;
-- the `sendBill` form submission;
-- the confirmation action.
+- the `sendBill` form submission.
 
-Prefer a documented/server-side ABCP API call over browser automation. If ABCP exposes no suitable API, use authenticated Playwright/Puppeteer automation only after explicit approval. The implementation must include:
+The implementation includes:
 
-- `ORDER_AUTOPILOT_ENABLED=1` activation switch (currently unset/off);
+- `ORDER_AUTOPILOT_ENABLED=1` activation switch (enabled in the validated live deployment);
 - dry-run mode first (`ORDER_AUTOPILOT_DRY_RUN` defaults to enabled);
 - persistent idempotency records so an order is never processed twice;
 - customer registration completed before payment-link sending;
@@ -64,22 +63,24 @@ Prefer a documented/server-side ABCP API call over browser automation. If ABCP e
 - safe retries and no duplicate 2,000-ruble messages;
 - explicit handling of payment/order eligibility conditions.
 
-### Current technical gap
+### Current implementation
 
-The existing ABCP integration can read orders and write supplier actions, but it does not yet implement customer registration/order transfer or customer payment-link emails. See `lib/abcpOrders.js`, `lib/abcpWrite.js`, `lib/logistics/watch.js`, and `api/logistics/data.js` before continuing this work.
+The autopilot implements customer transfer and payment-link sending through `lib/logistics/abcpBrowser.js`, with orchestration in `lib/logistics/orderAutopilot.js` and the two-phase watcher in `lib/logistics/watch.js`.
 
-**API-first update (15.11.2026):** ABCP's documented administrative API is under `/cp/ts/...` and uses the existing `ABCP_API_LOGIN` plus `ABCP_API_PASSWORD_MD5` credentials. A read-only adapter is now available in `lib/abcpCustomerApi.js` for documented `/cp/ts/orders/list`, `/cp/ts/orders/get`, and `/cp/ts/payments/list` operations. These operations can inspect `clientId`, order statuses, amounts, positions, and ledger payments. ABCP does **not** document the browser guest-transfer action (`regGuestAsCustomer`) or the `sendBill/ajax` payment-link notification; the payment API records ledger payments and must not be used to imitate a 2,000-ruble notification. No live API writes were added. The autopilot remains disabled until ABCP confirms official operations for customer transfer and payment-link messaging. A safe diagnostic is available as `node scripts/check-abcp-ts-api.js` (run in Coolify Terminal; with no argument it lists up to three `new`/`prepayment` orders, with an order ID it reads one order using `fields=amounts,posInfo,tags,agreement`). It prints only order IDs/status summaries and never writes.
+**API-first update (15.11.2026):** ABCP's documented administrative API is under `/cp/ts/...` and uses the existing `ABCP_API_LOGIN` plus `ABCP_API_PASSWORD_MD5` credentials. A read-only adapter is now available in `lib/abcpCustomerApi.js` for documented `/cp/ts/orders/list`, `/cp/ts/orders/get`, and `/cp/ts/payments/list` operations. These operations can inspect `clientId`, order statuses, amounts, positions, and ledger payments. ABCP does **not** document the browser guest-transfer action (`regGuestAsCustomer`) or the `sendBill/ajax` payment-link notification; the payment API records ledger payments and must not be used to imitate a 2,000-ruble notification. No live API writes were added. The documented API remains read-only for these operations; browser automation is the validated path for transfer and payment-link messaging. A safe diagnostic is available as `node scripts/check-abcp-ts-api.js` (run in Coolify Terminal; with no argument it lists up to three `new`/`prepayment` orders, with an order ID it reads one order using `fields=amounts,posInfo,tags,agreement`). It prints only order IDs/status summaries and never writes.
 
 **Current implementation status (15.11.2026):** the browser requests have now been captured. Guest registration is `POST https://cp.abcp.ru/ajaxRoute/orders/changeOrderClient/regGuestAsCustomer` with form data `orderId=<ORDER_ID>`; a successful response returns JSON containing a redirect URL with the transferred order ID. The payment-link form is `POST https://cp.abcp.ru/orders/<ORDER_ID>/sendBill/ajax` with `billType=pdf&cashMemoType=pdf&expenditureWaybillType=pdf&updType=pdf&sendBlankType=pdf&linkType=pdf&email=on&telegram=on&advanceLinkAmount=2000&sendType=advanceLink`. A successful response contains `message: ["Письмо успешно отправлено"]`; Telegram may simultaneously return an `errMessage` without making email unsuccessful.
 
 A disabled-by-default dry-run implementation now exists in `lib/logistics/orderAutopilot.js`, with persistent state helpers in `lib/logistics/store.js` and watcher integration in `lib/logistics/watch.js`. It plans registration and payment-link actions, records idempotency/audit state, and never sends unless `ORDER_AUTOPILOT_ENABLED=1` and `ORDER_AUTOPILOT_DRY_RUN=0`. The browser-cookie transport is deprecated and must not be used for professional/live operation. The Docker image installs Playwright Chromium and its runtime dependencies. Playwright has been added for a controlled persistent-profile bootstrap in `lib/logistics/abcpBrowser.js`, with `scripts/bootstrap-abcp-browser.js`; it only opens the profile and attempts login, and does not process orders or send anything. Configure `ABCP_BROWSER_PROFILE_DIR=/data/abcp-browser`, `ABCP_BROWSER_USERNAME`, and `ABCP_BROWSER_PASSWORD` as Coolify secrets only when ready for manual bootstrap. The unit tests are `scripts/test-order-autopilot.js` and `scripts/test-abcp-customer-api.js`.
 
-**Resume here next session:** run the unit test and full test suite, inspect the dry-run records on a staging database, add exact eligibility rules, and only then consider a controlled live test. The live browser cookie transport has not been enabled or validated.
+**Current resume point:** live workflow is validated. Monitor Coolify logs, keep browser credentials rotated, and do not clear autopilot history during normal live operation.
 
 
 ---
 
-## ✅ CURRENT RESUME STATE — ABCP ORDER PREPAYMENT AUTOPILOT (15.11.2026)
+## ✅ CURRENT RESUME STATE — ABCP ORDER PREPAYMENT AUTOPILOT (16.11.2026)
+
+**Status: live workflow validated successfully.** A fresh guest order was automatically registered/transferred and its 2,000 ₽ payment link was sent in the same watcher pass. Registered-customer payment, guest transfer, email delivery, duplicate protection, and the two-phase batch flow have all been tested successfully.
 
 ### Business procedure
 
@@ -128,24 +129,24 @@ sendType=advanceLink
 
 ### Safety and current production state
 
-The current live configuration must be treated carefully:
+The validated live configuration is enabled in Coolify. Keep credentials rotated and monitor live cycles carefully:
 
 ```text
 ORDER_AUTOPILOT_ENABLED=1
-ORDER_AUTOPILOT_DRY_RUN=1
+ORDER_AUTOPILOT_DRY_RUN=0
 ```
 
-Dry-run was verified successfully. It never registers customers or sends messages.
+Live mode was validated successfully. The watcher registered a fresh guest order, created the transferred order, and sent its payment link automatically. Set `ORDER_AUTOPILOT_DRY_RUN=1` when intentionally reviewing without writes.
 
-The tested live configuration was temporarily used once with `ORDER_AUTOPILOT_DRY_RUN=0`; it successfully sent the 2,000 ₽ email for tested eligible orders, skipped grey-icon orders, and safely blocked a guest transfer when the transferred order’s payment state could not be confirmed. Return to dry-run after any live test.
+The live workflow now completes guest registration and payment automatically: register/transfer first, reload the ABCP orders page, verify the transferred order is still pending, then send the 2,000 ₽ link. Email success is authoritative even if Telegram reports an error. Duplicate retries are blocked by the payment icon and persistent audit state.
 
 Current rules:
 
 - Moscow calendar-day cutoff: orders from today starting 00:00 Europe/Moscow.
 - Stages considered: `new` and `payment` (unpaid «Заказ принят» becomes `payment`).
 - Delivered/cancelled-only orders are excluded.
-- Green payment icons are filtered before the batch.
-- Maximum seven unprocessed candidates per watcher pass.
+- Payment icons are checked after the registration phase, not before it; transferred guest orders receive a fresh post-registration scan.
+- No autopilot seven-order cap; all eligible today/future candidates are processed in two phases.
 - Guest placeholder `customerId=426394` / `Гость` is treated as guest.
 - Grey/already-sent orders are skipped.
 - Unknown customer/payment state is blocked safely.
@@ -191,18 +192,18 @@ Debug one legacy ABCP response shape:
 node scripts/debug-abcp-legacy-order.js ORDER_NUMBER
 ```
 
-### Live-test procedure
+### Operational procedure
 
-1. Keep `ORDER_AUTOPILOT_DRY_RUN=1` while reviewing candidates.
-2. Verify browser bootstrap reports `authenticated: true` and `liveActionsEnabled: false` in dry-run.
-3. Confirm the selected orders have `customerState=registered|guest` and `paymentState=pending`.
-4. Set `ORDER_AUTOPILOT_DRY_RUN=0` only for a deliberately selected small batch.
-5. Watch both phases separately: `register <order>:` must finish for every guest before any `payment <order>:` line is allowed.
-6. After the first live pass, immediately restore `ORDER_AUTOPILOT_DRY_RUN=1`.
+1. Keep `ORDER_AUTOPILOT_ENABLED=1`.
+2. Use `ORDER_AUTOPILOT_DRY_RUN=1` for review/testing without ABCP writes.
+3. For live operation, use `ORDER_AUTOPILOT_DRY_RUN=0`.
+4. Monitor logs for the complete sequence: all `register ...` lines must finish before `payment ...` lines begin.
+5. Verify email success and watch for Telegram-only warnings.
+6. Do not clear autopilot history during live operation.
 
-### ⚠️ Immediate resume point for the next chat (15.11.2026)
+### ✅ Current implementation notes (16.11.2026)
 
-The latest live test exposed one remaining bug: order `289822892` is visibly a **guest** in ABCP (black customer text with phone number, no blue `/clientinfo` link), but the autopilot logged `register ... already_registered`. The parser currently scans the whole `<tr>` for `/clientinfo/`, so an unrelated link in the row can produce a false registered result. **Do not run live mode again until this is fixed.**
+The customer-cell parser bug was fixed and validated. It now inspects only the exact **Клиент** cell, so unrelated `/clientinfo/` links elsewhere in a row cannot classify a guest as registered.
 
 Required fix: parse the exact order `<tr>` and inspect only the **Клиент** `<td>` cell. Customer state must be:
 
@@ -212,28 +213,28 @@ black name/phone/email in Клиент cell -> guest
 missing/ambiguous cell -> unknown (stop safely)
 ```
 
-Do not use a whole-row `/clientinfo/` search. Add a regression test using the `289822892` source/HTML case. The actual ABCP source file supplied by the user is a one-line saved page source at:
+The regression tests cover a registered customer cell, a guest customer cell, and an unrelated row link. The actual ABCP source file supplied by the user is a one-line saved page source at:
 `C:\Users\info\Downloads\view-source_https___www.abcp.ru_d_docs_api_abcp1_api-abcp-admin#получение-информации-о-заказе.html`.
 It is an actual ABCP orders-page source capture despite its misleading filename; the current copy does not contain `289822892`, so obtain a fresh source capture containing that order if exact HTML is needed.
 
-Current safe state:
+Current live state:
 
 ```text
 ORDER_AUTOPILOT_ENABLED=1
-ORDER_AUTOPILOT_DRY_RUN=1
+ORDER_AUTOPILOT_DRY_RUN=0
 ```
 
-Recent successful live test evidence: registered orders sent successfully, grey-icon orders were skipped, and a guest transfer/payment sequence was attempted. However, the false `already_registered` result proves the customer-cell parser must be corrected before further live operation.
+Successful live validation includes registered-customer payment, guest registration/transfer, automatic continuation to payment, email delivery, grey-icon skipping, and duplicate protection. The customer-cell parser is fixed and regression-tested.
 
-5. Watch Coolify logs for `sent`, `already_sent`, `blocked_after_transfer`, or other safe results.
-6. Immediately restore `ORDER_AUTOPILOT_DRY_RUN=1` after the test.
-7. Verify ABCP grey icons and the buyer email manually.
+5. Watch Coolify logs for `registered`, `sent`, `already_sent`, `blocked_after_transfer`, or other safe results.
+6. Verify ABCP grey icons and buyer email manually.
+7. Keep database autopilot history intact; clearing it can make orders eligible again.
 
-### Important unresolved limitations
+### Remaining operational limitations
 
 - ABCP’s documented API does not expose official equivalents for guest transfer or `sendBill/ajax`; browser automation remains necessary for those two actions.
-- The browser page is paginated. Orders not present in the loaded page are `unknown` and must be blocked rather than guessed.
-- The seven-order batch is a safety limit, not a permanent business limit.
+- The browser page is paginated. Orders not present in the loaded page are `unknown` and must be blocked rather than guessed; the watcher processes all candidates returned by the configured API/page limits.
+- The previous seven-order safety cap was removed. The watcher processes all eligible orders from today and future dates, subject to the ABCP/API page limits.
 - Do not use `ORDER_AUTOPILOT_COOKIE` for professional operation; persistent Playwright profile is the intended path.
 - Never commit ABCP browser credentials, cookies, or persistent profile contents.
 
