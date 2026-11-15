@@ -197,6 +197,34 @@ node scripts/debug-abcp-legacy-order.js ORDER_NUMBER
 2. Verify browser bootstrap reports `authenticated: true` and `liveActionsEnabled: false` in dry-run.
 3. Confirm the selected orders have `customerState=registered|guest` and `paymentState=pending`.
 4. Set `ORDER_AUTOPILOT_DRY_RUN=0` only for a deliberately selected small batch.
+5. Watch both phases separately: `register <order>:` must finish for every guest before any `payment <order>:` line is allowed.
+6. After the first live pass, immediately restore `ORDER_AUTOPILOT_DRY_RUN=1`.
+
+### ⚠️ Immediate resume point for the next chat (15.11.2026)
+
+The latest live test exposed one remaining bug: order `289822892` is visibly a **guest** in ABCP (black customer text with phone number, no blue `/clientinfo` link), but the autopilot logged `register ... already_registered`. The parser currently scans the whole `<tr>` for `/clientinfo/`, so an unrelated link in the row can produce a false registered result. **Do not run live mode again until this is fixed.**
+
+Required fix: parse the exact order `<tr>` and inspect only the **Клиент** `<td>` cell. Customer state must be:
+
+```text
+blue /clientinfo/... link in Клиент cell -> registered
+black name/phone/email in Клиент cell -> guest
+missing/ambiguous cell -> unknown (stop safely)
+```
+
+Do not use a whole-row `/clientinfo/` search. Add a regression test using the `289822892` source/HTML case. The actual ABCP source file supplied by the user is a one-line saved page source at:
+`C:\Users\info\Downloads\view-source_https___www.abcp.ru_d_docs_api_abcp1_api-abcp-admin#получение-информации-о-заказе.html`.
+It is an actual ABCP orders-page source capture despite its misleading filename; the current copy does not contain `289822892`, so obtain a fresh source capture containing that order if exact HTML is needed.
+
+Current safe state:
+
+```text
+ORDER_AUTOPILOT_ENABLED=1
+ORDER_AUTOPILOT_DRY_RUN=1
+```
+
+Recent successful live test evidence: registered orders sent successfully, grey-icon orders were skipped, and a guest transfer/payment sequence was attempted. However, the false `already_registered` result proves the customer-cell parser must be corrected before further live operation.
+
 5. Watch Coolify logs for `sent`, `already_sent`, `blocked_after_transfer`, or other safe results.
 6. Immediately restore `ORDER_AUTOPILOT_DRY_RUN=1` after the test.
 7. Verify ABCP grey icons and the buyer email manually.
