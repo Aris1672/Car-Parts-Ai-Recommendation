@@ -148,6 +148,11 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
     a.ok(/группа 18 Выхлопная система/.test(mr), 'muffler includes exhaust group: ' + mr);
     laximo.groupUnitsNamed = savedTx;
     console.log('test-group-first: muffler exhaust group ok');
+    // Generic cooling-radiator requests must ask coolant versus transmission-oil radiator first.
+    const rad = st0([{ kw: 'радиатор охлаждения', cands: [{ oem: 'R1', name: 'Радиатор охлаждающей жидкости' }, { oem: 'R2', name: 'Масляный радиатор коробки передач' }], asked: [], text: 'радиатор охлаждения' }]);
+    const rr = await chat._narrow.narrowContinue(rad, '');
+    a.ok(/Радиатор охлаждающей жидкости/.test(rr) && /Масляный радиатор коробки передач/.test(rr), 'radiator type question: ' + rr);
+    console.log('test-group-first: radiator type question ok');
   })().catch(e => { console.error(e); process.exit(1); }).finally(() => { laximo.groupUnitsNamed = savedUnits; });
 }
 {

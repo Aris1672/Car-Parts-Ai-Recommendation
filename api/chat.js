@@ -2187,6 +2187,15 @@ async function narrowContinue(st, lead) {
     // Lists too (owner 10.11: the new logic everywhere): items are handled one by one; cards of
     // the items already resolved come first; a unit view carries the rest of the list (narrowRest).
     if (!item.gaveUp && !item.groupDone && (item.cands.length >= 2 || item.groupCode || item.fromKb)) {
+      // A generic «радиатор охлаждения» is ambiguous: the car can have a
+      // coolant radiator and a transmission-oil radiator. Ask before opening
+      // the broad radiator/mounting diagram.
+      if (!item.radiatorType && /радиатор\s+охлажд/i.test(String(item.kw || ''))) {
+        st.cur = i; st.attr = 'radiatorType';
+        st.question = 'Какой радиатор нужен?';
+        st.options = ['Радиатор охлаждающей жидкости', 'Масляный радиатор коробки передач'];
+        return `${lead ? lead + '\n\n' : ''}Уточните, какой радиатор нужен:\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+      }
       if (!item.groups) item.groups = await narrowGroups(st, item).catch(err => { console.error('[narrow] groups failed:', err.message); return []; });
       if (item.groups && item.groups.length) {
         const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
@@ -2359,6 +2368,18 @@ async function narrowingFollowUp(messages) {
   }
   if (!m.option) {
     return `Не понял ответ. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  if (st.attr === 'radiatorType') {
+    const item = st.items[st.cur];
+    const chosen = String(m.option || '');
+    const oil = /масляный/i.test(chosen);
+    const keep = item.cands.filter(c => {
+      const n = String(c.name || '').toLowerCase();
+      return oil ? /масл|коробк|кпп|трансмисс|турбопр/i.test(n) : /радиатор.*охлаж|охлаж.*радиатор/i.test(n) && !/масл|коробк|кпп|трансмисс/i.test(n);
+    });
+    st.items[st.cur] = { ...item, cands: keep.length ? keep : item.cands, radiatorType: chosen, asked: ['radiatorType'] };
+    delete st.attr; delete st.question; delete st.options;
+    return narrowContinue(st, '');
   }
   if (st.attr === 'group' || st.attr === 'unitpick') {
     const item = st.items[st.cur];
