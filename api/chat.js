@@ -2034,6 +2034,15 @@ async function narrowGroups(st, item) {
       console.log(`[narrow] «${item.kw}»: transmission override -> group 24 (${txUnits.map(u => u.unitName).join(', ')})`);
     }
   }
+  // «Глушитель» is also a valid broad catalog search term: the car's exhaust
+  // category (18) contains the actual muffler diagrams, while the search can
+  // legitimately return related engine/intake/HVAC groups. Keep those groups,
+  // but always add the exhaust-system choice when the car has matching units.
+  if (/глушител/i.test(String(item.kw || ''))) {
+    const exhaustUnits = await laximo.groupUnitsNamed(st.schema, '18', 'глуш').catch(() => []);
+    exhaustUnits.forEach(u => add(u, null));
+    if (exhaustUnits.length) console.log(`[narrow] «${item.kw}»: exhaust group 18 added (${exhaustUnits.map(u => u.unitName).join(', ')})`);
+  }
   if (!groups.size) return [];
   // Group 02 (service work: ТО kit, brake service) only repeats parts whose real place is another
   // group (owner 10.11 #599: «only 34 for brakes, drop 02») -> out when any other group is there.

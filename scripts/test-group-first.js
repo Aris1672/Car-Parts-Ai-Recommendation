@@ -138,6 +138,16 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
     a.ok(/24 Автоматическая КПП/.test(r), 'АКПП uses group 24: ' + r);
     a.ok(!/03 |11 |13 /.test(r), 'no unrelated groups: ' + r);
     console.log('test-group-first: АКПП group override ok');
+    // Muffler keeps the catalog's related groups and adds the exhaust-system choice.
+    const savedTx = laximo.groupUnitsNamed;
+    laximo.groupUnitsNamed = async (schema, code, stem) => code === '18'
+      ? [{ group: '18', unitCode: '18_1738', unitName: 'Система выпуска ОГ Зд', ref: 'exhaust' }]
+      : [];
+    const muffler = st0([{ kw: 'глушитель', cands: [{ oem: 'M1', name: 'Глушитель' }, { oem: 'M2', name: 'Глушитель задний' }], asked: [], text: 'глушитель' }]);
+    const mr = await chat._narrow.narrowContinue(muffler, '');
+    a.ok(/группа 18 Выхлопная система/.test(mr), 'muffler includes exhaust group: ' + mr);
+    laximo.groupUnitsNamed = savedTx;
+    console.log('test-group-first: muffler exhaust group ok');
   })().catch(e => { console.error(e); process.exit(1); }).finally(() => { laximo.groupUnitsNamed = savedUnits; });
 }
 {
