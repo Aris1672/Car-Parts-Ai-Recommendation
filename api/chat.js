@@ -2373,13 +2373,35 @@ async function narrowingFollowUp(messages) {
     const item = st.items[st.cur];
     const chosen = String(m.option || '');
     const oil = /масляный/i.test(chosen);
-    const keep = item.cands.filter(c => {
-      const n = String(c.name || '').toLowerCase();
-      return oil ? /масл|коробк|кпп|трансмисс|турбопр/i.test(n) : /радиатор.*охлаж|охлаж.*радиатор/i.test(n) && !/масл|коробк|кпп|трансмисс/i.test(n);
+    // The original candidates came from the coolant search, so filtering them
+    // cannot discover the transmission-oil cooler. Resolve the selected unit
+    // afresh in this vehicle's cooling catalog (both types are group 17).
+    const units = await laximo.groupUnitsNamed(st.schema, '17', 'радиатор').catch(err => {
+      console.error('[narrow] radiator units failed:', err.message); return [];
     });
-    st.items[st.cur] = { ...item, cands: keep.length ? keep : item.cands, radiatorType: chosen, asked: ['radiatorType'] };
-    delete st.attr; delete st.question; delete st.options;
-    return narrowContinue(st, '');
+    const matches = units.filter(u => {
+      const name = String(u.unitName || '').toLowerCase().replace(/ё/g, 'е');
+      return oil
+        ? /масл/.test(name) && /кпп|короб|трансмисс/.test(name)
+        : /радиатор.*охлаждающ.*жидк/.test(name) && !/масл|кпп|короб|трансмисс/.test(name);
+    });
+    if (!matches.length) {
+      return `Не удалось найти схему «${chosen}» в каталоге вашего ${st.car}. Попробуйте повторить выбор или обратитесь к менеджеру.`
+        + `\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+    }
+    const names = await laximo.mainGroupNames(st.schema).catch(() => ({}));
+    const group = { code: '17', name: names['17'] || 'Система охлаждения', units: [...new Map(matches.map(u =>
+      [u.unitCode, { code: u.unitCode, name: u.unitName, ref: u.ref, oems: [] }])).values()] };
+    // Replace stale group/unit choices; preserve list context for «Готово, дальше».
+    const selected = { kw: chosen, text: chosen, cands: [], asked: ['radiatorType'], radiatorType: chosen, groups: [group], groupCode: '17' };
+    st.items[st.cur] = selected;
+    const reply = await narrowGroupStep(st, selected, st.cur, '').catch(err => {
+      console.error('[narrow] selected radiator schema failed:', err.message); return null;
+    });
+    if (reply) return reply;
+    st.items[st.cur] = item;
+    return `Не удалось загрузить схему «${chosen}». Повторите выбор или обратитесь к менеджеру.`
+      + `\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
   if (st.attr === 'group' || st.attr === 'unitpick') {
     const item = st.items[st.cur];
