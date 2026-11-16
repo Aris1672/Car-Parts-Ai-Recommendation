@@ -8,6 +8,21 @@ const one = chat.labelSameNameCards([parts[0]], [{ name: 'Фильтр', best_fo
 a.strictEqual(one[0].best_for, '', 'a single card keeps its line empty');
 for (const t of ['Писал в телеграм - нет ответа', 'никто не отвечает', 'не перезвонили', 'жду без ответа']) a.ok(chat.NO_ANSWER_RE.test(t), t);
 for (const t of ['где мой заказ 288183838', 'ответьте по заказу']) a.ok(!chat.NO_ANSWER_RE.test(t), t);
+// `выключатель` contains the substring `ключ`, but is a catalog part, not key-making service.
+a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: 'Выключатель стоп-сигналов' }]), null);
+a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: 'Переключатель света' }]), null);
+a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: 'Изготовление ключа BMW' }]), 'keys');
+for (const part of ['Выключатель стоп-сигналов', 'Переключатель света', 'Выключатель педали тормоза']) {
+  a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: part }, { role: 'user', content: 'VIN: WBA2H71010VF78880' }]), null, part + ' then VIN');
+  a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: 'Изготовление ключа' }, { role: 'user', content: part }]), null, 'new part must leave key service');
+}
+for (const key of ['ключ', 'ключи', 'ключа', 'ключей', 'ключом', 'ключу', 'ключе', 'брелок', 'BMW Digital Key', 'Smart key', 'Comfort Access']) {
+  a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: key }]), 'keys', key);
+}
+a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: 'Потерял ключ' }, { role: 'user', content: 'BMW X3 F25' }]), 'keys');
+a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: 'Динамометрический ключ' }]), null);
+a.strictEqual(chat.workshopServiceTopic([{ role: 'user', content: 'Кодирование BMW' }]), 'coding');
+console.log('test-cards: workshop key/part routing ok');
 console.log('test-cards: all ok');
 {
   const k = chat.kitItemAsked;

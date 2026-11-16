@@ -1718,10 +1718,13 @@ async function lookupLaximo(extracted, messages, outcome = {}, lopts = {}) {
 // torque wrench, a tow-bar key and bike-rack keys with diagrams. These are
 // services of the BMW workshop (prompt skills «ИЗГОТОВЛЕНИЕ КЛЮЧЕЙ» and
 // «КОДИРОВАНИЕ…»): no catalog, no cards, no diagrams.
-const KEY_SERVICE_RE = /ключ|smart\s*key|digital\s*key|comfort\s*access|брелок/i;
+// Match a standalone car key term only. A plain `ключ` substring also occurs in
+// `выключатель` (switch), so the old rule misclassified `выключатель
+// стоп-сигналов` as the key-making service and skipped the parts catalog.
+const KEY_SERVICE_RE = /(?:^|[^а-яё])ключ(?:и|а|ом|у|е|ей)?(?=$|[^а-яё])|smart\s*key|digital\s*key|comfort\s*access|брелок/i;
 const NOT_CAR_KEY_RE = /гаечн|динамометр|баллонн|колесн|свечн|торцев|шестигран|накидн|рожков|секретк|ключ\S*\s+(для|от)\s+(колес|свеч|фильтр|гаек|болт)/i;
 const CODING_SERVICE_RE = /кодир|чип[\s-]?тюн|прошив|прошить|скрыт\S*\s+функц|launch\s*control|старт[\s-]?стоп|start\s*\/?\s*stop/i;
-const PART_WORDS_RE = /фильтр|колодк|диск|масл|свеч|амортиз|рычаг|стойк|датчик|ламп|фар|бампер|ремен|помп|термостат|прокладк|сальник|антифриз|жидкост|щетк|аккумулят|подшип|шрус|опор|сайлент|детал|запчаст|артикул|\d{7,}/i;
+const PART_WORDS_RE = /выключател|переключател|фильтр|колодк|диск|масл|свеч|амортиз|рычаг|стойк|датчик|ламп|фар|бампер|ремен|помп|термостат|прокладк|сальник|антифриз|жидкост|щетк|аккумулят|подшип|шрус|опор|сайлент|детал|запчаст|артикул|\d{7,}/i;
 function serviceTopicOf(text) {
   const t = String(text || '');
   if (CODING_SERVICE_RE.test(t)) return 'coding';
