@@ -1,5 +1,9 @@
 # Car Parts AI Recommendation Chat Agent
 
+## Dialog review instructions
+
+When the user asks **“read the dialogs”** or **“review the dialogs”** (including equivalent requests to analyse dialog errors), first read and follow [Dialog Review Instructions](<Dialog Review Instructions.md>). Use that procedure for reviewing actual exported conversations; historical README notes are not a substitute for the latest dialog data.
+
 Custom Claude-powered chat widget and analytics dashboard for car parts e-commerce (client: bmwclub77.ru, ABCP platform, id2319).
 Powered by a **two-model architecture** via a Vercel serverless proxy: **Claude Sonnet 5** handles the actual customer-facing conversation, **Claude Haiku** does a cheap, fast structured-data extraction step that feeds it (see "Compatibility matching architecture" below for why this changed from a single-model, single-blob design).
 
