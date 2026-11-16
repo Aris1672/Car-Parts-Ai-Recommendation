@@ -49,6 +49,15 @@ laximo.unitPage = async ref => {
     assert.ok(reply.includes('Готово, дальше'));
     assert.strictEqual(calls.at(-1), ref);
   }
+  // Plain «Радиатор» uses unit-choice buttons: simplify only the coolant label.
+  const group = { code: '17', name: 'Система охлаждения', units: [oil, coolant].map(u => ({ code: u.unitCode, name: u.unitName, ref: u.ref, oems: [] })) };
+  const plain = { ...initial, items: [{ kw: 'радиатор', cands: initial.items[0].cands, asked: [], groups: [group] }] };
+  const unitQuestion = await chat._narrow.narrowContinue(plain, '');
+  const buttons = JSON.parse(unitQuestion.match(/<<<BUTTONS>>>([\s\S]*?)<<<END_BUTTONS>>>/)[1]);
+  assert.deepStrictEqual(buttons, [oil.unitName, 'Радиатор охлаждающей жидкости', 'Не знаю — покажите схемы']);
+  const coolantReply = await chat._narrow.narrowingFollowUp([{ role: 'assistant', content: unitQuestion }, { role: 'user', content: 'Радиатор охлаждающей жидкости' }]);
+  assert.ok(coolantReply.includes(coolant.unitName), 'original schema title preserved');
+  assert.strictEqual(calls.at(-1), 'coolant', 'friendly label routes to coolant schema');
   units = [coolant];
   const count = calls.length;
   const missing = await choose('Масляный радиатор коробки передач');

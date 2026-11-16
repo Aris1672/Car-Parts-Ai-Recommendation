@@ -2131,8 +2131,11 @@ async function narrowGroupStep(st, item, i, lead) {
         + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
     }
     // Unit names as buttons, without catalog codes (a code only when two names are the same).
-    const dup = n => g.units.filter(x => x.name === n).length > 1;
-    const label = x => (dup(x.name) ? `${x.name} (${x.code})` : x.name);
+    // Friendly button text only; keep the catalog title/ref for the actual schema.
+    const buttonName = x => /радиатор/i.test(String(item.kw || '')) && /^креп[её]ж радиатора охлаждающей жидкости$/i.test(String(x.name || '').trim())
+      ? 'Радиатор охлаждающей жидкости' : x.name;
+    const dup = n => g.units.filter(x => buttonName(x) === n).length > 1;
+    const label = x => (dup(buttonName(x)) ? `${buttonName(x)} (${x.code})` : buttonName(x));
     const options = [...g.units.map(label), narrowing.DONT_KNOW];
     st.cur = i; st.attr = 'unitpick'; st.question = 'Какой узел показать?'; st.options = options;
     st.unitPickMap = Object.fromEntries(g.units.map(x => [label(x), x.code]));
