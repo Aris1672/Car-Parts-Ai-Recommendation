@@ -2287,6 +2287,19 @@ async function narrowingStart(extracted, messages, outcome) {
   const padsAsked = kws.some(k => /колодк/.test(k));
   for (const kw of kws) {
     if (padsAsked && /^(передн\S*\s+|задн\S*\s+)?(тормозн\S*\s+)?накладк\S*$/.test(kw)) continue; // the pads' catalog word, not a part
+    // Owner-approved everyday terms may designate a whole catalog unit rather
+    // than a searchable part name (e.g. «шаровые опоры»). Resolve by the unit
+    // title in this car, before broad word-search candidates can misroute it.
+    const schemaRule = knowledge.select(kw).find(e => e.schemaOnly && e.unit);
+    if (schemaRule) {
+      const rs = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
+      const schema = { catalog: rs.catalog || q.c, vid: rs.vid || q.vid, ssd: rs.ssd || q.ssd };
+      const units = await laximo.groupUnitsNamed(schema, schemaRule.group, schemaRule.unit.toLowerCase()).catch(() => []);
+      if (!units.length) return `Не удалось найти схему «${schemaRule.unit}» в каталоге вашего ${carLabelOf(res.vehicle)}. Менеджер поможет подобрать деталь по VIN.\n<<<MANAGER_BUTTON>>>`;
+      const group = { code: schemaRule.group, name: schemaRule.groupTitle, units: units.map(u => ({ code: u.unitCode, name: u.unitName, ref: u.ref, oems: [] })) };
+      if (!items.some(it => it.schemaRule === schemaRule.title)) items.push({ kw, cands: [], asked: [], fromKb: true, schemaRule: schemaRule.title, groups: [group], groupCode: group.code, text });
+      continue;
+    }
     let rows = res.parts.filter(p => p && p.oem && !p.crossSell && String(p.query || '').toLowerCase().split(/\s*,\s*/).some(q => q === kw || (padsAsked && /колодк/.test(kw) && /накладк/.test(q))));
     // Brake pads are BMW main group 34 (not «Накладка порога», «дизайн. накладки», #531-535).
     if (/колодк/.test(kw)) rows = rows.filter(p => narrowing.groupOf(p.oem) === '34');
@@ -2310,7 +2323,7 @@ async function narrowingStart(extracted, messages, outcome) {
   // Synonym keywords («тормозные колодки» + «накладки») found the same rows: keep the first.
   // The request itself matches an approved knowledge entry («воздуховод до фильтра»): its catalog
   // name decides (the word search for «воздуховод» never finds «Впускной канал»).
-  if (kws.length === 1 && narrowing.stateOf(messages) == null) {
+  if (kws.length === 1 && !items.some(it => it.schemaRule) && narrowing.stateOf(messages) == null) {
     const kb = knowledge.select(`${kws[0]} ${text}`).filter(e => e.phrases.some(p => `${kws[0]} ${String(text).toLowerCase().replace(/ё/g, 'е')}`.includes(p)));
     if (kb.length) {
       const rs0 = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
@@ -5608,7 +5621,7 @@ module.exports.equipmentCondition = equipmentCondition;
 module.exports._usage = { usageStore, trackUsage, logUsage };
 module.exports._llmFastFetch = llmFastFetch;
 module.exports._stripHistoryPlaceholders = stripHistoryPlaceholders;
-module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._partNumberUnitReply = partNumberUnitReply; module.exports._bmwNumberIn = bmwNumberIn; module.exports._confirmFollowUp = confirmFollowUp; module.exports._isForeignName = isForeignName; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
+module.exports._aiFilterParts = aiFilterParts; module.exports._markDiscontinuedCards = markDiscontinuedCards; module.exports._diagramCards = { diagramCardFor, mergeDiagramCards, sortCardsByAxle }; module.exports._versionCheck = versionCheck; module.exports._cleanCardsText = cleanCardsText; module.exports._labelVariantCards = labelVariantCards; module.exports._equipmentAnswerFrom = equipmentAnswerFrom; module.exports._axleQuestionParts = axleQuestionParts; module.exports._noCarReply = noCarReply; module.exports._pickupAnswer = pickupAnswer; module.exports._orderShownBefore = orderShownBefore; module.exports._isUnitRequest = isUnitRequest; module.exports._partNumberUnitReply = partNumberUnitReply; module.exports._bmwNumberIn = bmwNumberIn; module.exports._confirmFollowUp = confirmFollowUp; module.exports._isForeignName = isForeignName; module.exports._narrow = { narrowContinue, narrowingEligible, narrowingFollowUp, narrowingStart }; module.exports._catalogPathIn = catalogPathIn; module.exports._keywordInTitle = keywordInTitle; module.exports._namedUnitRow = namedUnitRow; module.exports._gearboxUnitRow = gearboxUnitRow;
 module.exports._extraction = { rememberExtraction, previousExtraction, extractVehicleInfo };
 module.exports.labelSameNameCards = labelSameNameCards;
 module.exports.NO_ANSWER_RE = NO_ANSWER_RE;
