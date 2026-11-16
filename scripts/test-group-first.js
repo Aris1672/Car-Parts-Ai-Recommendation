@@ -127,6 +127,20 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
   console.log('test-group-first: group 88 excluded ok');
 }
 {
+  // АКПП filter/oil must stay in transmission group 24, not unrelated groups.
+  const savedUnits = laximo.groupUnitsNamed;
+  laximo.groupUnitsNamed = async (schema, code, stem) => code === '24'
+    ? [{ group: '24', unitCode: '24_10362', unitName: stem === 'масл' ? 'Масло трансмиссионное' : 'Фильтр трансмиссионный', ref: 'tx' }]
+    : [];
+  (async () => {
+    const st = st0([{ kw: 'фильтр акпп', cands: [{ oem: '24115A13116', name: 'К-т масляный картер, масл.фильтр, АКПП' }, { oem: '24115A13117', name: 'К-т фильтра АКПП' }], asked: [], text: 'фильтр АКПП и масло АКПП' }, { kw: 'масло акпп', cands: [{ oem: '83225A...', name: 'Масло трансмиссионное' }], asked: [], text: 'фильтр АКПП и масло АКПП' }]);
+    const r = await chat._narrow.narrowContinue(st, '');
+    a.ok(/24 Автоматическая КПП/.test(r), 'АКПП uses group 24: ' + r);
+    a.ok(!/03 |11 |13 /.test(r), 'no unrelated groups: ' + r);
+    console.log('test-group-first: АКПП group override ok');
+  })().catch(e => { console.error(e); process.exit(1); }).finally(() => { laximo.groupUnitsNamed = savedUnits; });
+}
+{
   // After the picked positions' cards: only the positions not picked yet (owner 10.11).
   const chat = require('../api/chat');
   (async () => {

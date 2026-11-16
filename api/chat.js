@@ -2021,6 +2021,19 @@ async function narrowGroups(st, item) {
     units.forEach(u => add(u, null));
     if (units.length) console.log(`[narrow] «${item.kw}»: knowledge group ${code} added (${units.map(u => u.unitName).join(', ')})`);
   }
+  // АКПП is a catalog transmission request, not a generic engine/filter request.
+  // GetOEMPartApplicability can expose rows through misleading secondary units; use
+  // the vehicle's transmission category for the group-first question instead.
+  const transmissionKw = /(?:акпп|автоматическ\S*\s+короб|трансмисси)/i.test(String(item.kw || ''));
+  if (transmissionKw) {
+    const stem = /масл/i.test(String(item.kw || '')) ? 'масл' : 'фильтр';
+    const txUnits = await laximo.groupUnitsNamed(st.schema, '24', stem).catch(() => []);
+    if (txUnits.length) {
+      groups.clear();
+      txUnits.forEach(u => add(u, null));
+      console.log(`[narrow] «${item.kw}»: transmission override -> group 24 (${txUnits.map(u => u.unitName).join(', ')})`);
+    }
+  }
   if (!groups.size) return [];
   // Group 02 (service work: ТО kit, brake service) only repeats parts whose real place is another
   // group (owner 10.11 #599: «only 34 for brakes, drop 02») -> out when any other group is there.
