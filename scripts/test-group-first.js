@@ -138,7 +138,7 @@ const st0 = items => ({ v: 1, car: 'BMW', schema: { catalog: 'C', vid: '1', ssd:
     a.ok(/24 Автоматическая КПП/.test(r), 'АКПП uses group 24: ' + r);
     a.ok(!/03 |11 |13 /.test(r), 'no unrelated groups: ' + r);
     console.log('test-group-first: АКПП group override ok');
-    // Muffler keeps the catalog's related groups and adds the exhaust-system choice.
+    // Approved bare muffler route restricts fallback navigation to exhaust group 18.
     const savedTx = laximo.groupUnitsNamed;
     laximo.groupUnitsNamed = async (schema, code, stem) => code === '18'
       ? [{ group: '18', unitCode: '18_1738', unitName: 'Система выпуска ОГ Зд', ref: 'exhaust' }]

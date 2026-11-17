@@ -2034,15 +2034,8 @@ async function narrowGroups(st, item) {
       console.log(`[narrow] «${item.kw}»: transmission override -> group 24 (${txUnits.map(u => u.unitName).join(', ')})`);
     }
   }
-  // «Глушитель» is also a valid broad catalog search term: the car's exhaust
-  // category (18) contains the actual muffler diagrams, while the search can
-  // legitimately return related engine/intake/HVAC groups. Keep those groups,
-  // but always add the exhaust-system choice when the car has matching units.
-  if (!item.exactName && /глушител/i.test(String(item.kw || ''))) {
-    const exhaustUnits = await laximo.groupUnitsNamed(st.schema, '18', 'глуш').catch(() => []);
-    exhaustUnits.forEach(u => add(u, null));
-    if (exhaustUnits.length) console.log(`[narrow] «${item.kw}»: exhaust group 18 added (${exhaustUnits.map(u => u.unitName).join(', ')})`);
-  }
+  // Bare muffler terminology is resolved by the approved catalog route before
+  // this generic flow. Explicit intake/HVAC descriptions keep their own groups.
   if (!groups.size) return [];
   // Group 02 (service work: ТО kit, brake service) only repeats parts whose real place is another
   // group (owner 10.11 #599: «only 34 for brakes, drop 02») -> out when any other group is there.
@@ -2056,6 +2049,20 @@ async function narrowGroups(st, item) {
   return out;
 }
 const groupLabel = g => `${g.code} ${g.name}`;
+const catalogSection = name => {
+  const words = String(name || '').toLowerCase().replace(/ё/g, 'е').split(/[^а-яa-z]+/).filter(Boolean);
+  const front = words.some(w => /^(пд|пер|передн.*)$/.test(w));
+  const rear = words.some(w => /^(зд|задн.*)$/.test(w));
+  return front !== rear ? (front ? 'front' : 'rear') : null;
+};
+async function routedCatalogGroup(st, item, route) {
+  const units = [];
+  for (const stem of route.unitStems) units.push(...await laximo.groupUnitsNamed(st.schema, route.group, stem));
+  const unique = [...new Map(units.map(u => [u.unitCode, u])).values()];
+  const names = await laximo.mainGroupNames(st.schema);
+  return { code: route.group, name: names[route.group] || narrowing.PLACE[route.group],
+    units: unique.map(u => ({ code: u.unitCode, name: u.unitName, ref: u.ref, oems: [] })) };
+}
 /** The customer's own context words («для двигателя», «в салон») -> the AI picks a group, or null. */
 async function narrowGroupFromContext(item, groups) {
   const kwW = String(item.kw || '').toLowerCase().split(/\s+/).map(w => w.slice(0, 5));
@@ -2088,6 +2095,22 @@ async function narrowGroupStep(st, item, i, lead) {
       + `\n<<<BUTTONS>>>\n${JSON.stringify(options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
   item.groupCode = g.code;
+  if (item.catalogRoute) {
+    if (!item.section) {
+      const front = g.units.some(u => catalogSection(u.name) === 'front');
+      const rear = g.units.some(u => catalogSection(u.name) === 'rear');
+      if (front && rear) {
+        st.cur = i; st.attr = 'catalogSection'; st.question = 'Передний или задний глушитель нужен?';
+        st.options = ['Передний глушитель', 'Задний глушитель'];
+        return `${lead ? lead + '\n\n' : ''}${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+      }
+    }
+    if (item.section) {
+      const units = g.units.filter(u => catalogSection(u.name) === item.section);
+      if (!units.length) return 'Не удалось найти схему выбранной части выпускной системы. Менеджер поможет проверить каталог по VIN.\n<<<MANAGER_BUTTON>>>';
+      g = { ...g, units };
+    }
+  }
   let u = item.unitCode ? g.units.find(x => x.code === item.unitCode) : g.units.length === 1 ? g.units[0] : null;
   if (!u) {
     // Units that differ only by axle (pads: «Датчик износа торм.накладки пер.колеса» / «… колеса Зд»,
@@ -2203,6 +2226,20 @@ async function narrowContinue(st, lead) {
       const intro = [lead, before, before ? '<<<AFTER>>>' : '', `В оригинальном каталоге вашего ${st.car} найдены точные варианты «${item.kw}». Какой нужен?`].filter(Boolean).join('\n\n');
       return `${intro}\n<<<BUTTONS>>>\n${JSON.stringify(labels)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
     }
+    const route = !item.exactName && knowledge.catalogRoute(item.kw);
+    if (route && !item.catalogRouteResolved) {
+      try {
+        const group = await routedCatalogGroup(st, item, route);
+        if (!group.units.length) throw new Error('нет подходящих узлов');
+        item.groups = [group]; item.groupCode = group.code;
+        item.catalogRoute = route; item.catalogRouteResolved = true;
+        item.section = catalogSection(item.kw);
+        item.cands = []; // broad intake/same-word candidates are not exhaust evidence
+      } catch (err) {
+        console.error('[narrow] catalog route failed:', err.message);
+        return 'Не удалось найти или загрузить нужную схему выпускной системы в каталоге вашего автомобиля. Повторите запрос или обратитесь к менеджеру.\n<<<MANAGER_BUTTON>>>';
+      }
+    }
     if (!item.gaveUp && !item.groupDone && (item.cands.length >= 2 || item.groupCode || item.fromKb || item.exactSelected)) {
       // A generic «радиатор охлаждения» is ambiguous: the car can have a
       // coolant radiator and a transmission-oil radiator. Ask before opening
@@ -2221,6 +2258,7 @@ async function narrowContinue(st, lead) {
         const lead2 = [[lead, before].filter(Boolean).join('\n\n'), before ? '<<<AFTER>>>' : '', multi.trim()].filter(Boolean).join('\n');
         const r = await narrowGroupStep(st, item, i, lead2).catch(err => { console.error('[narrow] group step failed:', err.message); return null; });
         if (r) return r;
+        if (item.catalogRoute) return 'Не удалось загрузить выбранную схему выпускной системы. Повторите запрос или обратитесь к менеджеру.\n<<<MANAGER_BUTTON>>>';
       }
     }
     const step = item.gaveUp ? { done: true, pick: item.cands.slice(0, narrowing.MAX_CARDS), gaveUp: true } : narrowing.nextStep(item);
@@ -2294,7 +2332,7 @@ async function knowledgeRows(entries, schema) {
 async function narrowingStart(extracted, messages, outcome) {
   const res = await lookupLaximo(extracted, messages, outcome, { narrow: true }).catch(err => { console.error('[narrow] search failed:', err.message); return null; });
   if (!res || !res.vehicle || res.needsChoice || !Array.isArray(res.parts) || res.unavailable) return null; // wizard / errors: old flow
-  const q = res.vehicle.query || {};
+  const q = res.vehicle.query || res.vehicleQuery || {};
   const kws = [...new Set((extracted.partKeywords || []).map(k => String(k).toLowerCase().trim()).filter(Boolean))];
   const text = lastUserMessage(messages) || '';
   const items = [];
@@ -2305,6 +2343,11 @@ async function narrowingStart(extracted, messages, outcome) {
     // than a searchable part name (e.g. «шаровые опоры»). Resolve by the unit
     // title in this car, before broad word-search candidates can misroute it.
     const exactRows = res.parts.filter(p => p && p.oem && p.exactName && String(p.query || '').toLowerCase() === kw);
+    const route = !exactRows.length && knowledge.catalogRoute(kw);
+    if (route) {
+      items.push({ kw, cands: [], asked: [], text: String(text).slice(0, 300), fromKb: true, routePending: true });
+      continue;
+    }
     const schemaRule = !exactRows.length && knowledge.select(kw).find(e => e.schemaOnly && e.unit);
     if (schemaRule) {
       const rs = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
@@ -2339,7 +2382,7 @@ async function narrowingStart(extracted, messages, outcome) {
   // Synonym keywords («тормозные колодки» + «накладки») found the same rows: keep the first.
   // The request itself matches an approved knowledge entry («воздуховод до фильтра»): its catalog
   // name decides (the word search for «воздуховод» never finds «Впускной канал»).
-  if (kws.length === 1 && !items.some(it => it.schemaRule || it.exactName) && narrowing.stateOf(messages) == null) {
+  if (kws.length === 1 && !items.some(it => it.schemaRule || it.exactName || it.routePending) && narrowing.stateOf(messages) == null) {
     const kb = knowledge.select(`${kws[0]} ${text}`).filter(e => e.phrases.some(p => `${kws[0]} ${String(text).toLowerCase().replace(/ё/g, 'е')}`.includes(p)));
     if (kb.length) {
       const rs0 = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
@@ -2353,8 +2396,9 @@ async function narrowingStart(extracted, messages, outcome) {
   }
   const out = [];
   for (const it of items) {
-    const keys = it.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',');
-    if (!out.some(o => o.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',') === keys)) out.push(it);
+    const identity = x => x.routePending ? `route:${x.kw}` : x.schemaRule ? `schema:${x.schemaRule}` : x.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',');
+    const keys = identity(it);
+    if (!out.some(o => identity(o) === keys)) out.push(it);
   }
   if (!out.length) return null;
   // The catalog reference for the card diagrams: from the rows (the chat's vehicle object has
@@ -2375,10 +2419,10 @@ async function narrowingFollowUp(messages) {
   // Not one of the options but a description of the part («Нет, я имею в виду …», #563): the
   // knowledge base -> catalog names -> a new candidate list for this item (not the same question again).
   const rejects = /^(нет|не то|не эт|другой|другая|другое)|имею в виду|я про|мне нужен|мне нужна/i.test(u);
-  if (st.attr === 'exactpick' && !m.option && !m.newRequest) {
-    return `Выберите точный вариант из каталога. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  if ((st.attr === 'exactpick' || st.items[st.cur].catalogRoute) && !m.option && !m.newRequest) {
+    return `Выберите вариант из каталога. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
-  if (st.attr !== 'exactpick' && (!m.option || (m.newRequest && rejects))) {
+  if (st.attr !== 'exactpick' && !st.items[st.cur].catalogRoute && (!m.option || (m.newRequest && rejects))) {
     const item0 = st.items[st.cur];
     const kr = await knowledgeLookup(u, item0.kw, st.schema);
     if (kr && kr.rows.length) {
@@ -2403,6 +2447,13 @@ async function narrowingFollowUp(messages) {
   }
   if (!m.option) {
     return `Не понял ответ. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  if (st.attr === 'catalogSection') {
+    const item = st.items[st.cur];
+    item.section = catalogSection(m.option);
+    delete item.unitCode;
+    delete st.attr; delete st.question; delete st.options;
+    return narrowContinue(st, '');
   }
   if (st.attr === 'exactpick') {
     const item = st.items[st.cur];
@@ -2453,6 +2504,9 @@ async function narrowingFollowUp(messages) {
     const code = (map || {})[m.option];
     const attr = st.attr;
     delete st.attr; delete st.question; delete st.options; delete st.groupMap; delete st.unitPickMap;
+    if (!code && item.catalogRoute) {
+      return `Выберите узел выпускной системы по названию или уточните, какая часть нужна.\n<<<BUTTONS>>>\n${JSON.stringify(step.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock({ ...st, attr, question: step.question, options: step.options, ...(attr === 'unitpick' ? { unitPickMap: map } : { groupMap: map }) });
+    }
     if (!code) { st.items[st.cur] = { ...item, gaveUp: true }; return narrowContinue(st, ''); } // «Не знаю» -> cards with diagrams
     if (code === 'both') {
       // Both axles: the found parts of both units as cards (no diagrams to pick from).
