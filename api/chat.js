@@ -4275,6 +4275,25 @@ function streamResponse(res) {
   return { emit: text => write({ step: text }) };
 }
 
+// Explicit compatibility actions take precedence over an LLM order-intent guess.
+// Keep the old chip wording supported for saved chats and customers typing it.
+function compatibilityAction(text) {
+  return /^(?:🚗\s*)?(?:проверить совместимость|проверка совместимости|подойд[её]т ли (?:номер|деталь))(?:\s*[?!.,])?$/i.test(String(text || '').trim());
+}
+function compatibilityRequest(extracted, messages) {
+  if (!compatibilityAction(lastUserMessage(messages))) return null;
+  extracted.orderStatusQuestion = false;
+  const users = (messages || []).filter(m => m.role === 'user').map(m => String(m.content || ''));
+  const typedNumber = [...users].reverse().map(bmwNumberIn).find(Boolean);
+  if (typedNumber) extracted.vendorCode = typedNumber;
+  const code = extracted.vendorCode;
+  const vehicleKnown = !!laximo.normalizeVin(extracted.vin) || !!(extracted.brand && extracted.model);
+  if (!code && !vehicleKnown) return 'Для проверки совместимости пришлите артикул детали и VIN автомобиля (17 символов из СТС). Если VIN нет — марку, модель, год выпуска и двигатель.';
+  if (!code) return 'Пришлите, пожалуйста, артикул детали, которую нужно проверить на совместимость с вашим автомобилем.';
+  if (!vehicleKnown) return 'Для проверки артикула ' + code + ' пришлите VIN автомобиля (17 символов из СТС). Если VIN нет — марку, модель, год выпуска и двигатель.';
+  return null;
+}
+
 /** «Понял запрос: тормозные колодки — BMW X5 E70» from the extraction (no AI call). */
 function understoodStep(extracted, workshopTopic) {
   if (extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true') return null;
@@ -4382,11 +4401,18 @@ async function handleChat(req, res) {
     // already-matched result instead of the full dataset.
     progress.step('Читаю ваш вопрос…');
     const extracted = await extractVehicleInfo(messages);
+    const compatibilityPrompt = compatibilityRequest(extracted, messages);
     noteTurn('understood', {
       car: [extracted.brand, extracted.model, extracted.engineCode].filter(Boolean).join(' ') || null,
       vin: extracted.vin || null, parts: extracted.partKeywords || null, number: extracted.vendorCode || null,
       orderStatus: extracted.orderStatusQuestion === true || extracted.orderStatusQuestion === 'true' || undefined,
     });
+    if (compatibilityPrompt) {
+      console.log('[compat] explicit compatibility request: collecting missing article / vehicle');
+      Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(200).json({ reply: compatibilityPrompt });
+    }
     // The LLM only saw masks, so contacts come from the code, not from it.
     extracted.contactPhone = typedContacts.phone;
     extracted.contactEmail = typedContacts.email;
@@ -5589,6 +5615,7 @@ module.exports.compatVerdict = compatVerdict;
 module.exports.keywordsFromName = keywordsFromName;
 module.exports.offeredCodes = offeredCodes;
 module.exports.workshopServiceTopic = workshopServiceTopic;
+module.exports._compatibilityRequest = compatibilityRequest;
 module.exports.positiveFirstSentence = positiveFirstSentence;
 module.exports.groupPartDiagrams = groupPartDiagrams;
 module.exports.orderCardsByText = orderCardsByText;
