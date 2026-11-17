@@ -9,7 +9,16 @@ assert.strictEqual(reminders.paymentReceived(html('<span class="paid-cross">X</s
 assert.strictEqual(reminders.paymentReceived(html(''), '42', selectors), 'unpaid');
 assert.strictEqual(reminders.paymentReceived(html('<span>?</span>'), '42', selectors), 'unknown');
 assert.strictEqual(reminders.paymentReceived(html(''), '99', selectors), 'unknown');
-assert.strictEqual(reminders.paymentReceived(html(''), '42'), 'unknown');
+assert.strictEqual(reminders.paymentReceived(html(''), '42', {}), 'unknown');
+// Sanitized real ABCP markup supplied 17.11: no customer names or IDs.
+const green = '<div class="cp-flex gap5" style="min-width: 53px;"><button class="bp3-button bp3-icon-plus bp3-intent-success bp3-small linkPaymentBtn" title="Привязать к заказам"></button></div>';
+const red = '<div class="cp-flex gap5" style="min-width: 53px;"><button type="button" class="bp3-button bp3-icon-cross bp3-intent-danger bp3-small ml-a-xs ml-a-sm delete-payment-order-links" title="Удалить все привязки платежей"></button></div>';
+const empty = '<div class="cp-flex gap5" style="min-width: 53px;">   </div>';
+assert.strictEqual(reminders.paymentReceived(html(green), '42'), 'paid');
+assert.strictEqual(reminders.paymentReceived(html(red), '42'), 'paid');
+assert.strictEqual(reminders.paymentReceived(html(empty), '42'), 'unpaid');
+assert.strictEqual(reminders.paymentReceived(html('<div class="cp-flex gap5"><button class="other"></button></div>'), '42'), 'unknown');
+assert.strictEqual(reminders.paymentReceived(html('<div class="other"></div>'), '42'), 'unknown');
 (async () => {
   process.env.PREPAYMENT_REMINDERS_ENABLED = '1';
   process.env.ORDER_AUTOPILOT_ENABLED = '1';
