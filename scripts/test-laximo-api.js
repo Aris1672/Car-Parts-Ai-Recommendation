@@ -153,7 +153,10 @@ const server = http.createServer((req, res) => {
     a.ok(oems.includes('34116852253') && oems.includes('34216776937'), `pads found: ${oems.join(', ')}`);
     a.ok(!oems.includes('34116868938'), 'the disc (not marked for this group) is not offered for pads');
     a.ok(calls.some(c => c.name === 'ListQuickDetail' && c.params.QuickGroupId === '545'), 'opened group 545');
-    a.ok(!calls.some(c => c.name === 'SearchVehicleDetails'), 'group found -> no word search');
+    const exactProbe = calls.findIndex(c => c.name === 'SearchVehicleDetails');
+    const groupRead = calls.findIndex(c => c.name === 'ListQuickDetail' && c.params.QuickGroupId === '545');
+    a.ok(exactProbe >= 0 && exactProbe < groupRead, 'exact phrase probe precedes group fallback');
+    a.strictEqual(calls.filter(c => c.name === 'SearchVehicleDetails').length, 1, 'group hit after exact miss needs no further word search');
     const pad = r.parts.find(p => p.oem === '34116852253');
     { const { unit, ...sch } = pad.schema; a.deepStrictEqual(sch, { number: '34116852253', catalog: 'BMW202601', vid: '2050271679', ssd: car.ssd }); a.ok(unit, 'schema names the group unit'); }
     a.ok(/^https:\/\/img\.laximo\.ru\//.test(pad.unitImage), 'diagram picture without an extra request');

@@ -1,11 +1,117 @@
 # Car Parts AI Recommendation Chat Agent
 
+## ▶ Start here — session handoff, 17.11.2026 (20:14 Moscow)
+
+**Read this section first in a new session.** This README contains years/iterations of historical notes and conflicting old resume headings. The current code and this dated handoff take precedence over older descriptions. Do not assume an old ✗ review is still broken.
+
+### Current application and architecture
+
+- Single-client, Russian-language BMW Club77 parts assistant for bmwclub77.ru (ABCP shop id2319), plus analytics/review dashboard and logistics/order automation. Multi-tenancy remains planning only; do not start that migration unless requested.
+- Runtime: self-hosted Express on Coolify, started by `npm start` / `node server.js`. [server.js](<server.js>) mounts handlers from the API directory and serves the widget/dashboard. The old Vercel/two-Claude-model descriptions below are historical.
+- Current application LLM defaults in [chat.js](<api/chat.js>): **DeepSeek V4 Pro** for AI steps, `LLM_MODEL=deepseek-v4-pro`, `LLM_BASE_URL=https://api.deepseek.com/anthropic`, credential `LLM_API_KEY`. Production environment overrides must be checked before claiming the deployed configuration. Fast-step thinking defaults off; final-answer and narrowing thinking default on. This is the shop assistant’s model, not necessarily the coding agent’s model.
+- Main flow: customer text → extraction/normalization → deterministic intent routing → VIN/model catalog lookup → group/unit narrowing → full unit diagram and position selection → cards/live prices. Original-catalog vehicle fitment is authoritative; do not invent compatibility. [laximo.js](<lib/laximo.js>) and [laximoApi.js](<lib/laximoApi.js>) handle catalog access, [abcpPrices.js](<lib/abcpPrices.js>) handles offers, [narrowing.js](<lib/narrowing.js>) handles narrowing state.
+- UI: [chat-widget.js](<widget/chat-widget.js>) supports inline homepage and slide-out chat; [dashboard](<dashboard/index.html>) includes admin-only reviewed dialogs; [logistics workspace](<logistics/index.html>) and [statistics](<logistics/stats.html>) serve managers. Persistence uses PostgreSQL/Supabase; secrets belong in environment configuration, not documentation/source.
+
+### Latest local chat correction — exact catalog names first (17.11, not deployed by coding agent)
+
+- Owner reviewed newest errors #1117/#1118 (21:34 Moscow): «Крепление стойки амортизатора» + VIN was routed to front/rear suspension and a knuckle diagram. Catalog screenshots show exact body-group 41 names. The suspension-family filter could discard those exact rows; old trace counts were post-filter, not raw catalog counts.
+- [laximo.js](<lib/laximo.js>) now probes each customer keyword before quick groups, mapped names or broad searches. Complete normalized names with optional catalog direction suffixes are authoritative; exact rows bypass inferred suspension/group restrictions and name rewriting. Resolved keywords do not trigger knowledge/related-word expansion; unresolved keywords retain fallback. Exact-probe errors are not empty results. Logs report raw and exact counts separately. This general rule gives literal catalog evidence priority over older everyday-name conventions when a literal match exists.
+- [chat.js](<api/chat.js>) preserves exact evidence over knowledge/schema overrides and presents exact catalog variants as buttons (right/left in the reported case). Choosing one resolves that OEM’s real vehicle-specific unit and preserves the chosen OEM when both sides share a diagram position. Full schema, other positions and list continuation remain available. A single exact result retains the direct-card behavior. No VIN, diagram or OEM numbers are hardcoded in production logic.
+- Offline validation: [test-exact-catalog-search.js](<scripts/test-exact-catalog-search.js>) covers priority, normalization, false matches, metadata, ordinary damper fallback, mixed requests and failures; [test-exact-catalog-flow.js](<scripts/test-exact-catalog-flow.js>) covers both side choices through numeric position confirmation, knowledge bypass and list state. Existing API fixture test now verifies exact probe before group fallback. Full suite: **18/18 test files passed**. No live catalog calls, server startup, order operations, push or deployment were performed. Retest the reported request in a fresh chat after owner deployment.
+
+### Latest completed automation work — one-time prepayment reminder (17.11, confirmed live)
+
+**Read this before touching order automation. Owner confirmed the reminder works live; no reminder fix is currently requested.** Preserve the separate compatibility/catalog handoff below: it records other completed work in this shared checkout.
+
+#### Business rules and reported live configuration
+
+- Initial 2,000 ₽ payment-message logic is unchanged. Register guests first, then process initial payment messages. No LLM is used in this subsystem.
+- Send **one reminder only**, at least **65 minutes after the successful initial email**, on the next completed watcher cycle (normally 2 minutes; not an exact-second timer).
+- Track **new successful initial sends only**, after reminder code deployment. No backfill of historical orders. Never infer first-send time from the envelope, order date, or mutable audit `updated_at`.
+- Before reminding, reload ABCP and inspect the exact **Платежи** cell: green **+** means prepayment received; red **×** means prepaid and manager sent the order to supplier. **Both suppress the reminder.** Verified empty cell/wrapper means unpaid; missing or unfamiliar markup means unknown, blocked safely.
+- Grey envelope means initial message sent, not payment received. It does **not** block this intentional reminder. Owner explicitly chose not to apply paid-indicator suppression to the initial-message logic.
+- Reminder queue is independent of the today-only initial-order cutoff: midnight does not reset or discard timers. Browser pagination can still make an order unknown; do not guess it is unpaid.
+- Reported live Coolify environment:
+
+```text
+LOGISTICS_ENABLED=1
+ORDER_AUTOPILOT_ENABLED=1
+ORDER_AUTOPILOT_DRY_RUN=0
+PREPAYMENT_REMINDERS_ENABLED=1
+```
+
+- Reminder switch defaults off if absent/not 1. Set `PREPAYMENT_REMINDERS_ENABLED=0` to disable reminders only; guest registration/initial emails continue. Built-in paid selectors need no extra env variables. Optional `ABCP_PREPAYMENT_GREEN_SELECTOR` / `ABCP_PREPAYMENT_RED_SELECTOR` overrides exist; never configure guessed selectors.
+
+#### Implementation and persistent safety
+
+- [prepaymentReminders.js](<lib/logistics/prepaymentReminders.js>): payment detector and reminder processor; [watch.js](<lib/logistics/watch.js>) invokes it after initial autopilot work. Reuses [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) `sendAdvanceLink` with 2000, independent of initial grey-envelope guard.
+- [orderAutopilot.js](<lib/logistics/orderAutopilot.js>) calls `store.recordInitialBill(currentId)` after successful initial send/audit. Guest transfers use the **new transferred order number**.
+- [store.js](<lib/logistics/store.js>) automatically creates/migrates nullable `logistics_autopilot.first_bill_sent_at` (no historical backfill) and separate `logistics_prepayment_reminders`: order_number primary key, initial_sent_at, status, attempted_at, details.
+- `recordInitialBill` inserts once, conflict-do-nothing. `dueReminders` selects pending records aged ≥65 minutes. `claimReminder` atomically changes due pending → started **before external send**, preventing duplicate automatic attempts across concurrent workers/restarts.
+- Outcomes: `sent` = confirmed email, `paid` = suppressed, `uncertain` = possible send/error requiring manual review. Crash may leave `started`; neither started nor uncertain is automatically retried. This deliberately favors avoiding duplicate messages over guaranteed delivery.
+- Do not reset started/uncertain records without checking ABCP/email evidence. Do not clear autopilot/reminder history in normal live operation. Reminder completion does not overwrite initial-message audit or enqueue another reminder.
+- Known limits: only loaded browser page is inspected (pagination → safe payment_unknown). Initial send followed by recording failure can leave no reminder record; do not invent a timestamp. Production database crash/restart scenarios were not fault-injected; SQL atomic claims and mocked behavior were tested.
+
+#### Verified real ABCP payment markup
+
+- Green selector: `button.linkPaymentBtn.bp3-icon-plus.bp3-intent-success`.
+- Red selector: `button.delete-payment-order-links.bp3-icon-cross.bp3-intent-danger`.
+- Unpaid: one empty `<div class="cp-flex gap5" style="min-width: 53px;"> ...whitespace... </div>` in the identified payment cell; truly empty cell also accepted. Unfamiliar UI remains unknown.
+- Read-only diagnostic: `node scripts/inspect-prepayment-cells.js GREEN_ORDER RED_ORDER EMPTY_ORDER`; [inspect-prepayment-cells.js](<scripts/inspect-prepayment-cells.js>) prints payment-cell HTML only.
+- Real detector confirmed by owner: **290039691 → paid**, **290045024 → paid**, **290059931 → unpaid**. Do not hardcode test order numbers; they may leave the loaded page.
+- Read-only queue inspection SQL through `store.withDb`:
+
+```sql
+SELECT order_number, initial_sent_at,
+       initial_sent_at + interval '65 minutes' AS reminder_due_at,
+       status, attempted_at
+FROM logistics_prepayment_reminders
+ORDER BY initial_sent_at DESC LIMIT 20;
+```
+
+#### Confirmed live evidence and next-session resume point
+
+- Test order **290123771**: initial email at **2026-11-17T11:56:05.199Z** (14:56:05 Moscow); due at **13:01:05.199Z** (16:01:05 Moscow).
+- Owner received the reminder after activation/redeploy. Log at **13:02:54 UTC / 16:02:54 Moscow**: `[prepayment-reminder] 290123771: sent`.
+- Owner verified PostgreSQL: **status=sent**, **attempted_at=2026-11-17T13:02:53.060Z**. This record is terminal; never reset it or run another live send to test duplication.
+- [test-prepayment-reminders.js](<scripts/test-prepayment-reminders.js>) tests sanitized real green/red/empty markup, unknown state, claim-before-send, single completion, uncertain outcome with no retry. Browser/database sends are mocked; sent/uncertain logs during tests are simulated.
+- Full reminder regression run in this conversation: **15/15 test files passed**. Later separate compatibility handoff below reports 16/16. These are dated run results, not a fixed required suite size. Run current `npm test` or `node scripts/run-tests.js` when modifying code.
+- **Next session:** read this and the compatibility/catalog notes, then continue with owner’s next task. No need to repeat successful live tests, clear history, or disable working automation merely because the session changed.
+- Never document or commit passwords/cookies. Test-account credentials exposed in screenshots were flagged for rotation; rotation completion has not been verified here.
+
+### Latest completed chat work — compatibility intent (17.11)
+
+- Reviewed the export `dialogs_2026-11-17-13-33.json` supplied from the owner’s Downloads folder. Latest new errors: **#1056** (15:59 Moscow), «Подойдёт ли номер?» incorrectly marked as order status; **#1049** (13:48 Moscow), «🚗 Проверить совместимость» incorrectly escalated to a manager instead of requesting the missing VIN. Other reviewed examples demonstrated that the actual VIN + article catalog check worked.
+- Fixed in [chat.js](<api/chat.js>): `compatibilityAction` / `compatibilityRequest` run immediately after extraction, before the order-status/service branches. Explicit compatibility actions override a mistaken `orderStatusQuestion`; missing article/vehicle data gets a deterministic clarification rather than a manager handoff. An already-typed BMW article is recovered from customer history when available. With article and VIN/model present, the request continues through the existing catalog check.
+- Supported explicit wording: «Проверить совместимость», «Проверка совместимости», «Подойдёт ли деталь?» and legacy «Подойдёт ли номер?»; car-emoji version is accepted for saved chats/buttons. Genuine order-status requests remain untouched.
+- Homepage quick chip now reads **«Проверить совместимость» — without the car emoji**, per owner request. Keep the legacy phrase supported in the backend even though it is no longer the homepage chip.
+- Regression coverage: [test-compatibility-intent.js](<scripts/test-compatibility-intent.js>) covers explicit actions, missing data, article retention, complete-data continuation and isolation from genuine order queries.
+- Owner confirmed live: **“The compatibility logic works nicely!”** on 17.11; the subsequent emoji removal is a label-only edit. The coding agent did not deploy or push these changes. At handoff, `git status --short` was clean; latest local commits were `6e59dca` (“Compatabillity update-2”) and `00bd2ed` (“Compatabillity update”). Clean local state does not itself prove remote push/deployment.
+
+### Preserve the owner’s catalog/UX decisions
+
+- Full catalog schemas with position buttons and multi-select are intentional, not an error. Resolve ambiguous types first, then show the correct full schema. Do not replace this with an arbitrary single product card.
+- Muffler: add exhaust group **18** but keep legitimate intake/engine/HVAC choices; the customer selects the intended system.
+- Radiators: both coolant and transmission-oil radiators are in group **17**. Coolant choice → «Крепеж радиатора охлаждающей жидкости»; transmission-oil choice → «Радиатор охл.масла КПП/трубопр.масл.рад.». Fresh unit lookup after selection is mandatory; never fall back to the other type. The coolant button says «Радиатор охлаждающей жидкости» while the actual schema title/reference stays intact.
+- Ball joints: approved everyday terms («Шаровые опоры», «Шаровая опора», «Шарикова упора», «Шариковая опора») open the vehicle’s group **31** unit «Балка пер.моста, попер.рычаг подв./тяга», with the full schema for customer position selection. This rule lives in [bmw-parts.md](<knowledge/bmw-parts.md>) as `Показывать схему: да`, supported by [knowledge.js](<lib/knowledge.js>); no VIN-specific OEM/diagram hardcoding. Missing unit → report it, never substitute an unrelated schema.
+- Stop-signal switch: standalone-key-word matching avoids routing «выключатель» / «переключатель» to key-making service. АКПП filter/oil: group-24 unit resolution during narrowing. Details and tests are in the 16.11 confirmed-fixes section below.
+
+### Review discipline and next-session safety
+
+- On “read/review the dialogs”, **first follow [Dialog Review Instructions](<Dialog Review Instructions.md>)** and read the supplied JSON export. Use the export timestamp and Europe/Moscow dates; inspect complete conversation, owner notes, extraction, cards/buttons and trace. Latest owner-provided file is not guaranteed to remain on disk; ask for a new export if absent.
+- Never diagnose an outage from the generated answer alone. Prove whether catalog work was called or skipped; find the first divergent stage. A previous misdiagnosis confused service-routing suppression with Laximo failure. Separate evidence from hypotheses. Inspect selection handlers as well as initial questions.
+- Review requests do not authorize behavior changes. Analyse first; implement when requested. Prefer knowledge-base mappings for owner-approved everyday terminology and general routing fixes over one-car hardcoding.
+- Run focused regression tests and `node scripts/run-tests.js` after changes, review the final diff, and distinguish local tests from live confirmation. Latest full local validation in this session: **16/16 test files passed**; [run-tests.js](<scripts/run-tests.js>) discovers argument-free test files automatically (the parser tool needs fixtures and is excluded). The latest emoji-only edit passed `git diff --check`; the full suite was not rerun specifically for that label-only change.
+- Logistics/order autopilot is a separate, potentially live-writing subsystem. Preserve its protections; do not start the server, bootstrap browser jobs, clear autopilot history, send payment links or run write diagnostics just to review chat dialogs. Older “read-only watcher” comments do not guarantee the current watcher has no writes. Read the current logistics/autopilot code and relevant production-status sections before touching it.
+- No requested compatibility/catalog fix remains pending from this conversation. Continue with the owner’s next task or latest export rather than re-fixing old reviewed incidents.
+
+---
+
 ## Dialog review instructions
 
 When the user asks **“read the dialogs”** or **“review the dialogs”** (including equivalent requests to analyse dialog errors), first read and follow [Dialog Review Instructions](<Dialog Review Instructions.md>). Use that procedure for reviewing actual exported conversations; historical README notes are not a substitute for the latest dialog data.
 
-Custom Claude-powered chat widget and analytics dashboard for car parts e-commerce (client: bmwclub77.ru, ABCP platform, id2319).
-Powered by a **two-model architecture** via a Vercel serverless proxy: **Claude Sonnet 5** handles the actual customer-facing conversation, **Claude Haiku** does a cheap, fast structured-data extraction step that feeds it (see "Compatibility matching architecture" below for why this changed from a single-model, single-blob design).
+Custom AI chat widget and analytics dashboard for car parts e-commerce (client: bmwclub77.ru, ABCP platform, id2319). Current runtime: self-hosted Express/Coolify with DeepSeek V4 Pro defaults; see the dated handoff above. Older Claude/Haiku and Vercel architecture sections below document migration history, not the current runtime.
 
 Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom` (mosaic tile e-commerce, same two-repo architecture).
 

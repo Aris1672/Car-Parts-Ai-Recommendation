@@ -2015,7 +2015,7 @@ async function narrowGroups(st, item) {
   // Knowledge exception: groups the Laximo search may miss for this word («воздуховод» -> 13, 64).
   const word = String(item.kw || '').split(/\s+/)[0];
   const stem = word.toLowerCase().replace(/ё/g, 'е').slice(0, Math.max(4, Math.min(7, word.length - 1)));
-  for (const code of knowledge.extraGroups(word)) {
+  for (const code of item.exactName ? [] : knowledge.extraGroups(word)) {
     if (groups.has(code)) continue;
     const units = await laximo.groupUnitsNamed(st.schema, code, stem).catch(() => []);
     units.forEach(u => add(u, null));
@@ -2025,7 +2025,7 @@ async function narrowGroups(st, item) {
   // GetOEMPartApplicability can expose rows through misleading secondary units; use
   // the vehicle's transmission category for the group-first question instead.
   const transmissionKw = /(?:акпп|автоматическ\S*\s+короб|трансмисси)/i.test(String(item.kw || ''));
-  if (transmissionKw) {
+  if (transmissionKw && !item.exactName) {
     const stem = /масл/i.test(String(item.kw || '')) ? 'масл' : 'фильтр';
     const txUnits = await laximo.groupUnitsNamed(st.schema, '24', stem).catch(() => []);
     if (txUnits.length) {
@@ -2038,7 +2038,7 @@ async function narrowGroups(st, item) {
   // category (18) contains the actual muffler diagrams, while the search can
   // legitimately return related engine/intake/HVAC groups. Keep those groups,
   // but always add the exhaust-system choice when the car has matching units.
-  if (/глушител/i.test(String(item.kw || ''))) {
+  if (!item.exactName && /глушител/i.test(String(item.kw || ''))) {
     const exhaustUnits = await laximo.groupUnitsNamed(st.schema, '18', 'глуш').catch(() => []);
     exhaustUnits.forEach(u => add(u, null));
     if (exhaustUnits.length) console.log(`[narrow] «${item.kw}»: exhaust group 18 added (${exhaustUnits.map(u => u.unitName).join(', ')})`);
@@ -2158,12 +2158,15 @@ async function narrowUnitPageView(st, item, g, u, lead) {
   const ru = await translateForeignNames(rows.map(r => r.name));
   rows.forEach(r => { if (ru.has(r.name)) r.name = ru.get(r.name); });
   const marked = u.oems.length === 1 ? rows.find(r => r.oem === laximo.normalizeOem(u.oems[0])) : null;
+  if (item.exactSelected && !marked) return null; // never substitute another row if the chosen OEM disappeared
   const base = marked || rows[0];
+  const selectedVariant = item.exactSelected && marked ? { position: marked.position, oem: marked.oem } : null;
   const unitName = u.name || page.unitName;
   const cst = { oem: base.oem, name: base.name, position: marked ? marked.position : null, unit: unitName,
     schema: { ...st.schema, number: base.oem, unit: unitName }, car: st.car, ask: item.kw, allPositions: true,
-    positions: rows.map(({ box, ...r }) => r), image: page.image, ...(marked ? { multi: true } : { noMarker: true }) };
-  let buttons = [...new Map(rows.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+    positions: rows.map(({ box, ...r }) => r), image: page.image, ...(selectedVariant ? { selectedVariant } : {}), ...(marked ? { multi: true } : { noMarker: true }) };
+  const buttonRows = selectedVariant ? rows.filter(r => r.position !== selectedVariant.position || r.oem === selectedVariant.oem) : rows;
+  let buttons = [...new Map(buttonRows.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
   // Other parts of the list still waiting: the rest goes with the unit state; «Готово, дальше» moves on.
   const idx = st.items.indexOf(item);
   if (idx >= 0 && idx < st.items.length - 1) {
@@ -2189,11 +2192,22 @@ async function narrowContinue(st, lead) {
     // question by the catalog's group names (or the customer's context) -> unit -> unit diagram.
     // Lists too (owner 10.11: the new logic everywhere): items are handled one by one; cards of
     // the items already resolved come first; a unit view carries the rest of the list (narrowRest).
-    if (!item.gaveUp && !item.groupDone && (item.cands.length >= 2 || item.groupCode || item.fromKb)) {
+    // Exact catalog variants precede group/unit navigation: ask by the actual names,
+    // not an inferred subsystem. The chosen OEM then opens its own vehicle-specific unit.
+    if (item.exactName && !item.exactSelected && !item.gaveUp && item.cands.length >= 2) {
+      const labels = item.cands.map(c => item.cands.filter(x => x.name === c.name).length > 1 ? `${c.name} (${c.oem})` : c.name);
+      st.cur = i; st.attr = 'exactpick'; st.question = 'Какой вариант нужен?';
+      st.options = labels;
+      st.exactPickMap = Object.fromEntries(labels.map((label, k) => [label, item.cands[k].oem]));
+      const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
+      const intro = [lead, before, before ? '<<<AFTER>>>' : '', `В оригинальном каталоге вашего ${st.car} найдены точные варианты «${item.kw}». Какой нужен?`].filter(Boolean).join('\n\n');
+      return `${intro}\n<<<BUTTONS>>>\n${JSON.stringify(labels)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+    }
+    if (!item.gaveUp && !item.groupDone && (item.cands.length >= 2 || item.groupCode || item.fromKb || item.exactSelected)) {
       // A generic «радиатор охлаждения» is ambiguous: the car can have a
       // coolant radiator and a transmission-oil radiator. Ask before opening
       // the broad radiator/mounting diagram.
-      if (!item.radiatorType && /радиатор\s+охлажд/i.test(String(item.kw || ''))) {
+      if (!item.exactName && !item.radiatorType && /радиатор\s+охлажд/i.test(String(item.kw || ''))) {
         st.cur = i; st.attr = 'radiatorType';
         st.question = 'Какой радиатор нужен?';
         st.options = ['Радиатор охлаждающей жидкости', 'Масляный радиатор коробки передач'];
@@ -2290,7 +2304,8 @@ async function narrowingStart(extracted, messages, outcome) {
     // Owner-approved everyday terms may designate a whole catalog unit rather
     // than a searchable part name (e.g. «шаровые опоры»). Resolve by the unit
     // title in this car, before broad word-search candidates can misroute it.
-    const schemaRule = knowledge.select(kw).find(e => e.schemaOnly && e.unit);
+    const exactRows = res.parts.filter(p => p && p.oem && p.exactName && String(p.query || '').toLowerCase() === kw);
+    const schemaRule = !exactRows.length && knowledge.select(kw).find(e => e.schemaOnly && e.unit);
     if (schemaRule) {
       const rs = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
       const schema = { catalog: rs.catalog || q.c, vid: rs.vid || q.vid, ssd: rs.ssd || q.ssd };
@@ -2306,7 +2321,8 @@ async function narrowingStart(extracted, messages, outcome) {
     if (!rows.length) continue;
     const vocab = (extracted.partSearchNames || {})[kw] || [];
     const fixed = rows.filter(p => p.fixedName); // names-table rows (owner's pairs) = the asked part
-    if (fixed.length) rows = fixed;
+    if (exactRows.length) rows = exactRows;
+    else if (fixed.length) rows = fixed;
     else {
       // The customer's own word first; the AI's search words only when no row has it (10.11 #556:
       // «патрубок» for «воздуховод» brought «Патрубок маслоналивной»; «колодки» -> «накладки» stays).
@@ -2317,13 +2333,13 @@ async function narrowingStart(extracted, messages, outcome) {
     // The keyword carries the customer's words from an earlier message («Задние тормозные колодки»,
     // then only the VIN -- 10.11 #552), the last message may add more.
     const cands = narrowing.applyRequestWords(rows, `${kw} ${text}`, kw).filter(p => { const k = laximo.normalizeOem(p.oem); if (seen.has(k)) return false; seen.add(k); return true; }).map(narrowing.compact);
-    items.push({ kw, cands, asked: [], text: String(text).slice(0, 300) });
+    items.push({ kw, cands, asked: [], ...(exactRows.length ? { exactName: true } : {}), text: String(text).slice(0, 300) });
     console.log(`[narrow] «${kw}»: ${rows.length} row(s) of the asked part, ${cands.length} after the request words`);
   }
   // Synonym keywords («тормозные колодки» + «накладки») found the same rows: keep the first.
   // The request itself matches an approved knowledge entry («воздуховод до фильтра»): its catalog
   // name decides (the word search for «воздуховод» never finds «Впускной канал»).
-  if (kws.length === 1 && !items.some(it => it.schemaRule) && narrowing.stateOf(messages) == null) {
+  if (kws.length === 1 && !items.some(it => it.schemaRule || it.exactName) && narrowing.stateOf(messages) == null) {
     const kb = knowledge.select(`${kws[0]} ${text}`).filter(e => e.phrases.some(p => `${kws[0]} ${String(text).toLowerCase().replace(/ё/g, 'е')}`.includes(p)));
     if (kb.length) {
       const rs0 = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
@@ -2359,7 +2375,10 @@ async function narrowingFollowUp(messages) {
   // Not one of the options but a description of the part («Нет, я имею в виду …», #563): the
   // knowledge base -> catalog names -> a new candidate list for this item (not the same question again).
   const rejects = /^(нет|не то|не эт|другой|другая|другое)|имею в виду|я про|мне нужен|мне нужна/i.test(u);
-  if (!m.option || (m.newRequest && rejects)) {
+  if (st.attr === 'exactpick' && !m.option && !m.newRequest) {
+    return `Выберите точный вариант из каталога. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  if (st.attr !== 'exactpick' && (!m.option || (m.newRequest && rejects))) {
     const item0 = st.items[st.cur];
     const kr = await knowledgeLookup(u, item0.kw, st.schema);
     if (kr && kr.rows.length) {
@@ -2384,6 +2403,15 @@ async function narrowingFollowUp(messages) {
   }
   if (!m.option) {
     return `Не понял ответ. ${st.question}\n<<<BUTTONS>>>\n${JSON.stringify(st.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+  }
+  if (st.attr === 'exactpick') {
+    const item = st.items[st.cur];
+    const oem = (st.exactPickMap || {})[m.option];
+    const selected = item.cands.filter(c => c.oem === oem);
+    if (!selected.length) return null;
+    st.items[st.cur] = { ...item, cands: selected, exactSelected: true };
+    delete st.attr; delete st.question; delete st.options; delete st.exactPickMap;
+    return narrowContinue(st, '');
   }
   if (st.attr === 'radiatorType') {
     const item = st.items[st.cur];
@@ -2740,6 +2768,11 @@ async function confirmFollowUp(messages) {
     return rows;
   };
   const posButtons = rs => [...new Map(rs.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+  // A position may contain both left/right OEMs. Keep the explicit catalog-variant
+  // choice for that position, while leaving other positions of the full unit available.
+  const chosenVariant = r => !st.selectedVariant
+    || String(Number(r.position)) !== String(Number(st.selectedVariant.position))
+    || laximo.normalizeOem(r.oem) === laximo.normalizeOem(st.selectedVariant.oem);
   const num = ans.num ? [ans.num, ans.num] : null;
   if (ans.no && !num) {
     const r = await wholeUnitReply(st, '');
@@ -2758,7 +2791,7 @@ async function confirmFollowUp(messages) {
   const multi = (st.noMarker || st.multi) && /^[\d\s,;.и-]+$/i.test(u) ? [...new Set(u.match(/\d{1,3}/g) || [])] : null;
   if (multi && multi.length > 1) {
     const rs = await loadRows();
-    const hit = rs.filter(r => multi.some(n => r.position === String(Number(n)) || r.position === n));
+    const hit = rs.filter(r => chosenVariant(r) && multi.some(n => r.position === String(Number(n)) || r.position === n));
     if (hit.length) {
       const cards = await confirmCards(hit, st);
       console.log(`[confirm] unit positions ${multi.join(', ')}: ${hit.map(h => h.oem).join(', ')}`);
@@ -2769,7 +2802,7 @@ async function confirmFollowUp(messages) {
   }
   if (num) {
     const rs = await loadRows();
-    const hit = rs.filter(r => r.position === String(Number(num[1])) || r.position === num[1]);
+    const hit = rs.filter(r => chosenVariant(r) && (r.position === String(Number(num[1])) || r.position === num[1]));
     if (!hit.length) {
       if (!rs.length) return null;
       return `На схеме нет позиции ${num[1]}. Выберите номер из списка ниже.`
