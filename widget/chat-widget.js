@@ -86,7 +86,7 @@
   // phone set has the right commands). Each sends its text as typed. The
   // desktop-only set of 26.10 (По VIN / По модели / По номеру детали / Не знаю
   // номер, sending full sentences) was replaced the same day.
-  const INLINE_CHIPS     = ['ТО для моей машины', 'Подбор по VIN', '🚗 Проверить совместимость', 'Где мой заказ?'];
+  const INLINE_CHIPS     = ['ТО для моей машины', 'Подбор по VIN', 'Проверить совместимость', 'Где мой заказ?'];
   const INLINE_SEND_LABEL = 'Подобрать с ИИ';
   // "Популярные категории" cards on the homepage (ABCP page_main, 26.10):
   // <a href="<normal catalog link>" data-ai-category="brakes">…</a>.
