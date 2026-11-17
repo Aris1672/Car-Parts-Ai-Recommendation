@@ -1,0 +1,36 @@
+const assert = require('assert');
+const store = require('../lib/logistics/store');
+const browser = require('../lib/logistics/abcpBrowser');
+const reminders = require('../lib/logistics/prepaymentReminders');
+const selectors = { green: '.paid-plus', red: '.paid-cross' }; // synthetic fixtures, not production selectors
+const html = content => '<table><tr><th>Заказ</th><th>Платежи</th></tr><tr><td><input id="inWorkSelectedOrders42"></td><td>' + content + '</td></tr></table>';
+assert.strictEqual(reminders.paymentReceived(html('<span class="paid-plus">+</span>'), '42', selectors), 'paid');
+assert.strictEqual(reminders.paymentReceived(html('<span class="paid-cross">X</span>'), '42', selectors), 'paid');
+assert.strictEqual(reminders.paymentReceived(html(''), '42', selectors), 'unpaid');
+assert.strictEqual(reminders.paymentReceived(html('<span>?</span>'), '42', selectors), 'unknown');
+assert.strictEqual(reminders.paymentReceived(html(''), '99', selectors), 'unknown');
+assert.strictEqual(reminders.paymentReceived(html(''), '42'), 'unknown');
+(async () => {
+  process.env.PREPAYMENT_REMINDERS_ENABLED = '1';
+  process.env.ORDER_AUTOPILOT_ENABLED = '1';
+  process.env.ORDER_AUTOPILOT_DRY_RUN = '0';
+  process.env.ABCP_PREPAYMENT_GREEN_SELECTOR = selectors.green;
+  process.env.ABCP_PREPAYMENT_RED_SELECTOR = selectors.red;
+  let status = 'pending', sends = 0, claims = 0;
+  store.dueReminders = async () => status === 'pending' ? [{ order_number: '42' }] : [];
+  store.claimReminder = async () => { claims++; if (status !== 'pending') return false; status = 'started'; return true; };
+  store.finishReminder = async (_, value) => { status = value; };
+  browser.getOrdersHtml = async () => html('');
+  browser.sendAdvanceLink = async () => { assert.strictEqual(status, 'started'); sends++; return { emailSent: true }; };
+  await reminders.run(); await reminders.run();
+  assert.strictEqual(sends, 1); assert.strictEqual(status, 'sent');
+  status = 'pending'; browser.getOrdersHtml = async () => html('<span class="paid-cross">X</span>');
+  await reminders.run(); assert.strictEqual(status, 'paid'); assert.strictEqual(sends, 1);
+  status = 'pending'; browser.getOrdersHtml = async () => html('<span>unknown</span>');
+  await reminders.run(); assert.strictEqual(status, 'pending'); assert.strictEqual(claims, 1);
+  browser.getOrdersHtml = async () => html('');
+  browser.sendAdvanceLink = async () => { sends++; throw new Error('timeout after possible send'); };
+  await reminders.run(); await reminders.run();
+  assert.strictEqual(status, 'uncertain'); assert.strictEqual(sends, 2);
+  console.log('prepayment reminder tests passed');
+})().catch(error => { console.error(error); process.exit(1); });

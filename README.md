@@ -11,6 +11,21 @@ Pattern copied from a working sibling project: `pixmosaic-proxy` + `mosaic-recom
 
 ---
 
+## ✅ Dialog review fixes — 16.11.2026 (owner confirmed live)
+
+**Current resume point:** the owner confirmed that the reviewed-dialog fixes below work correctly, including the final ball-joint schema flow (23:56 Moscow). Older ✗ records in exports remain historical evidence; do not treat them as new regressions without a fresh failing conversation. Read [Dialog Review Instructions](<Dialog Review Instructions.md>) before reviewing a new export.
+
+- **Stop-signal switch (turns #948, #950, #963):** the service router matched the substring `ключ` inside «выключатель» / «переключатель», cleared the part keywords, and skipped Laximo. This was **not a catalog outage**. Key-service detection now matches standalone key words; switches stay in parts search, including VIN follow-ups and transitions away from key-service context. Tests: [test-cards.js](<scripts/test-cards.js>).
+- **АКПП filter and oil (#982):** transmission requests consult the vehicle’s group 24 units during group-first narrowing. This corrects unrelated group choices when suitable transmission units are found. The existing sequential list flow retains the next requested item. Implementation: [chat.js](<api/chat.js>); regression: [test-group-first.js](<scripts/test-group-first.js>).
+- **Muffler (#994):** «глушитель» additionally searches group 18 for exhaust units. The exhaust-system choice is added **without removing** legitimate engine/intake/HVAC groups; the customer chooses the intended system, then the full unit diagram. Later turns #1013–1016 demonstrate the reviewed successful exhaust selection and position-card flow. Regression: [test-group-first.js](<scripts/test-group-first.js>).
+- **Radiator type and schema (#1018, #1021):** the generic «радиатор охлаждения» flow asks coolant versus transmission-oil radiator before opening a schema. Both belong to group 17. Selecting a type resolves matching units afresh in that vehicle’s catalog instead of filtering/reusing the original coolant candidates. Missing units or page failures never fall back to the other radiator type. Full diagrams, multi-select position chips, and list continuation are preserved.
+  - «Радиатор охлаждающей жидкости» → catalog schema «Крепеж радиатора охлаждающей жидкости».
+  - «Масляный радиатор коробки передач» → catalog schema «Радиатор охл.масла КПП/трубопр.масл.рад.».
+  - For a plain «Радиатор» unit-choice menu, the coolant button is human-readable **«Радиатор охлаждающей жидкости»**; the original catalog title/reference remains unchanged internally. Tests cover both selections, the friendly label, missing units, page failure, and retained list context: [test-radiator-routing.js](<scripts/test-radiator-routing.js>).
+- **Ball joints / everyday names (owner’s screenshots):** «Шаровые опоры», «Шаровая опора», «Шарикова упора», and «Шариковая опора» map to group 31 schema **«Балка пер.моста, попер.рычаг подв./тяга»**. The agent opens the full schema so the customer chooses positions, rather than offering unrelated groups from broad word search. This is an approved entry in [bmw-parts.md](<knowledge/bmw-parts.md>) with `Показывать схему: да`, parsed by [knowledge.js](<lib/knowledge.js>) and used by the narrowing flow. The unit is looked up by title for the actual vehicle—no VIN-specific diagram or OEM number is hardcoded. If absent, the agent reports that rather than substituting another schema. Regression: [test-ball-joint-schema.js](<scripts/test-ball-joint-schema.js>).
+
+**Verification:** the latest full local run passed **14/14 test files** via `node scripts/run-tests.js`; the owner subsequently confirmed the behavior works live. New fixes should test the complete question → selection → correct schema transition, not just the presence of buttons.
+
 ## 🔭 Future direction — multi-tenant platform
 
 This app is currently single-client (BMW parts only, `bmwclub77.ru`). **Planned direction: evolve this into a shared multi-tenant recommendation platform** serving many different clients across different product verticals (car parts, mosaic tiles, furniture, etc.) from one codebase — not a separate deployment per client.
