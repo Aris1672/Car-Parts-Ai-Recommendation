@@ -21,6 +21,8 @@ ENV PORT=3000
 EXPOSE 3000
 
 COPY scripts/start-with-abcp-tunnel.sh /usr/local/bin/start-with-abcp-tunnel.sh
-RUN chmod 755 /usr/local/bin/start-with-abcp-tunnel.sh
+RUN sed -i 's/\r$//' /usr/local/bin/start-with-abcp-tunnel.sh \
+  && chmod 755 /usr/local/bin/start-with-abcp-tunnel.sh \
+  && sh -n /usr/local/bin/start-with-abcp-tunnel.sh
 
 CMD ["/usr/local/bin/start-with-abcp-tunnel.sh"]
