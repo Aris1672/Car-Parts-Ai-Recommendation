@@ -1,6 +1,64 @@
 # Car Parts AI Recommendation Chat Agent
 
-## Order automation readiness fix — 18.11.2026 (local; deployment pending)
+## ▶ START HERE — Order automation incident handoff (18.11.2026, 17:57 Moscow)
+
+**This section supersedes older live/enabled and deployment-pending notes below. Current task is recovery of browser access and authentication safety, not re-fixing completed catalog work.**
+
+### Production pause — owner confirmed set and redeployed
+
+```text
+LOGISTICS_ENABLED=1
+ORDER_AUTOPILOT_ENABLED=0
+ORDER_AUTOPILOT_DRY_RUN=1
+PREPAYMENT_REMINDERS_ENABLED=0
+```
+
+- Owner confirmed these settings and redeployment at session close. Do not silently re-enable either browser automation path. API-based logistics monitoring remains enabled. This is owner-reported configuration, not independently inspected production environment.
+- Dry-run alone was insufficient: it still performs browser reads/authentication. Both autopilot and reminders were therefore disabled to stop their browser calls. Managers handle orders manually for now.
+- Preserve all autopilot/reminder history, browser profile and cookies. No reset, automatic retry, IP rotation or access-control workaround. Do not start server/watcher or run live order actions to diagnose this incident.
+
+### Evidence and chronology
+
+1. Initial log: eight new eligible orders repeatedly blocked by `blocked_unknown_html_state`. Owner's read-only diagnostic proved asynchronous rendering: immediate capture had 0 tables/markers; after waiting it had 4 tables, 35 headings, 50 order markers despite readyState already being complete.
+2. Readiness correction in [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) was implemented, tested and **owner deployed**. It waits up to 20 seconds for order rows with client/payment headings before capture. This solved the observed empty-shell recognition stage, not the whole incident. Last code validation: **21/21 test files**, syntax and diff whitespace checks passed; [readiness regressions](<scripts/test-abcp-browser-readiness.js>) use offline mocks.
+3. After deployment, 12:51–12:53 Moscow logs showed customer recognition, successful registration/transfer of original order **290260486**, and new order **290266138**. Screenshot showed merged positions. Which additional changes were made by managers versus automation is not fully established. Other guest transfer (290260277) failed; initial email attempts returned generic `payment-link email failed`. Their POST HTTP statuses were NOT captured; do not call these proven 403s.
+4. Reminder **290231901** became **uncertain; manual review required** at 12:52 Moscow. Do not reset/retry it without checking ABCP/email delivery evidence. Reminder 290131846 remained payment_unknown. Historical sent reminder 290123771 must also never be reset for testing.
+5. Read-only navigation to `https://cp.abcp.ru/orders/290260340/sendBill` returned **403** from Coolify. The same URL opened normally in owner's desktop browser; owner confirmed configured username matches. Configured username alone does not prove identity of an already authenticated persistent session. Employee screenshot: Арис Арис has panel login enabled and Administrator role; no role/password change justified.
+6. Later orders-list GET `https://cp.abcp.ru/?page=orders` returned **414 Request-URI Too Large**. Login helper misreported an error page as login_form_not_found. Diagnostic: URL 31 bytes, no redirects, 10 cookies totaling about 457 bytes. A clean Chromium context without cookies ALSO returned 414. Latest supplied check: **2026-11-18T14:25:18.226Z / 17:25 Moscow**, status 414, no order markers/login fields/tables. Do not reset profile as a presumed fix.
+7. Official API reads continued working via `bmwmperformance.ru.public.api.abcp.ru`; browser panel is separate host `cp.abcp.ru`. Public outbound IPv4, measured in Coolify: **168.222.202.222**. Neither DNS changes nor container restart necessarily changes outbound IP.
+8. Operation history filtered to that IP showed many successful «Авторизация в ПУ» entries for Арис Арис, often seconds apart around 13:00–13:02; latest visible screenshot entry 13:06:48 (not proof that no later entries exist). Owner reports roughly 2–3 second intervals in the log. Excessive authentication is a serious defect/risk to investigate. A protective restriction is a strong hypothesis, **not confirmed cause** of 403/414; support must correlate server/security logs.
+9. «Защита от ботов» settings only showed CAPTCHA choices (numeric selected, Google, Yandex); no visible IP controls. Leave unchanged. Employee sessions tab was suggested read-only but no results supplied.
+
+### Optional alternate browser route — Kazakhstan VPS SOCKS5 (local code, not deployed)
+
+- Owner proposed routing only Playwright web-panel traffic through a fixed SSH SOCKS5 tunnel to the Kazakhstan VPS, while leaving official API reads direct:
+  `Coolify app -> SOCKS5 tunnel -> Kazakhstan VPS -> cp.abcp.ru`
+- [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) now has **opt-in** `ABCP_BROWSER_PROXY_SERVER` support. Accepted forms are `socks5://host:port`, `socks5h://host:port`, or `http://host:port`; credentials embedded in the variable are rejected. With the variable absent, browser behavior is unchanged. Regression: [test-abcp-browser-proxy.js](<scripts/test-abcp-browser-proxy.js>).
+- Do not put an SSH password, private key, or proxy credentials in an environment variable, README, ticket, or chat. The tunnel must be established inside the Coolify runtime (or a private sidecar) and bound to loopback only. A tunnel run on a developer laptop is not reachable from Coolify.
+- Do not use rotating proxies or IP changes to evade an ABCP restriction. Treat the VPS as a legitimate alternate egress, disclose its actual public egress IP to ABCP, and respect their approval/rate limits.
+- Before setting the proxy variable, verify the VPS supports a persistent/reconnecting tunnel and determine its actual outbound IP from the VPS. A hostname/IP in an SSH command is not necessarily the egress IP.
+- Keep `LOGISTICS_ENABLED=1`, `ORDER_AUTOPILOT_ENABLED=0`, `ORDER_AUTOPILOT_DRY_RUN=1`, `PREPAYMENT_REMINDERS_ENABLED=0` while testing. First test only a single browser GET/readiness check through the tunnel; do not log in repeatedly, transfer an order, or send a payment link. Confirm proxy routing with a harmless IP check from the same browser context, not by printing cookies.
+- Do not restore live browser actions merely because the proxy changes the response. First establish stable session behavior and get ABCP guidance; then one approved transfer test can be considered. API reads remain direct unless explicitly changed.
+
+### Next session — priority actions
+
+- Read this handoff and [workflow/test table](<docs/order-automation-workflow.md>). Ask for current support response/latest logs where needed; Downloads exports may be overwritten (the supplied 2-2.txt changed during the session). Do not rely on old screenshots as current access evidence.
+- Owner has drafted a support ticket with IP, 403/414 evidence and frequent successful authorizations, requesting cause, recovery procedure, permitted automation, session reuse and rate limits. **Sending of this incident ticket has not been confirmed.** Earlier API-capability ticket did receive human replies (see below). Obtain support guidance before resuming repeated browser probes.
+- Inspect [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) login/open/withSession and callers in [orderAutopilot.js](<lib/logistics/orderAutopilot.js>), [prepaymentReminders.js](<lib/logistics/prepaymentReminders.js>) and [watch.js](<lib/logistics/watch.js>). Login currently checks an orders navigation link immediately after DOM load and can then fill credentials; each withSession opens/closes a persistent context. Prove why authorizations repeated instead of assuming it. The table-readiness fix did NOT fix login readiness.
+- Proposed safety correction (NOT implemented yet): recognize authenticated/login/error states with bounded readiness checks; check navigation HTTP failures before login; avoid repeated credential submission; design safe session reuse/serialization; stop/back off on refusal with no repeated attempts per order; ensure context cleanup even when login throws. Capture sanitized HTTP status/response classifications for transfer/send failures without credentials, cookies, payment tokens or raw customer data.
+- Review initial-send uncertain-outcome protection: current send path invokes external send before recording success, and generic failures appeared in consecutive cycles. Do not assume pre-send durable claims exist just because bill_started checks exist. Add offline regressions before any live restore. Reminder already uses claim-before-send with terminal started/uncertain protection; preserve it.
+- Run focused offline regressions, full `node scripts/run-tests.js`, syntax and `git diff --check` after code changes. Keep local test evidence separate from live recovery. No production sends/transfer testing without explicit approval, one selected test at a time, and no automatic retry of ambiguous outcomes.
+
+### Official API findings — human support corrected earlier answer
+
+- Verified [official documentation](https://www.abcp.ru/d/docs/api/abcp1/api-abcp-admin): GET `cp/payment/top-balance-link` takes API credentials, required clientId, optional amount; returns paymentLink. Human support confirmed amount=2000 means **2,000 RUB** and same balance-top-up purpose as panel action. Link can be delivered through our own service; **no ABCP API for sending Email/Telegram or checking send/delivery history**. External sending may not update ABCP envelope; requires own durable audit/idempotency and manager coordination. No external email integration implemented/selected.
+- `cp/payment/token` instead generates order-payment link using number; do not silently substitute for client balance top-up. Link expiry not confirmed.
+- Human support first advised creating client then changing existing order userId through POST cp/order. **Support retracted this at 16:32 Moscow (reply ID 4427352, Евгений Карташов): direct reassignment is not possible.** They suggest creating another order with analogous positions and explicitly say UI and API operations differ. Do not implement the retracted advice or blindly clone/delete live orders. Preservation of payments/history/fulfilment and handling original order are unresolved.
+- Guest registration/transfer via existing panel action remains desired hybrid route if supported access is restored. API can create client separately but that does not transfer an order; do not create duplicate client before a panel action that itself creates one. Exact contact-search/deduplication recommendation not yet clarified by support.
+- Support suggests online-payment list / financial payments for receipt checks, matching by client and amount. No unique generated-link-to-payment association supplied; client + amount is ambiguous across multiple same-amount orders. Do not treat it as reliable order-paid proof for reminders.
+- Owner's current direction: test/recover legitimate web-panel access for remaining unsupported operations, retain API where available. No authorization to replace workflow with external email or API-cloned orders. Workflow MD is a plan/checklist, not proof every safety feature exists in current code.
+
+## Earlier readiness correction — 18.11.2026 (owner subsequently deployed; see incident handoff above)
 
 - Owner's live read-only diagnostic proved an asynchronous rendering race: immediately after document load the orders page had 0 tables/order markers; after waiting it had 4 tables, 35 headings and 50 order markers. The supplied log showed eight eligible orders blocked by `blocked_unknown_html_state`.
 - [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) now waits up to 20 seconds for an order row and client/payment headings in its own table before capturing HTML. Timeout fails closed with an explicit readiness error; empty/filtered pages are not treated as unpaid. This shared reader serves initial automation, post-transfer rechecks and reminders. Parsers, paid/duplicate guards, amounts and persistence are unchanged. Default-page pagination remains a separate limitation.
