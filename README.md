@@ -1,5 +1,12 @@
 # Car Parts AI Recommendation Chat Agent
 
+## Order automation readiness fix — 18.11.2026 (local; deployment pending)
+
+- Owner's live read-only diagnostic proved an asynchronous rendering race: immediately after document load the orders page had 0 tables/order markers; after waiting it had 4 tables, 35 headings and 50 order markers. The supplied log showed eight eligible orders blocked by `blocked_unknown_html_state`.
+- [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) now waits up to 20 seconds for an order row and client/payment headings in its own table before capturing HTML. Timeout fails closed with an explicit readiness error; empty/filtered pages are not treated as unpaid. This shared reader serves initial automation, post-transfer rechecks and reminders. Parsers, paid/duplicate guards, amounts and persistence are unchanged. Default-page pagination remains a separate limitation.
+- [test-abcp-browser-readiness.js](<scripts/test-abcp-browser-readiness.js>) covers delayed/immediate rendering, unrelated/nested tables, missing rows/headings, timeout, navigation/browser failure, session cleanup and parser recognition, using offline mocks only.
+- Validation: full offline suite passed **21/21 test files**, JavaScript syntax and `git diff --check` passed. No live order actions, history resets, push or deployment were performed by the coding agent. After deployment, repeat the read-only parser diagnostic and inspect watcher results; live resolution is not yet confirmed.
+
 ## ▶ Start here — Current State & Recent Changes (17.11.2026, session close after 23:33 Moscow)
 
 **Read this section first in a new session.** This README contains years/iterations of historical notes and conflicting old resume headings. The current code and this dated handoff take precedence over older descriptions. Do not assume an old ✗ review is still broken.
