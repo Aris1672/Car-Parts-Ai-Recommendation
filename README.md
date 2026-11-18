@@ -1,6 +1,99 @@
 # Car Parts AI Recommendation Chat Agent
 
-## ▶ START HERE — Order automation incident handoff (18.11.2026, 17:57 Moscow)
+## ▶ START HERE — Latest order automation handoff (18.11.2026, 23:49 Moscow)
+
+**Read this section first in a new session.** It supersedes older automation notes below. Do not re-fix completed catalog/chat work and do not enable live order actions without explicit approval.
+
+### Current production state
+
+Owner deployed the alternate browser route through a Kazakhstan VPS SOCKS5 tunnel. The server-side read-only check now succeeds:
+
+```text
+Coolify -> SOCKS5 tunnel -> Kazakhstan VPS -> cp.abcp.ru
+HTTP status: 200
+Title: Заказы в работе. Заказы
+Order markers: 48
+Tables: 4
+Password fields: 0
+```
+
+The earlier direct Coolify route produced HTTP 403 on `/orders/290260340/sendBill` and HTTP 414 on `/?page=orders`. The proxy route bypasses that observed direct-route failure; this is an approved alternate route, not a rotating-proxy workaround. Official API reads remain direct.
+
+Production switches remain paused:
+
+```text
+LOGISTICS_ENABLED=1
+ORDER_AUTOPILOT_ENABLED=0
+ORDER_AUTOPILOT_DRY_RUN=1
+PREPAYMENT_REMINDERS_ENABLED=0
+```
+
+API logistics is working. Browser transfers, payment sends, and reminders are disabled. Do not change these switches yet.
+
+### Tunnel implementation and configuration
+
+Local code now includes:
+- [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) opt-in `ABCP_BROWSER_PROXY_SERVER` support for `socks5://`, `socks5h://`, or `http://`.
+- [abcp-tunnel-supervisor.js](<scripts/abcp-tunnel-supervisor.js>) runtime tunnel supervisor. It accepts `ABCP_TUNNEL_PRIVATE_KEY` and `ABCP_TUNNEL_KNOWN_HOSTS` multiline runtime variables (or file paths), creates temporary 0600 key/known-host files, removes secret values from child env, verifies the host key, starts loopback `127.0.0.1:1080`, and retries up to five times with backoff. It hides SSH stderr. It starts the Node app even if the tunnel fails, so API logistics remains available.
+- [Dockerfile](<Dockerfile>) installs openssh-client, normalizes/checks the wrapper, and starts the supervisor.
+- Regression files: [test-abcp-browser-proxy.js](<scripts/test-abcp-browser-proxy.js>) and [test-abcp-tunnel-supervisor.js](<scripts/test-abcp-tunnel-supervisor.js>). Latest local suite: **23/23 test files passed**, syntax and `git diff --check` passed. Docker/live tunnel connectivity was validated only in Coolify logs, not locally.
+
+Coolify runtime variables currently used for the tunnel:
+
+```text
+ABCP_TUNNEL_PRIVATE_KEY=<complete multiline OpenSSH private key; do not print/share>
+ABCP_TUNNEL_KNOWN_HOSTS=<complete known_hosts line, not fingerprint>
+ABCP_TUNNEL_HOST=199.189.249.4
+ABCP_TUNNEL_USER=abcp-tunnel
+ABCP_BROWSER_PROXY_SERVER=socks5://127.0.0.1:1080
+```
+
+The VPS account is `abcp-tunnel`; its authorized key is restricted to `cp.abcp.ru:443`. Verified VPS ED25519 host fingerprint: `SHA256:OoMYqe9yEUSlnZjghCKOpWbRKJFQ+BS8N4IHOwGesEk`. Do not store secrets in Git/README/logs/chat. The local Windows tunnel on port 1080/1081 is unrelated to Coolify.
+
+### Latest read-only validation
+
+At 20:45:59 UTC / 23:45:59 Moscow, a proxied Playwright page load returned status 200 and HTML length 1,047,256. Parser check found five sample orders:
+
+```text
+290362777: guest, initialMessage=pending, prepayment=unpaid
+290362600: guest, initialMessage=pending, prepayment=unpaid
+290361243: guest, initialMessage=pending, prepayment=unpaid
+290361057: guest, initialMessage=pending, prepayment=unpaid
+290361036: guest, initialMessage=pending, prepayment=unpaid
+```
+
+The page contained 48 order markers; the diagnostic displayed the first five. This proves proxied page access and HTML parsers, not that login/session reuse or live writes are safe. No login submission, guest transfer, payment send, or reminder was performed in this latest validation.
+
+### Confirmed transfer test (desktop only)
+
+Approved order `290357588` was transferred manually in the normal desktop browser through:
+
+```text
+POST /ajaxRoute/orders/changeOrderClient/regGuestAsCustomer
+body: orderId=290357588
+status: 200
+response: { url: /?page=orders&id_order=290358590 }
+```
+
+Result: transfer succeeded; resulting order `290358590`; no payment link was sent. Cookies were accidentally pasted earlier in chat; owner should log out/invalidate that desktop session and not reuse/paste them. Never share cookies, auth headers, CSRF tokens, private keys, payment links, or raw HAR files.
+
+### Next session priority
+
+1. Read this handoff and [order automation workflow](<docs/order-automation-workflow.md>). Confirm production switches remain paused.
+2. Review [abcpBrowser.js](<lib/logistics/abcpBrowser.js>) `login()`/`withSession()`: the latest diagnostic intentionally bypassed `login()`. Repeated ABCP authorization every 2–3 seconds was observed before the proxy route; fix login readiness, session reuse/serialization, HTTP-error classification, and stop/backoff behavior before any live browser action.
+3. With writes still disabled, run one proxied GET-only check of `/orders/<approved-id>/sendBill`; do not submit forms or click payment actions. Do not use current customer orders for live tests.
+4. Add/maintain offline tests for login error pages, proxy failures, sanitized transfer/send HTTP statuses, and initial-send uncertain outcomes. Run `node scripts/run-tests.js`, syntax checks, and `git diff --check`.
+5. Only after stable proxy/session evidence and explicit owner approval: one selected guest transfer test, then verify old/new order state. Do not send payment links in that test.
+6. Payment sending and reminders remain separate decisions; never reset uncertain reminder `290231901` or historical sent reminder `290123771` for testing.
+
+### Evidence boundaries
+
+- Confirmed: API logistics works; proxied browser GET works; parsers recognize current page; desktop transfer endpoint works on approved test.
+- Not confirmed: Coolify `login()` stability, authorization frequency after proxy, payment form/send success through proxy, reminder payment matching, ABCP support's precise cause of the earlier block.
+- Do not claim a 403/414 was returned by POST actions; only GET payment-page 403 and GET orders-page 414 were directly observed.
+
+---
+## Earlier incident handoff — 18.11.2026, 17:57 Moscow
 
 **This section supersedes older live/enabled and deployment-pending notes below. Current task is recovery of browser access and authentication safety, not re-fixing completed catalog work.**
 
