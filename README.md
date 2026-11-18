@@ -1,6 +1,43 @@
 # Car Parts AI Recommendation Chat Agent
 
-## ▶ START HERE — Latest order automation handoff (18.11.2026, 23:49 Moscow)
+## ▶ START HERE — Latest order automation handoff (19.11.2026, 00:54 Moscow)
+
+**Read this section first when resuming.** It supersedes the earlier same-day handoff below. The owner is pausing overnight; do not enable unattended automation without the controlled rollout steps below.
+
+### Overnight pause and completed canary evidence
+
+Production switches must remain:
+
+```text
+LOGISTICS_ENABLED=1
+ORDER_AUTOPILOT_ENABLED=0
+ORDER_AUTOPILOT_DRY_RUN=1
+PREPAYMENT_REMINDERS_ENABLED=0
+```
+
+A single approved, manually supervised canary flow completed through the Kazakhstan SOCKS5 browser route:
+
+- Read-only payment-form GET for order `290360840`: HTTP 200; title `Счёт. №290360840. Заказы`; `submitted=false`.
+- One authorization event observed from egress IP `199.189.249.4` at `2026-11-19 00:21:12` Moscow; no repeated authorization storm was visible.
+- Approved guest-to-customer transfer: source order `290360840` → new order `290366418`; client `159555277`; amount `7,000 RUB`; no payment action during transfer.
+- Owner verified no duplicate order/customer in the panel.
+- Explicitly approved payment request for new order `290366418`: amount `2,000 RUB`; email sent successfully; Telegram failed; no retry.
+- Direct send initially bypassed the normal `recordInitialBill()` path. The confirmed send was reconciled manually in `logistics_prepayment_reminders` at `2026-11-18T21:40:12.345Z` (`2026-11-19 00:40:12.345 Moscow`) with terminal status `sent`, `emailSent=true`, `telegramFailed=true`, `reconciled=true`. Do not reset, resend, or alter this record.
+
+No cookies, credentials, payment links, raw HTML, or raw response data were intentionally recorded.
+
+### Resume plan
+
+1. Read this section and [order automation workflow](<docs/order-automation-workflow.md>) before acting.
+2. Keep all four switches paused until the owner is awake and explicitly approves a controlled rollout.
+3. Start with dry-run/read-only watcher evidence, not live writes. Check for one authorization per cycle, no 403/414 recurrence, no login storm, no duplicate decisions, and no resend of `290366418`.
+4. Before unattended writes, complete offline/session safety work: session reuse or serialization, refusal backoff/circuit breaker, cleanup on login failure, transfer status handling, and initial-send uncertain-outcome protection.
+5. If a live canary is approved later, use one dedicated approved order at a time; transfer and payment sending remain separate approvals. Do not use `290366418` for another test.
+6. Payment reminders remain disabled. The reconciled `sent` record is terminal and must not be reset.
+
+The canary proves the approved route and one supervised flow, not safe global unattended automation.
+
+## ▶ Previous handoff — order automation (18.11.2026, 23:49 Moscow)
 
 **Read this section first in a new session.** It supersedes older automation notes below. Do not re-fix completed catalog/chat work and do not enable live order actions without explicit approval.
 
