@@ -1,0 +1,66 @@
+/** Catalog question regression (#1150). All catalog/LLM calls mocked. */
+process.env.LLM_API_KEY = 'test-only';
+const assert = require('assert');
+const lx = require('../lib/laximo');
+const n = require('../lib/narrowing');
+const variants = require('../lib/variantQuestions');
+const cands = ['12318648046', '12318645329', '12318645326'].map(oem => ({ oem, name: 'Генератор' }));
+let mode = 'notes', fail = false, pages = 0, llmCalls = 0, lastPayload;
+lx.partUnits = async () => { if (fail) throw new Error('offline'); return [{ group: '12', unitCode: '12_test', unitName: 'Генератор', ref: 'same-unit' }]; };
+lx.unitPage = async () => { pages++; return { image: 'https://example.invalid/generator.png', rows: cands.map((c, i) => ({ ...c, position: '01', notes: mode === 'notes' ? { 'Ток': [180, 210, 150][i] + ' A' } : {} })) }; };
+lx.mainGroupNames = async () => ({ '12': 'Электрика двигателя' });
+const st = { v: 1, cur: 0, car: 'BMW 230i', schema: { catalog: 'BMW', vid: 'car' }, attr: 'exactpick', question: 'Какой вариант нужен?',
+  options: cands.map(c => c.name + ' (' + c.oem + ')'), exactPickMap: Object.fromEntries(cands.map(c => [c.name + ' (' + c.oem + ')', c.oem])),
+  items: [{ kw: 'генератор', exactName: true, cands, asked: [] }, { kw: 'фильтр', cands: [{ oem: '11420000000', name: 'Фильтр' }], asked: [] }] };
+let response = null;
+global.fetch = async (url, opts) => {
+  assert.ok(url.includes('/v1/messages'), 'no live external calls');
+  llmCalls++; lastPayload = JSON.parse(opts.body);
+  const input = JSON.parse(lastPayload.messages[0].content.split('\n').slice(1).join('\n'));
+  return { ok: true, json: async () => ({ content: [{ type: 'text', text: response || JSON.stringify({ sufficient: mode === 'notes', factIds: mode === 'notes' ? input.evidence.filter(e => e.fact.includes('Ток:')).map(e => e.id) : [] }) }] }) };
+};
+const chat = require('../api/chat');
+const ask = question => chat._narrow.narrowingFollowUp([{ role: 'assistant', content: n.stateBlock(st) }, { role: 'user', content: question }]);
+(async () => {
+  const answer = await ask('Какая разница между этими генераторами?');
+  assert.ok(answer.includes('180 A') && answer.includes('210 A') && answer.includes('150 A'));
+  assert.ok(!answer.includes('<<<MANAGER_BUTTON>>>'));
+  assert.strictEqual(pages, 1, 'shared unit loaded once');
+  assert.strictEqual(llmCalls, 1, 'comparison bypasses option mapper');
+  assert.deepStrictEqual(n.stateOf([{ role: 'assistant', content: answer }]), st, 'candidates/list/choice state preserved');
+  assert.ok(lastPayload.messages[0].content.includes('не считай отсутствие примечания'));
+  mode = 'empty';
+  const missing = await ask('Какая разница между этими генераторами?');
+  assert.ok(missing.includes('<<<MANAGER_BUTTON>>>') && missing.includes('недостаточно информации'));
+  assert.ok(!missing.includes('Выберите вариант из каталога'));
+  const nameOnly = variants.render(st, cands.map((c, i) => ({ id: i + 1, oem: c.oem, fact: 'Наименование: Генератор' })), { sufficient: true, factIds: [1, 2, 3] });
+  assert.ok(nameOnly.includes('<<<MANAGER_BUTTON>>>'), 'identical names cannot explain different numbers even if model says sufficient');
+  assert.deepStrictEqual(n.stateOf([{ role: 'assistant', content: missing }]), st);
+  fail = true;
+  const unavailable = await ask('Чем отличаются?');
+  assert.ok(unavailable.includes('<<<MANAGER_BUTTON>>>'));
+  fail = false; mode = 'notes';
+  response = '{"sufficient":false,"factIds":[2]}';
+  const partial = await ask('Какой из них лучше?');
+  assert.ok(partial.includes('180 A') && partial.includes('<<<MANAGER_BUTTON>>>'));
+  response = '{"sufficient":true,"factIds":[999],"answer":"invented 900 A"}';
+  const fabricated = await ask('Чем отличаются?');
+  assert.ok(fabricated.includes('<<<MANAGER_BUTTON>>>') && !fabricated.includes('900 A'));
+  response = 'not json';
+  assert.ok((await ask('Чем отличаются?')).includes('<<<MANAGER_BUTTON>>>'));
+  response = null;
+  const beforeManager = llmCalls;
+  assert.ok((await ask('Позовите менеджера')).includes('<<<MANAGER_BUTTON>>>'));
+  assert.strictEqual(llmCalls, beforeManager);
+  assert.ok(!variants.isQuestion('Нужны тормозные колодки?'), 'new part question must reach normal intent mapper');
+  assert.ok(variants.isQuestion('Какие характеристики?'));
+  assert.ok(!variants.isQuestion('Сравни тормозные колодки', 'генератор'));
+  assert.ok(!variants.isQuestion('Объясни какой масляный фильтр нужен', 'генератор'));
+  const selected = await chat._narrow.narrowingFollowUp([{ role: 'assistant', content: answer }, { role: 'user', content: st.options[1] }]);
+  assert.ok(selected.includes('<<<UNIT_DIAGRAM>>>'), 'choice still works after comparison');
+  const confirmedState = JSON.parse(selected.match(/<<<CONFIRM_STATE>>>([\s\S]*?)<<<END_CONFIRM_STATE>>>/)[1]);
+  assert.strictEqual(confirmedState.oem, cands[1].oem);
+  assert.ok(confirmedState.narrowRest, 'remaining list survives comparison and choice');
+  assert.deepStrictEqual(n.compact({ ...cands[0], notes: { 'Ток': '180 A' } }).notes, { 'Ток': '180 A' });
+  console.log('test-variant-questions: catalog facts, missing/partial/failed evidence, manager, state preservation ok');
+})().catch(e => { console.error(e); process.exitCode = 1; });
