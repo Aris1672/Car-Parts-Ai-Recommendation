@@ -45,6 +45,8 @@ A second dedicated guest canary `290524491` was accepted: HTTP 200, resulting or
 
 A separate registered test order `290525453` received the 2,000 RUB request successfully through the new server mailbox: ABCP reported `emailSent=true`, `telegramFailed=true` at `2026-11-19T19:09:02.397Z` UTC (`22:09:02.397 Moscow`), and the owner supplied the received email showing order `290525453` and 2,000 RUB prepayment. No retry was performed. The timestamp is when the successful send result was observed, not a provider-side send timestamp. The direct send initially bypassed normal database tracking and was reconciled once in `logistics_prepayment_reminders` at `2026-11-19T19:09:02.397Z` UTC (`2026-11-19 22:09:02.397 Moscow`) with terminal status `sent`, `emailSent=true`, `telegramFailed=true`, `reconciled=true`. Keep reminders disabled and do not resend. Do not interpret a reminder-table `sent` status as evidence that a reminder was delivered for this test.
 
+Registered-client autopilot canary `290526847` then succeeded through the claim-before-send path: 2,000 RUB, `emailSent=true`, Telegram failed, observed at approximately `2026-11-19T19:50:50Z`; owner supplied the received email. Autopilot state is terminal `bill_email_sent`/`bill_status=sent`, with `first_bill_sent_at=2026-11-19T19:50:50.070Z`; the separate reminder row is correctly `pending` and reminders remain disabled. No transfer or reminder was performed, and no retry occurred.
+
 ## ▶ Previous handoff — order automation (18.11.2026, 23:49 Moscow)
 
 **Read this section first in a new session.** It supersedes older automation notes below. Do not re-fix completed catalog/chat work and do not enable live order actions without explicit approval.
