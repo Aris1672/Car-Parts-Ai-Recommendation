@@ -37,6 +37,14 @@ No cookies, credentials, payment links, raw HTML, or raw response data were inte
 
 The canary proves the approved route and one supervised flow, not safe global unattended automation.
 
+### Follow-up transfer canary result (19.11.2026, ~21:00 Moscow)
+
+A dedicated guest test order `290522140` was inspected read-only and classified `customerState=guest`, `paymentState=pending`. One approved transfer attempt was made after the diagnostic deploy; ABCP returned sanitized HTTP **400** (`ABCP_TRANSFER_HTTP_ERROR`). No payment request or reminder was sent, and no retry was performed. The panel still showed the original guest order, so treat this as a rejected transfer, not permission to retry. Preserve the test order for manual/support investigation. The improved transfer code now distinguishes HTTP refusal, invalid JSON, and missing order URL; local full validation remained **25/25 test files passed** before deployment.
+
+A second dedicated guest canary `290524491` was accepted: HTTP 200, resulting order `290524583`, customer `159559180` (`Tester!`), amount `3,600 RUB`; no payment or reminder was sent. A read-only recheck classified `290524583` as `registered` and `pending`. The original `290524491` classified `unknown` because it is no longer present in the loaded active-page HTML; this is not proof of deletion or payment and should be verified through API/panel if needed. Owner explained the earlier `290522140` HTTP 400 was correct identity-conflict handling (same email previously used with different name/phone), so HTTP 400 transfer conflicts remain human-review cases with no automatic retry.
+
+A separate registered test order `290525453` received the 2,000 RUB request successfully through the new server mailbox: ABCP reported `emailSent=true`, `telegramFailed=true` at `2026-11-19T19:09:02.397Z` UTC (`22:09:02.397 Moscow`), and the owner supplied the received email showing order `290525453` and 2,000 RUB prepayment. No retry was performed. The timestamp is when the successful send result was observed, not a provider-side send timestamp. This direct send bypassed normal database tracking; reconciliation has not been performed. Keep reminders disabled and do not resend. Do not interpret a reminder-table `sent` status as evidence that an initial payment request was sent or that a reminder was actually delivered for this test.
+
 ## ▶ Previous handoff — order automation (18.11.2026, 23:49 Moscow)
 
 **Read this section first in a new session.** It supersedes older automation notes below. Do not re-fix completed catalog/chat work and do not enable live order actions without explicit approval.
