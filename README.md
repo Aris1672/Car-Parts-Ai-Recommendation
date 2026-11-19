@@ -1,6 +1,12 @@
 # Car Parts AI Recommendation Chat Agent
 
-## ▶ START HERE — Latest order automation handoff (19.11.2026, 00:54 Moscow)
+## ▶ START HERE — 19.11.2026, 23:12 Moscow: one-time approval gate failed offline
+
+Order 290527625: first allowlisted watcher dry run selected one registered candidate; second pass selected zero with the same cutoff. Preserve its dry-run row. Neither pass authorized a send.
+
+The [offline approval tests](scripts/test-one-time-approval.js) run the real payment processor with isolated workers, synthetic state and a fake send transport. On the current implementation all three acceptance tests fail: a direct live processor call does not require separate approval, concurrent workers can both send, and a timeout can be retried after the next pass changes the marker to recheck_required. The watcher skipping dry_run is not a substitute for an atomic claim. Do not enable live automation or reminders. Next: implement an order/amount-bound, single-use database claim and persistent manual-review state; verify with these tests and isolated PostgreSQL before any live trial.
+
+## Previous order automation handoff (19.11.2026, 00:54 Moscow)
 
 **Read this section first when resuming.** It supersedes the earlier same-day handoff below. The owner is pausing overnight; do not enable unattended automation without the controlled rollout steps below.
 
@@ -36,6 +42,8 @@ No cookies, credentials, payment links, raw HTML, or raw response data were inte
 6. Payment reminders remain disabled. The reconciled `sent` record is terminal and must not be reset.
 
 The canary proves the approved route and one supervised flow, not safe global unattended automation.
+
+Allowlist rollout control was deployed and verified with `ORDER_AUTOPILOT_ALLOWLIST=290526847` and `ORDER_AUTOPILOT_MAX_CANDIDATES=1` in dry-run mode. The watcher reported `candidates=0` because `290526847` was already terminal `bill_status=sent`; it processed 1,607 API orders, performed no browser write, transfer, payment, or reminder. The allowlist/limit therefore did not expand scope.
 
 ### Follow-up transfer canary result (19.11.2026, ~21:00 Moscow)
 
