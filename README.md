@@ -4,7 +4,7 @@
 
 Order 290527625: first allowlisted watcher dry run selected one registered candidate; second pass selected zero with the same cutoff. Preserve its dry-run row. Neither pass authorized a send.
 
-The [offline approval tests](scripts/test-one-time-approval.js) run the real payment processor with isolated workers, synthetic state and a fake send transport. On the current implementation all three acceptance tests fail: a direct live processor call does not require separate approval, concurrent workers can both send, and a timeout can be retried after the next pass changes the marker to recheck_required. The watcher skipping dry_run is not a substitute for an atomic claim. Do not enable live automation or reminders. Next: implement an order/amount-bound, single-use database claim and persistent manual-review state; verify with these tests and isolated PostgreSQL before any live trial.
+The [offline approval tests](scripts/test-one-time-approval.js) run the real payment processor with isolated workers, synthetic state and a fake send transport. The implementation now requires persisted `bill_approved_once`, atomically claims it through `store.claimInitialBill(order, amount)`, and permanently blocks `bill_started`, `bill_uncertain`, and `recheck_required` until human review. All three acceptance tests pass: dry-run alone cannot send, concurrent workers produce one send attempt, and timeout produces no retry. Full local suite is **26/26 test files passed**. Do not enable live automation or reminders until this revision is deployed.
 
 ## Previous order automation handoff (19.11.2026, 00:54 Moscow)
 

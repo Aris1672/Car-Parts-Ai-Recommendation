@@ -20,6 +20,11 @@ function fixture(last_action, timeout = false) {
         row.details = details;
         if (action === 'bill_email_sent') row.bill_status = 'sent';
       },
+      claimInitialBill: async (_, amount) => {
+        if (row.last_action !== 'bill_approved_once' || row.bill_status) return false;
+        row.last_action = 'bill_started'; row.bill_status = 'started'; row.details = { orderId: '42', amount };
+        return true;
+      },
       recordInitialBill: async () => {},
     },
     '../abcpCustomerApi': { getOrder: async () => ({ number: '42', positions: [{ status: 'new' }] }) },
