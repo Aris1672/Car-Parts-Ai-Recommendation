@@ -1,0 +1,120 @@
+/** Offline only: Playwright's persistent-context launcher is replaced before use. */
+const assert = require('node:assert/strict');
+const { test } = require('node:test');
+const { chromium } = require('playwright');
+const browserPath = require.resolve('../lib/logistics/abcpBrowser');
+
+const profile = 'offline-abcp-test-profile';
+const ordersUrl = 'https://cp.abcp.ru/?page=orders';
+
+function checkNoCallback() {
+  assert.fail('unauthenticated session must not call the operation');
+}
+
+function scenario(t, { statuses = [200], navigationError, loggedOut = false, beforeClose } = {}) {
+  const events = [];
+  const originalLaunch = chromium.launchPersistentContext;
+  const env = {
+    ABCP_BROWSER_PROFILE_DIR: profile,
+    ABCP_BROWSER_PROXY_SERVER: '',
+    ABCP_BROWSER_USERNAME: 'offline-user',
+    ABCP_BROWSER_PASSWORD: 'offline-placeholder',
+  };
+  for (const [key, value] of Object.entries(env)) {
+    const previous = process.env[key];
+    t.after(() => {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    });
+    process.env[key] = value;
+  }
+  let launchCount = 0;
+  chromium.launchPersistentContext = async () => {
+    const id = ++launchCount;
+    assert.ok(id <= statuses.length, 'unexpected persistent context launch');
+    events.push(['launch', id]);
+    const page = {
+      goto: async () => {
+        events.push(['goto', id]);
+        if (navigationError) throw navigationError;
+        return { status: () => statuses[id - 1] };
+      },
+      url: () => loggedOut ? 'https://cp.abcp.ru/login' : ordersUrl,
+      locator: selector => ({
+        count: async () => Number(loggedOut ? selector.includes('password') : selector.includes('page=orders')),
+        first: () => assert.fail('read-only authentication must not access credential fields or the submit button'),
+      }),
+    };
+    return {
+      pages: () => [page],
+      close: async () => {
+        events.push(['close', id]);
+        if (beforeClose) await beforeClose();
+      },
+    };
+  };
+  t.after(() => {
+    chromium.launchPersistentContext = originalLaunch;
+    delete require.cache[browserPath];
+  });
+  return { browser: require(browserPath), events };
+}
+
+for (const status of [403, 414]) {
+  test('HTTP ' + status + ' stops the operation without an in-call retry and closes the context', async t => {
+    const { browser, events } = scenario(t, { statuses: [status] });
+    await assert.rejects(browser.withAuthenticatedSession(checkNoCallback), { code: 'http_' + status, httpStatus: status });
+    assert.deepEqual(events, [['launch', 1], ['goto', 1], ['close', 1]]);
+  });
+}
+
+test('a logged-out read-only session never submits credentials and closes the context', async t => {
+  const { browser, events } = scenario(t, { loggedOut: true });
+  await assert.rejects(browser.withAuthenticatedSession(checkNoCallback), { code: 'session_not_authenticated' });
+  assert.deepEqual(events, [['launch', 1], ['goto', 1], ['close', 1]]);
+});
+
+test('navigation failure preserves the cause and closes the context', async t => {
+  const navigationError = new Error('offline navigation failure');
+  const { browser, events } = scenario(t, { navigationError });
+  await assert.rejects(browser.withAuthenticatedSession(checkNoCallback), { code: 'ABCP_NAVIGATION_FAILED', cause: navigationError });
+  assert.deepEqual(events, [['launch', 1], ['goto', 1], ['close', 1]]);
+});
+
+test('operation failure closes its context before a later session runs', async t => {
+  const { browser, events } = scenario(t, { statuses: [200, 200] });
+  const callbackError = new Error('offline operation failure');
+  await assert.rejects(browser.withAuthenticatedSession(async () => {
+    events.push(['callback', 1]);
+    throw callbackError;
+  }), err => err === callbackError);
+  assert.equal(await browser.withAuthenticatedSession(async () => {
+    events.push(['callback', 2]);
+    return 'ok';
+  }), 'ok');
+  assert.deepEqual(events, [
+    ['launch', 1], ['goto', 1], ['callback', 1], ['close', 1],
+    ['launch', 2], ['goto', 2], ['callback', 2], ['close', 2],
+  ]);
+});
+
+test('a successful operation does not settle while context close is pending', async t => {
+  let startClose;
+  const closing = new Promise(resolve => { startClose = resolve; });
+  let finishClose;
+  const closeGate = new Promise(resolve => { finishClose = resolve; });
+  const { browser, events } = scenario(t, { beforeClose: () => { startClose(); return closeGate; } });
+  let settled = false;
+  const operation = browser.withAuthenticatedSession(async () => 'ok').finally(() => { settled = true; });
+  try {
+    await Promise.race([closing, operation]);
+    // Give promise reactions a turn; no real-time sleep is needed.
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false);
+    assert.deepEqual(events, [['launch', 1], ['goto', 1], ['close', 1]]);
+  } finally {
+    finishClose();
+    await operation;
+  }
+  assert.equal(await operation, 'ok');
+});
