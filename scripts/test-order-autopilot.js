@@ -26,4 +26,28 @@ const p = a.plan({ number: '42', customerId: null });
 assert.strictEqual(p.guest, true);
 assert.ok(p.registration.path.includes('regGuestAsCustomer'));
 assert.ok(p.bill.path.endsWith('/orders/42/sendBill/ajax'));
-console.log('order autopilot tests passed');
+(async () => {
+  const store = require('../lib/logistics/store');
+  const customerApi = require('../lib/abcpCustomerApi');
+  const originalState = store.autopilotState;
+  const originalGetOrder = customerApi.getOrder;
+  const originalGetHtml = browser.getOrdersHtml;
+  const oldEnabled = process.env.ORDER_AUTOPILOT_ENABLED;
+  const oldDryRun = process.env.ORDER_AUTOPILOT_DRY_RUN;
+  process.env.ORDER_AUTOPILOT_ENABLED = '1';
+  process.env.ORDER_AUTOPILOT_DRY_RUN = '0';
+  store.autopilotState = async () => null;
+  customerApi.getOrder = async () => ({ id: '290528868', posInfo: [{ status: 'new' }] });
+  browser.getOrdersHtml = async () => '<table><tr><th>Заказ</th><th>Клиент</th><th>Действия</th></tr><tr><td><input id="inWorkSelectedOrders290528868"></td><td><a href="/clientinfo/159543324">Client</a></td><td><a onclick="sendBill(290528868)"><img src="mail-closed-send.svg"></a></td></tr></table>';
+  try {
+    const result = await a.process({ number: '290528868', customerId: '159543324', customer: 'Client' }, 'payment');
+    assert.strictEqual(result.status, 'approval_required');
+  } finally {
+    store.autopilotState = originalState;
+    customerApi.getOrder = originalGetOrder;
+    browser.getOrdersHtml = originalGetHtml;
+    if (oldEnabled === undefined) delete process.env.ORDER_AUTOPILOT_ENABLED; else process.env.ORDER_AUTOPILOT_ENABLED = oldEnabled;
+    if (oldDryRun === undefined) delete process.env.ORDER_AUTOPILOT_DRY_RUN; else process.env.ORDER_AUTOPILOT_DRY_RUN = oldDryRun;
+  }
+  console.log('order autopilot tests passed');
+})().catch(err => { console.error(err); process.exitCode = 1; });
