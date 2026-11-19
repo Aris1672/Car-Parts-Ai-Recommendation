@@ -1,6 +1,71 @@
 # Car Parts AI Recommendation Chat Agent
 
-## ▶ START HERE — 19.11.2026, 23:12 Moscow: one-time approval gate failed offline
+## ▶ START HERE — Latest handoff (19.11.2026, 23:40 Moscow)
+
+**Read this section first in the next chat.** The owner is moving to a new session. This section is the authoritative current state; older notes below are historical context. Do not enable unattended automation or reminders until the pending approval/claim revision is deployed and verified.
+
+### Current production safety state
+
+Keep these deployed/runtime values unchanged:
+
+```text
+LOGISTICS_ENABLED=1
+ORDER_AUTOPILOT_ENABLED=0
+ORDER_AUTOPILOT_DRY_RUN=1
+PREPAYMENT_REMINDERS_ENABLED=0
+ABCP_BROWSER_PROXY_SERVER=socks5://127.0.0.1:1080
+```
+
+API logistics watcher is allowed to run read-only. Browser transfer, payment sends, and reminders remain disabled globally.
+
+### Confirmed live evidence
+
+- Kazakhstan SOCKS5 route works: `Coolify -> 127.0.0.1:1080 -> VPS egress 199.189.249.4 -> cp.abcp.ru`. One read-only payment-page GET returned HTTP 200; one authorization event was observed; no storm in that supervised check.
+- Guest transfer canary succeeded: `290360840 -> 290366418`, customer `159555277`, 7,000 RUB; no payment during transfer.
+- Guest transfer canary succeeded: `290524491 -> 290524583`, customer `159559180` (`Tester!`), 3,600 RUB; read-only recheck showed new order registered/pending; no payment during transfer.
+- Guest transfer `290522140` returned HTTP 400. Owner confirmed this was correct ABCP identity-conflict handling: the test email had a previous order under a different name/phone. Treat transfer HTTP 400 as human review; never automatic retry.
+- Direct payment sends confirmed: `290366418` and `290525453`, each 2,000 RUB; email delivered, Telegram failed. Both were manually reconciled in `logistics_prepayment_reminders` with terminal `status=sent`. Never resend/reset.
+- Registered-client autopilot canary `290526847` succeeded through the claim-before-send path: 2,000 RUB; email delivered, Telegram failed; no transfer/reminder/retry. `logistics_autopilot` is terminal `last_action=bill_email_sent`, `bill_status=sent`, `first_bill_sent_at=2026-11-19T19:50:50.070Z`; its separate reminder row is correctly `pending` because reminders were disabled.
+
+### Watcher and dry-run evidence
+
+- Repeated API-only watcher passes succeeded, processing 1,602–1,607 active orders in about 5–7 seconds with no ABCP writes, no browser autopilot lines, and no unexpected MAX notifications.
+- Allowlist controls were deployed and verified in dry-run mode using `ORDER_AUTOPILOT_ALLOWLIST=290526847` and `ORDER_AUTOPILOT_MAX_CANDIDATES=1`; terminal sent state yielded `candidates=0`, proving the allowlist did not expand scope.
+- Fresh registered test order `290527625` (3,600 RUB, same registered customer) was selected exactly once by an allowlisted watcher dry-run: `register ... already_registered`, `payment ... dry_run`. Second identical dry-run reported `candidates=0`; no write occurred. Preserve its dry-run audit row.
+
+### Deployed one-time approval revision — verify before live automation
+
+The owner reports that this safety revision has been pushed and deployed. Treat deployment as owner-reported until the Coolify verification commands below pass:
+
+- [lib/logistics/store.js](<lib/logistics/store.js>) adds `approveInitialBill(order, amount)` and atomic `claimInitialBill(order, amount)`.
+- [lib/logistics/orderAutopilot.js](<lib/logistics/orderAutopilot.js>) requires persisted `last_action=bill_approved_once` before sending, atomically claims the order/amount, and blocks `bill_started`, `bill_uncertain`, and `recheck_required` until human review.
+- [scripts/test-one-time-approval.js](<scripts/test-one-time-approval.js>) runs isolated acceptance tests: dry-run alone cannot send; concurrent workers produce one send; timeout produces no retry.
+- [README.md](<README.md>) contains this handoff.
+
+Local validation for this revision: **26/26 test files passed**, `node --check` passed, `git diff --check` passed. The local acceptance tests pass 3/3.
+
+### Exact next steps in the new chat
+
+1. Verify the deployed revision; do not change production switches.
+2. In Coolify run:
+
+```bash
+node --check lib/logistics/orderAutopilot.js
+node --check lib/logistics/store.js
+node scripts/test-one-time-approval.js
+node scripts/test-abcp-browser-lifecycle.js
+node scripts/run-tests.js
+```
+
+Expected: approval tests 3/3; lifecycle tests 6/6; full suite 26/26 or the current discovered count.
+
+3. Run one API-only watcher pass with autopilot/reminders disabled.
+4. Verify no existing records changed: `290366418` and `290525453` remain terminal `sent`; `290524583` has no payment row; `290526847` remains terminal `sent`; `290527625` remains dry-run only.
+5. Do **not** attempt another live transfer/payment yet. After deployed approval tests pass, decide separately whether one new allowlisted live canary is appropriate.
+
+Never paste cookies, credentials, CSRF tokens, private keys, payment links, raw HTML, raw HAR files, or raw API responses.
+
+## ▶ Previous handoff — 19.11.2026, 23:12 Moscow: one-time approval gate failed offline
 
 Order 290527625: first allowlisted watcher dry run selected one registered candidate; second pass selected zero with the same cutoff. Preserve its dry-run row. Neither pass authorized a send.
 
