@@ -197,3 +197,32 @@ for (const expireAfterFirstCheck of [false, true]) {
     assert.deepEqual(events.at(-1), ['close', 1]);
   });
 }
+
+test('aged context is replaced once and the replacement is reused', async t => {
+  const { browser, events } = scenario(t, { statuses: [200, 200] });
+  for (const [key, value] of Object.entries({ ORDER_AUTOPILOT_ENABLED: '1', ORDER_AUTOPILOT_DRY_RUN: '0' })) {
+    const previous = process.env[key];
+    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+    process.env[key] = value;
+  }
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  const run = () => browser.withWatcherSession(() => browser.getOrdersHtml(), { retainBetweenPasses: true });
+  try {
+    assert.equal(await run(), 'offline html');
+    now += 60 * 60000;
+    assert.equal(await run(), 'offline html');
+    now += 120000;
+    assert.equal(await run(), 'offline html');
+    assert.deepEqual(events, [
+      ['launch', 1], ['goto', 1], ['ready', 1], ['close', 1],
+      ['launch', 2], ['goto', 2], ['ready', 2], ['goto', 2], ['ready', 2],
+    ]);
+  } finally {
+    process.env.ORDER_AUTOPILOT_ENABLED = '0';
+    await browser.withWatcherSession(async () => {}, { retainBetweenPasses: true });
+  }
+  assert.deepEqual(events.at(-1), ['close', 2]);
+});

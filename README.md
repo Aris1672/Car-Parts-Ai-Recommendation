@@ -1,6 +1,11 @@
 # Car Parts AI Recommendation Chat Agent
 
-## Start here — ABCP login burst; browser rollout paused (20.11.2026, 13:45 Moscow)
+## Start here — Live ABCP session reuse verified (20.11.2026, 15:06 Moscow)
+
+- The login-selector fix was active in production. The ABCP audit shows one tunnel authorization at **15:03:52**, followed by order/client changes at **15:03:56** and a payment-link send at **15:04:07**. The next watcher cycle logged `watcher context reused and checked` at **15:05:34**, with no second tunnel authorization visible through **15:06:56**. This verifies reuse across one live cycle boundary; continue monitoring the authorization rate.
+- The 15:05 cycle used an order cutoff of **11:30 Moscow (08:30 UTC)**. Five candidates returned `already_sent` and one returned `payment_paid`; no new send was logged in that cycle. An earlier `blocked_api_order_unavailable` for `290577966` was followed by `already_sent` on the next pass. No reminder send was shown; keep reminders off during this observation period.
+
+## Historical incident — ABCP login burst (20.11.2026, 13:45 Moscow)
 
 - ABCP's audit showed repeated successful authorizations from the configured tunnel egress, frequently 4–5 seconds apart. This is evidence of a login burst, not an ABCP block or duplicate sends. The owner redeployed with `ORDER_AUTOPILOT_ENABLED=0` and `ORDER_AUTOPILOT_DRY_RUN=1`, then also set `PREPAYMENT_REMINDERS_ENABLED=0` and reported that the frequent logins stopped. The latest supplied audit shows the last tunnel authorization at 13:48:11 Moscow, with none in the newer visible rows through 13:50:09. Keep API-only logistics enabled.
 - The reminder pause fix was pushed and redeployed per the owner. It makes the worker exit before queue or browser work when autopilot or reminders are paused.
