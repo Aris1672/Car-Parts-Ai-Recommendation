@@ -11,7 +11,7 @@ function checkNoCallback() {
   assert.fail('unauthenticated session must not call the operation');
 }
 
-function scenario(t, { statuses = [200], navigationError, loggedOut = false, beforeClose } = {}) {
+function scenario(t, { statuses = [200], navigationError, loggedOut = false, beforeClose, expireAfterFirstCheck = false } = {}) {
   const events = [];
   const originalLaunch = chromium.launchPersistentContext;
   const env = {
@@ -33,18 +33,28 @@ function scenario(t, { statuses = [200], navigationError, loggedOut = false, bef
     const id = ++launchCount;
     assert.ok(id <= statuses.length, 'unexpected persistent context launch');
     events.push(['launch', id]);
+    let checks = 0;
+    let needsLogin = loggedOut;
     const page = {
       goto: async () => {
+        if (++checks === 2 && expireAfterFirstCheck) needsLogin = true;
         events.push(['goto', id]);
         if (navigationError) throw navigationError;
         return { status: () => statuses[id - 1] };
       },
       waitForFunction: async () => { events.push(['ready', id]); },
       content: async () => 'offline html',
-      url: () => loggedOut ? 'https://cp.abcp.ru/login' : ordersUrl,
+      url: () => needsLogin ? 'https://cp.abcp.ru/login' : ordersUrl,
+      waitForLoadState: async () => {},
       locator: selector => ({
-        count: async () => Number(loggedOut ? selector.includes('password') : selector.includes('page=orders')),
-        first: () => assert.fail('read-only authentication must not access credential fields or the submit button'),
+        count: async () => Number(needsLogin ? selector.includes('password') : selector.includes('page=orders')),
+        first: () => {
+          assert.ok(expireAfterFirstCheck, 'read-only checks must not access credential fields');
+          return { count: async () => 1, fill: async () => {}, click: async () => {
+            events.push(['submit', id]);
+            needsLogin = false;
+          } };
+        },
       }),
     };
     return {
@@ -160,3 +170,24 @@ test('expired watcher session does not start another browser operation', async t
   });
   assert.deepEqual(events, [['launch', 1], ['goto', 1], ['goto', 1], ['ready', 1], ['close', 1]]);
 });
+
+for (const expireAfterFirstCheck of [false, true]) {
+  test(expireAfterFirstCheck ? 'expired session signs in once on the next cycle' : 'healthy session survives multiple live cycles without credential submission', async t => {
+    const { browser, events } = scenario(t, { expireAfterFirstCheck });
+    const flags = { ORDER_AUTOPILOT_ENABLED: '1', ORDER_AUTOPILOT_DRY_RUN: '0' };
+    for (const [key, value] of Object.entries(flags)) {
+      const previous = process.env[key];
+      t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+      process.env[key] = value;
+    }
+    const run = () => browser.withWatcherSession(() => browser.getOrdersHtml(), { retainBetweenPasses: true });
+    for (let i = 0; i < 3; i++) assert.equal(await run(), 'offline html');
+    assert.equal(events.filter(([event]) => event === 'launch').length, 1);
+    assert.equal(events.filter(([event]) => event === 'goto').length, 3);
+    assert.equal(events.filter(([event]) => event === 'submit').length, Number(expireAfterFirstCheck));
+    assert.equal(events.filter(([event]) => event === 'close').length, 0);
+    process.env.ORDER_AUTOPILOT_ENABLED = '0';
+    await browser.withWatcherSession(async () => {}, { retainBetweenPasses: true });
+    assert.deepEqual(events.at(-1), ['close', 1]);
+  });
+}

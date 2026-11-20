@@ -39,7 +39,7 @@ async function scenario({ stages, waitError, navigationError }) {
       html = shell;
     },
     url: () => 'https://cp.abcp.ru/?page=orders',
-    locator: () => ({ count: async () => 1 }),
+    locator: selector => ({ count: async () => Number(selector.includes('page=orders')) }),
     waitForFunction: async (predicate, arg, options) => {
       events.push('wait');
       assert.strictEqual(arg, undefined);
