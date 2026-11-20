@@ -47,7 +47,13 @@ function scenario(t, { statuses = [200], navigationError, loggedOut = false, bef
       url: () => needsLogin ? 'https://cp.abcp.ru/login' : ordersUrl,
       waitForLoadState: async () => {},
       locator: selector => ({
-        count: async () => Number(needsLogin ? selector.includes('password') : selector.includes('page=orders')),
+        count: async () => {
+          assert.ok([
+            'input[type="password"]:visible',
+            'a[href*="page=orders"]:visible',
+          ].includes(selector), 'unexpected authentication-state locator: ' + selector);
+          return Number(needsLogin ? selector.includes('password') : selector.includes('page=orders'));
+        },
         first: () => {
           assert.ok(expireAfterFirstCheck, 'read-only checks must not access credential fields');
           return { count: async () => 1, fill: async () => {}, click: async () => {
