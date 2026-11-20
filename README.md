@@ -1,6 +1,22 @@
 # Car Parts AI Recommendation Chat Agent
 
-## Automatic order rollout — 20.11.2026
+## Start here — ABCP login burst; browser rollout paused (20.11.2026, 13:45 Moscow)
+
+- ABCP's audit showed repeated successful authorizations from the configured tunnel egress, frequently 4–5 seconds apart. This is evidence of a login burst, not an ABCP block or duplicate sends. The owner redeployed with `ORDER_AUTOPILOT_ENABLED=0` and `ORDER_AUTOPILOT_DRY_RUN=1`, then also set `PREPAYMENT_REMINDERS_ENABLED=0` and reported that the frequent logins stopped. The latest supplied audit shows the last tunnel authorization at 13:48:11 Moscow, with none in the newer visible rows through 13:50:09. Keep API-only logistics enabled.
+- The deployed reminder worker could read the browser before checking the autopilot pause flags. The local containment patch moves that check ahead of all queue and browser work. It does not fix the login rate of the live order path: browser operations are serialized but open and close an authenticated context per call, so per-order registration/payment checks and reminder work can multiply sessions. Exact attribution requires matching sanitized worker logs to the ABCP audit.
+- Keep browser automation paused. Check that ABCP authorization events stopped after redeploy, preserve all audit/reminder history, and do not rerun uncertain actions. Before resuming, reduce repeated browser work (batch reads, reuse a bounded authenticated session where appropriate, and stop on auth failures), verify offline, then verify the authorization count in a supervised run.
+
+## Prior supervised production rollout (20.11.2026, 11:57 Moscow)
+
+This handoff supersedes the disabled-mode instructions in the historical sections below. The owner approved automatic guest transfers and one initial 2,000 ₽ prepayment request per eligible unpaid order from a fixed breakpoint, without per-order approval or a rollout allowlist/cap. Reminders were approved for the supervised rollout; their runtime enable flag and first automatic send were not confirmed by the supplied log.
+
+- **Deployment checks:** the deployed order automation tests passed **10/10**, and the autopilot schema/database access check passed. The deployed reminder tests and a read-only queue check also passed before rollout; the three older pending reminders were excluded and the uncertain entry was unchanged.
+- **First live watcher pass (~11:51 Moscow):** startup reported `enabled=true dryRun=false`. It selected four candidates and reported one initial request sent: registered order `290574726`. It skipped `290567000` as `payment_paid` and `290563714` / `290563627` as `already_sent`. No guest transfer or reminder was recorded in this pass. A send status is not proof of payment or inbox delivery.
+- **Cutoff discrepancy to verify in the running Coolify container:** the watcher used `2026-11-20T07:30:00.000Z` (**10:30 Moscow**) for order creation, whereas the owner reported `ORDER_AUTOPILOT_START_AT=2026-11-20T08:40:00Z` (**11:40 Moscow**). Order `290574726` was shown at **11:39 Moscow**, so the reported 11:40 cutoff would have excluded it. The reminder settings screenshot showed `PREPAYMENT_REMINDERS_START_AT=2026-11-20T08:40:00Z`, which applies to the recorded initial-send time, not order creation. If 11:40 was intended for orders, pause live processing and verify the effective runtime flags and both timestamps before resuming. Do not move either cutoff merely to reproduce the first pass.
+- **Next trace:** verify read-only that `290574726` is terminal `bill_email_sent` / `sent` and has a reminder queue entry. Do not resend. If the reminder is pending, the exact earliest eligibility is its stored `initial_sent_at` plus 65 minutes (approximately 12:57 Moscow from the send log); a reminder is not guaranteed at that time and requires a fresh unpaid check. The earlier supervised guest-to-reminder canary passed, but the recurring watcher’s first automatic reminder has not yet been observed.
+- **Stop conditions:** unexpected scope, duplicate actions, or uncertain transfer/send results. Pause both workflows with `ORDER_AUTOPILOT_ENABLED=0`, `ORDER_AUTOPILOT_DRY_RUN=1`, and `PREPAYMENT_REMINDERS_ENABLED=0`; preserve audit and queue records and inspect before any retry.
+
+## Automatic order rollout — 20.11.2026 (deployment procedure)
 
 The owner approved automatic initial prepayment requests of 2,000 ₽ for eligible orders from a fixed launch breakpoint, without per-order approval. This is the watcher policy; the separate supervised/manual processor path still requires persisted approval.
 
@@ -17,9 +33,9 @@ The supervised guest transfer, initial prepayment email and reminder test passed
 - Both queue selection and atomic claim require the recorded `initial_sent_at` to be at or after that instant and at least 65 minutes old. A missing or invalid cutoff blocks processing. Keep the same timestamp across redeploys; do not use midnight or a rolling cutoff.
 - Deploy and verify with `node scripts/test-prepayment-reminders.js` while `PREPAYMENT_REMINDERS_ENABLED=0`. Then check the eligible queue read-only before enabling reminders. This change does not enable automation or change initial-send approvals.
 
-## ▶ START HERE — Latest handoff (19.11.2026, 23:40 Moscow)
+## Historical handoff — 19.11.2026, 23:40 Moscow
 
-**Read this section first in the next chat.** The owner is moving to a new session. This section is the authoritative current state; older notes below are historical context. Do not enable unattended automation or reminders until the pending approval/claim revision is deployed and verified.
+The paused configuration and verification plan below describe the state on 19 November. For current rollout status, use the supervised production handoff above.
 
 ### Current production safety state
 

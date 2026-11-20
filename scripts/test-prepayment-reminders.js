@@ -72,6 +72,25 @@ async function testCutoff() {
   store.finishReminder = async (_, value) => { status = value; };
   browser.getOrdersHtml = async () => html('');
   browser.sendAdvanceLink = async () => { assert.strictEqual(status, 'started'); sends++; return { emailSent: true }; };
+  for (const [flag, paused, live] of [
+    ['PREPAYMENT_REMINDERS_ENABLED', '0', '1'],
+    ['ORDER_AUTOPILOT_ENABLED', '0', '1'],
+    ['ORDER_AUTOPILOT_DRY_RUN', '1', '0'],
+  ]) {
+    const due = store.dueReminders;
+    const read = browser.getOrdersHtml;
+    let calls = 0;
+    store.dueReminders = async () => { calls++; return due(); };
+    browser.getOrdersHtml = async () => { calls++; return read(); };
+    process.env[flag] = paused;
+    await reminders.run();
+    process.env[flag] = live;
+    store.dueReminders = due;
+    browser.getOrdersHtml = read;
+    assert.strictEqual(calls, 0, flag + ' must prevent queue and browser reads');
+    assert.strictEqual(claims + sends, 0);
+    assert.strictEqual(status, 'pending');
+  }
   await reminders.run(); await reminders.run();
   assert.strictEqual(sends, 1); assert.strictEqual(status, 'sent');
   status = 'pending'; browser.getOrdersHtml = async () => html('<span class="paid-cross">X</span>');
