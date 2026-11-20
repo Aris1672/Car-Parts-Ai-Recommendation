@@ -5,24 +5,28 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const source = fs.readFileSync(require.resolve('../lib/logistics/orderAutopilot'), 'utf8');
 const order = { number: '42', customerId: '7' };
-const html = '<table><tr><th>Заказ</th><th>Клиент</th></tr><tr><td><input id="inWorkSelectedOrders42"><a onclick="sendBill(42)"><img src="mail-closed-send.svg"></a></td><td><a href="/clientinfo/7">Test</a></td></tr></table>';
+const html = '<table><tr><th>Заказ</th><th>Клиент</th><th>Платежи</th></tr><tr><td><input id="inWorkSelectedOrders42"><a onclick="sendBill(42)"><img src="mail-closed-send.svg"></a></td><td><a href="/clientinfo/7">Test</a></td><td></td></tr></table>';
 
-function fixture(last_action, timeout = false, guest = false) {
+function fixture(last_action, timeout = false, guest = false, options = {}) {
   // Proposed approval is bound to a single initial payment, order and amount.
   const row = { last_action, details: { orderId: '42', amount: 2000 } };
   const sends = [];
   const reminders = [];
   const transfers = [];
-  const sourceOrder = guest ? { number: order.number, customerId: null } : order;
+  const sourceOrder = { ...order, customerId: guest ? null : order.customerId,
+    date: options.date || '2026-11-20 10:30:00', stage: 'payment', positions: [{ status: 'Заказ принят' }] };
   const testHtml = guest ? html.replace('<a href="/clientinfo/7">Test</a>', 'Гость') : html;
   const deps = {
     https: {}, cheerio: require('cheerio'),
+    './stages': require('../lib/logistics/stages'),
+    './prepaymentReminders': require('../lib/logistics/prepaymentReminders'),
     './store': {
       autopilotState: async (id) => id === order.number ? { ...row } : null,
       autopilotAction: async (id, action, details) => {
         assert.equal(id, order.number);
         if (action === 'registration_succeeded') {
           row.transferred_order_number = details.newOrderId;
+          row.registration_status = 'succeeded';
           if (row.last_action === 'bill_approved_once') return;
         }
         row.last_action = action;
@@ -35,12 +39,24 @@ function fixture(last_action, timeout = false, guest = false) {
         row.last_action = 'bill_started'; row.bill_status = 'started'; row.details = { orderId: '42', amount };
         return true;
       },
+      claimAutomaticTransfer: async id => {
+        assert.equal(id, order.number);
+        if (row.registration_status) return false;
+        row.registration_status = 'started';
+        return true;
+      },
+      claimAutomaticInitialBill: async (id, target) => {
+        if (id !== order.number || target !== (row.transferred_order_number || id) || row.bill_status) return false;
+        row.bill_status = 'started';
+        row.last_action = 'bill_started';
+        return true;
+      },
       recordInitialBill: async (id) => { reminders.push(id); },
     },
     '../abcpCustomerApi': { getOrder: async (id) => ({ number: id, positions: [{ status: 'new' }] }) },
     './abcpBrowser': {
-      getOrdersHtml: async () => transfers.length ? html.replaceAll('42', '43') : testHtml,
-      transferGuestOrder: async (id) => { transfers.push(id); return { orderId: '43' }; },
+      getOrdersHtml: async () => options.page || (transfers.length ? html.replaceAll('42', '43') : testHtml),
+      transferGuestOrder: async (id) => { transfers.push(id); if (options.transferTimeout) throw new Error('synthetic transfer timeout'); return { orderId: '43' }; },
       sendAdvanceLink: async (id, amount) => {
         sends.push([id, amount]);
         if (timeout) throw new Error('synthetic timeout');
@@ -48,15 +64,18 @@ function fixture(last_action, timeout = false, guest = false) {
       },
     },
   };
-  function pass(phase = 'payment') {
+  function pass(phase = 'payment', automatic = false) {
     const module = { exports: {} };
-    vm.runInNewContext(source, { module, URLSearchParams, process: { env: {
-      ORDER_AUTOPILOT_ENABLED: '1', ORDER_AUTOPILOT_DRY_RUN: '0', ORDER_AUTOPILOT_AMOUNT: '2000',
+    class TestDate extends Date { static now() { return Date.parse('2026-11-20T08:00:00Z'); } }
+    vm.runInNewContext(source, { module, URLSearchParams, Date: TestDate, process: { env: {
+      ORDER_AUTOPILOT_ENABLED: '1', ORDER_AUTOPILOT_DRY_RUN: options.dryRun ? '1' : '0',
+      ORDER_AUTOPILOT_AMOUNT: automatic ? '5000' : '2000',
+      ORDER_AUTOPILOT_START_AT: options.cutoff ?? '2026-11-20T07:30:00Z',
     } }, require(name) {
       if (!Object.hasOwn(deps, name)) throw new Error('Unexpected dependency: ' + name);
       return deps[name];
     } });
-    return module.exports.process(sourceOrder, phase);
+    return module.exports.process(sourceOrder, phase, automatic);
   }
   return { pass, sends, reminders, transfers, row };
 }
@@ -100,4 +119,49 @@ test('guest transfer without payment approval does not send or queue a reminder'
   assert.equal((await f.pass()).status, 'approval_required');
   assert.deepEqual(f.sends, []);
   assert.deepEqual(f.reminders, []);
+});
+
+test('automatic registered order at cutoff sends 2000 once without approval', async () => {
+  const f = fixture(undefined);
+  await Promise.all([f.pass('payment', true), f.pass('payment', true)]);
+  assert.deepEqual(f.sends, [['42', 2000]]);
+  assert.deepEqual(f.reminders, ['42']);
+});
+
+test('automatic guest flow claims the transfer once and sends to the resulting order', async () => {
+  const f = fixture(undefined, false, true);
+  await Promise.all([f.pass('register', true), f.pass('register', true)]);
+  await f.pass('payment', true);
+  assert.deepEqual(f.transfers, ['42']);
+  assert.deepEqual(f.sends, [['43', 2000]]);
+  assert.deepEqual(f.reminders, ['43']);
+});
+
+test('automatic policy blocks pre-cutoff orders and invalid configuration before processing', async () => {
+  for (const options of [{date: '2026-11-20 10:29:59'}, {cutoff: ''}, {cutoff: '2026-11-31T07:30:00Z'}]) {
+    const f = fixture(undefined, false, true, options);
+    for (const phase of ['register', 'payment']) assert.equal((await f.pass(phase, true)).status, 'outside_launch_policy');
+    assert.deepEqual(f.transfers, []);
+    assert.deepEqual(f.sends, []);
+  }
+});
+
+test('automatic policy does not send when payment is unknown or during dry-run', async () => {
+  const unknown = fixture(undefined, false, false, { page: html.replace('<td></td>', '<td>?</td>') });
+  assert.equal((await unknown.pass('payment', true)).status, 'payment_unknown');
+  const dry = fixture(undefined, false, false, { dryRun: true });
+  assert.equal((await dry.pass('payment', true)).status, 'dry_run');
+  assert.equal(dry.row.last_action, undefined);
+  assert.deepEqual([...unknown.sends, ...dry.sends], []);
+});
+
+test('interrupted automatic transfer or send is never retried', async () => {
+  const guest = fixture(undefined, false, true, { transferTimeout: true });
+  await assert.rejects(guest.pass('register', true), /transfer timeout/);
+  assert.equal((await guest.pass('register', true)).status, 'recheck_required');
+  assert.deepEqual(guest.transfers, ['42']);
+  const client = fixture(undefined, true);
+  await assert.rejects(client.pass('payment', true), /synthetic timeout/);
+  assert.equal((await client.pass('payment', true)).status, 'recheck_required');
+  assert.deepEqual(client.sends, [['42', 2000]]);
 });

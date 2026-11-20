@@ -1,5 +1,14 @@
 # Car Parts AI Recommendation Chat Agent
 
+## Automatic order rollout — 20.11.2026
+
+The owner approved automatic initial prepayment requests of 2,000 ₽ for eligible orders from a fixed launch breakpoint, without per-order approval. This is the watcher policy; the separate supervised/manual processor path still requires persisted approval.
+
+- Set `ORDER_AUTOPILOT_START_AT` in Coolify runtime to the intended fixed UTC launch timestamp (ISO format ending in `Z`). There is no midnight fallback. Orders created before the cutoff, missing a usable creation date, or outside the eligible stages are excluded. Keep the timestamp unchanged across restarts and redeploys. Choose the actual launch instant rather than reusing an example or backdating to include earlier orders unintentionally.
+- The watcher requires ABCP to report unpaid before a transfer or initial request. It claims transfers and sends before the external action. Started/uncertain attempts are not retried, and history must not be reset. After a successful transfer, the initial request and reminder queue use the registered order number.
+- Deploy with `ORDER_AUTOPILOT_ENABLED=0`, `ORDER_AUTOPILOT_DRY_RUN=1` and `PREPAYMENT_REMINDERS_ENABLED=0`. Run `node scripts/test-one-time-approval.js` and `node scripts/test-prepayment-reminders.js`. Before enabling live writes, verify the schema and review candidate selection in dry-run with the fixed cutoff. A missing or invalid order cutoff disables watcher autopilot only, not the separate reminder worker.
+- For the full scope, clear `ORDER_AUTOPILOT_ALLOWLIST` and unset or set `ORDER_AUTOPILOT_MAX_CANDIDATES=0`. For verification, leave reminders disabled. The reminder cutoff below is independent and remains in effect.
+
 ## Reminder rollout update — 20.11.2026
 
 The supervised guest transfer, initial prepayment email and reminder test passed (original order `290534979` → `290536540`). The owner approved excluding all three pre-launch pending reminders. Preserve those records and the uncertain reminder; do not delete, reset or retry them.
