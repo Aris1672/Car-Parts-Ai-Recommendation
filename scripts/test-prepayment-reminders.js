@@ -19,7 +19,48 @@ assert.strictEqual(reminders.paymentReceived(html(red), '42'), 'paid');
 assert.strictEqual(reminders.paymentReceived(html(empty), '42'), 'unpaid');
 assert.strictEqual(reminders.paymentReceived(html('<div class="cp-flex gap5"><button class="other"></button></div>'), '42'), 'unknown');
 assert.strictEqual(reminders.paymentReceived(html('<div class="other"></div>'), '42'), 'unknown');
+async function testCutoff() {
+  const vm = require('node:vm');
+  const fs = require('node:fs');
+  const module = { exports: {} };
+  const env = { SUPABASE_DB_URL: 'unused' };
+  const queries = [];
+  class Pool {
+    on() {}
+    async connect() {
+      return { release() {}, async query(sql, params) {
+        if (params) queries.push({ sql, params });
+        return { rows: [] };
+      } };
+    }
+  }
+  vm.runInNewContext(fs.readFileSync(require.resolve('../lib/logistics/store'), 'utf8'), {
+    module, process: { env }, require(name) {
+      assert.strictEqual(name, 'pg');
+      return { Pool };
+    }
+  });
+  const ledger = module.exports;
+  for (const invalid of [undefined, '2026-11-20', '2026-11-20T10:30:00+03:00', '2026-11-31T07:30:00Z']) {
+    env.PREPAYMENT_REMINDERS_START_AT = invalid;
+    await assert.rejects(ledger.dueReminders(), /valid fixed UTC timestamp/);
+    await assert.rejects(ledger.claimReminder('42'), /valid fixed UTC timestamp/);
+  }
+  assert.strictEqual(queries.length, 0);
+  env.PREPAYMENT_REMINDERS_START_AT = '2026-11-20T07:30:00Z';
+  await ledger.dueReminders();
+  assert.strictEqual(await ledger.claimReminder('42'), false);
+  assert.strictEqual(queries.length, 2);
+  for (const [i, { sql, params }] of queries.entries()) {
+    assert.ok(sql.includes("status = 'pending'"));
+    assert.ok(sql.includes("initial_sent_at <= now() - interval '65 minutes'"));
+    assert.ok(sql.includes('initial_sent_at >= $' + (i + 1) + '::timestamptz'));
+    assert.deepStrictEqual(Array.from(params), i ? ['42', '2026-11-20T07:30:00.000Z'] : ['2026-11-20T07:30:00.000Z']);
+  }
+}
+
 (async () => {
+  await testCutoff();
   process.env.PREPAYMENT_REMINDERS_ENABLED = '1';
   process.env.ORDER_AUTOPILOT_ENABLED = '1';
   process.env.ORDER_AUTOPILOT_DRY_RUN = '0';

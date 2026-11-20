@@ -1,5 +1,13 @@
 # Car Parts AI Recommendation Chat Agent
 
+## Reminder rollout update — 20.11.2026
+
+The supervised guest transfer, initial prepayment email and reminder test passed (original order `290534979` → `290536540`). The owner approved excluding all three pre-launch pending reminders. Preserve those records and the uncertain reminder; do not delete, reset or retry them.
+
+- Set `PREPAYMENT_REMINDERS_START_AT` in Coolify runtime to the actual, fixed go-live instant in UTC (ISO format ending in `Z`). For example, 10:30 Moscow on 20 November 2026 is `2026-11-20T07:30:00Z`; this is an example, not an assigned launch time.
+- Both queue selection and atomic claim require the recorded `initial_sent_at` to be at or after that instant and at least 65 minutes old. A missing or invalid cutoff blocks processing. Keep the same timestamp across redeploys; do not use midnight or a rolling cutoff.
+- Deploy and verify with `node scripts/test-prepayment-reminders.js` while `PREPAYMENT_REMINDERS_ENABLED=0`. Then check the eligible queue read-only before enabling reminders. This change does not enable automation or change initial-send approvals.
+
 ## ▶ START HERE — Latest handoff (19.11.2026, 23:40 Moscow)
 
 **Read this section first in the next chat.** The owner is moving to a new session. This section is the authoritative current state; older notes below are historical context. Do not enable unattended automation or reminders until the pending approval/claim revision is deployed and verified.
