@@ -39,6 +39,8 @@ function scenario(t, { statuses = [200], navigationError, loggedOut = false, bef
         if (navigationError) throw navigationError;
         return { status: () => statuses[id - 1] };
       },
+      waitForFunction: async () => { events.push(['ready', id]); },
+      content: async () => 'offline html',
       url: () => loggedOut ? 'https://cp.abcp.ru/login' : ordersUrl,
       locator: selector => ({
         count: async () => Number(loggedOut ? selector.includes('password') : selector.includes('page=orders')),
@@ -117,4 +119,44 @@ test('a successful operation does not settle while context close is pending', as
     await operation;
   }
   assert.equal(await operation, 'ok');
+});
+
+test('an idle watcher pass never opens a browser', async t => {
+  const { browser, events } = scenario(t, { statuses: [] });
+  await browser.withWatcherSession(async () => {});
+  assert.deepEqual(events, []);
+});
+
+test('sequential watcher reads share one context and close it at pass end', async t => {
+  const { browser, events } = scenario(t);
+  await browser.withWatcherSession(async () => {
+    assert.equal(await browser.getOrdersHtml(), 'offline html');
+    assert.equal(await browser.getOrdersHtml(), 'offline html');
+    assert.equal(events.some(([event]) => event === 'close'), false);
+  });
+  assert.deepEqual(events, [['launch', 1], ['goto', 1], ['goto', 1], ['ready', 1], ['goto', 1], ['ready', 1], ['close', 1]]);
+});
+
+test('watcher auth failure prevents a second login in the pass and during backoff', async t => {
+  const { browser, events } = scenario(t, { statuses: [403] });
+  await browser.withWatcherSession(async () => {
+    await assert.rejects(browser.getOrdersHtml(), { code: 'http_403' });
+    await assert.rejects(browser.getOrdersHtml(), { code: 'ABCP_WATCHER_SESSION_STOPPED' });
+  });
+  await assert.rejects(browser.withWatcherSession(() => browser.getOrdersHtml()), { code: 'ABCP_REFUSAL_BACKOFF' });
+  assert.deepEqual(events, [['launch', 1], ['goto', 1], ['close', 1]]);
+});
+
+test('expired watcher session does not start another browser operation', async t => {
+  const { browser, events } = scenario(t);
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  t.after(() => { Date.now = realNow; });
+  await browser.withWatcherSession(async () => {
+    await browser.getOrdersHtml();
+    now += 90000;
+    await assert.rejects(browser.getOrdersHtml(), { code: 'ABCP_WATCHER_SESSION_STOPPED' });
+  });
+  assert.deepEqual(events, [['launch', 1], ['goto', 1], ['goto', 1], ['ready', 1], ['close', 1]]);
 });
