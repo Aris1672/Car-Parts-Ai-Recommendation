@@ -1,11 +1,31 @@
 # Car Parts AI Recommendation Chat Agent
 
-## Start here — Browser backoff incident (21.11.2026)
+## Start here — ABCP HTTP 429; awaiting support (21.11.2026, 19:06 Moscow)
 
-- In the supplied pass, the watcher selected 13 candidates, but browser work was already in local backoff. No transfer or send was reported; API logistics completed. The excerpt begins after the initiating failure, so it does not prove ABCP blocked the account or explain why backoff started.
-- The owner paused both browser workflows and redeployed: ORDER_AUTOPILOT_ENABLED=0, ORDER_AUTOPILOT_DRY_RUN=1, PREPAYMENT_REMINDERS_ENABLED=0. Leave API-only logistics running and preserve the cutoff and audit history.
-- The local containment patch stops the browser portion of the pass on the first shared session failure, or before candidate processing if backoff is already active. Backoff logs now include a sanitized reason and retry timestamp. Existing backoff and no-retry safeguards remain in place.
-- Before resuming live processing, inspect the earlier log line that triggered the backoff. Deploy the patch with browser automation paused, verify the offline tests, then use a supervised read-only orders-page check. Do not restart to bypass a refusal or retry uncertain actions.
+**First step in a new session: ask whether ABCP support has replied.** The owner sent the ticket on Saturday, 21 November. Support is expected back Monday, 23 November; that date is not permission to retry. No reply has been received as of this handoff.
+
+### Production state — keep unchanged
+
+```text
+LOGISTICS_ENABLED=1
+ORDER_AUTOPILOT_ENABLED=0
+ORDER_AUTOPILOT_DRY_RUN=1
+PREPAYMENT_REMINDERS_ENABLED=0
+```
+
+Keep API-only logistics running and handle urgent orders through the normal manual workflow. Do not run another browser probe, restart to clear backoff, change the proxy to get around the limit, reset history, or retry uncertain actions. Preserve the configured cutoffs and audit records.
+
+### What we know
+
+- The earlier watcher pass selected 13 candidates, but browser work was already in local backoff. No transfer or send was reported; API logistics completed. The initiating error was not found in the previous Coolify logs.
+- The containment patch is deployed: `node scripts/test-abcp-watcher-containment.js` passed **5/5** inside Coolify. It stops browser work after a shared failure and reports a sanitized reason and backoff deadline. Offline tests do not establish live browser access.
+- A single supervised read-only probe of the ABCP control-panel orders page (`cp.abcp.ru`) from tunnel egress `199.189.249.4` returned `orders_read: STOP http_429`. It did not submit credentials, transfer orders, or send messages. This confirms rate limiting of that request, **not** an account-wide block or the cause of the earlier cooldown. The scope and duration are unknown. API-only logistics was still working; the paused redeploy processed 1,627 active orders without browser actions in the supplied logs.
+
+### Resume only after support guidance
+
+1. Read and record ABCP’s reply: what was limited (IP, account, or endpoint), when it is safe to retry, whether panel automation is supported, and what official API or supported workflow is available. The ticket identifies BMW Club77 (`bmwclub77.ru`, shop ID 2319) and describes guest-to-client transfer, one 2,000 ₽ prepayment request, and at most one reminder after 65 minutes if still unpaid.
+2. If ABCP confirms it is safe and the advised wait has elapsed, run **one supervised read-only orders-page check** with the pause flags unchanged and no credential submission. If it returns 429, another refusal, or `session_not_authenticated`, stop and inspect; do not keep probing or enable live mode.
+3. Before any live rollout, reconcile orders handled manually while paused so customers do not receive duplicate requests. Confirm the effective cutoff and keep reminders paused until their rollout is reviewed separately. A successful read alone is not approval to resume live sends.
 
 ## Historical verification — Live ABCP session reuse and replacement (20.11.2026, 16:47 Moscow)
 
