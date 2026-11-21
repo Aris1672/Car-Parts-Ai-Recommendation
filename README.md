@@ -1,6 +1,20 @@
 # Car Parts AI Recommendation Chat Agent
 
-## Start here — Live ABCP session reuse verified (20.11.2026, 15:06 Moscow)
+## Start here — Browser backoff incident (21.11.2026)
+
+- In the supplied pass, the watcher selected 13 candidates, but browser work was already in local backoff. No transfer or send was reported; API logistics completed. The excerpt begins after the initiating failure, so it does not prove ABCP blocked the account or explain why backoff started.
+- The owner paused both browser workflows and redeployed: ORDER_AUTOPILOT_ENABLED=0, ORDER_AUTOPILOT_DRY_RUN=1, PREPAYMENT_REMINDERS_ENABLED=0. Leave API-only logistics running and preserve the cutoff and audit history.
+- The local containment patch stops the browser portion of the pass on the first shared session failure, or before candidate processing if backoff is already active. Backoff logs now include a sanitized reason and retry timestamp. Existing backoff and no-retry safeguards remain in place.
+- Before resuming live processing, inspect the earlier log line that triggered the backoff. Deploy the patch with browser automation paused, verify the offline tests, then use a supervised read-only orders-page check. Do not restart to bypass a refusal or retry uncertain actions.
+
+## Historical verification — Live ABCP session reuse and replacement (20.11.2026, 16:47 Moscow)
+
+- Production audit confirmed bounded session reuse and controlled replacement. The app’s tunnel authorization occurred at **15:42:31 Moscow**, then again at **16:44:13 Moscow**, approximately one hour later, matching the configured maximum context age. There was no rapid 4–5-second login burst and no repeated authorization during the intervening cycles.
+- The **16:45:53** site authorization from IP **91.132.107.62** was a different user/session and is unrelated to the app’s tunnel IP **199.189.249.4**.
+- Offline lifecycle coverage now passes **13/13**, including healthy cross-cycle reuse, one reauthentication after session expiry, and one context replacement at the age limit followed by reuse. The app’s claims, cutoff, and no-retry protections remain unchanged.
+- Keep monitoring normal production cycles. Do not force logout, reset history, or create another test order solely for session validation. Keep reminders disabled until the reminder rollout is separately resumed and observed.
+
+## Historical live session reuse verification (20.11.2026, 15:06 Moscow)
 
 - The login-selector fix was active in production. The ABCP audit shows one tunnel authorization at **15:03:52**, followed by order/client changes at **15:03:56** and a payment-link send at **15:04:07**. The next watcher cycle logged `watcher context reused and checked` at **15:05:34**, with no second tunnel authorization visible through **15:06:56**. This verifies reuse across one live cycle boundary; continue monitoring the authorization rate.
 - The 15:05 cycle used an order cutoff of **11:30 Moscow (08:30 UTC)**. Five candidates returned `already_sent` and one returned `payment_paid`; no new send was logged in that cycle. An earlier `blocked_api_order_unavailable` for `290577966` was followed by `already_sent` on the next pass. No reminder send was shown; keep reminders off during this observation period.

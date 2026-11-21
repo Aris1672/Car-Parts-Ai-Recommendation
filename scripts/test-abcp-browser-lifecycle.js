@@ -157,9 +157,11 @@ test('watcher auth failure prevents a second login in the pass and during backof
   const { browser, events } = scenario(t, { statuses: [403] });
   await browser.withWatcherSession(async () => {
     await assert.rejects(browser.getOrdersHtml(), { code: 'http_403' });
+    assert.throws(() => browser.assertWatcherAvailable(), { code: 'http_403' });
     await assert.rejects(browser.getOrdersHtml(), { code: 'ABCP_WATCHER_SESSION_STOPPED' });
   });
-  await assert.rejects(browser.withWatcherSession(() => browser.getOrdersHtml()), { code: 'ABCP_REFUSAL_BACKOFF' });
+  await assert.rejects(browser.withWatcherSession(() => browser.assertWatcherAvailable()), error =>
+    error.code === 'ABCP_REFUSAL_BACKOFF' && error.reason === 'http_403' && Date.parse(error.retryAt) > Date.now());
   assert.deepEqual(events, [['launch', 1], ['goto', 1], ['close', 1]]);
 });
 
