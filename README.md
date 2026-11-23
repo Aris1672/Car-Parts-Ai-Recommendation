@@ -30,6 +30,25 @@ Keep API-only logistics running. Handle guest transfers, payment requests, and r
 Keep read-only API monitoring and use it to surface orders needing staff action. Review documented payment APIs separately if desired; do not assume link generation, delivery, or payment matching are interchangeable. Historical rollout instructions below are evidence only, not permission to resume browser automation.
 
 
+## Current chat catalog routing — 23.11.2026
+
+### BMW X-series differential assemblies — owner-confirmed live
+
+Once the vehicle is resolved, a bare «редуктор» asks «Вам нужен редуктор переднего или заднего моста?». An explicit front or rear request skips that question.
+
+| Requested assembly | Search the selected vehicle’s catalog for | Required group |
+| --- | --- | --- |
+| «Редуктор переднего моста» | «привод переднего моста» | 31 — Передний мост |
+| «Редуктор заднего моста» | «редуктор главной передачи» | 33 — Задний мост |
+
+This rule applies to complete assemblies on BMW X-series vehicles, not covers, seals, or non-X models. It takes precedence over broad search for these terms. Open the vehicle-specific diagram only after verifying the named assembly on it; if it cannot be verified unambiguously, offer a manager instead of substituting another part or axle. Do not hardcode the screenshot’s OEMs or diagram positions. See [the terminology rules](<lib/xDifferential.js>), [chat routing](<api/chat.js>), and [offline regression tests](<scripts/test-x-differential.js>).
+
+### BMW front lower control arm — X5 G05 40dX confirmed live
+
+Dialog turns #1238/#1257 offered unrelated groups, and #1263/#1266 reached the manager without a diagram. After an exact-name miss for «продольный нижний рычаг передний», search «поперечный рычаг передний», then «поперечный рычаг». Exclude dampers and upper/rear arms; verify the candidates in the selected vehicle’s group 31 diagram rather than requiring every search result to share the same unit reference and position. The owner’s live 40dX screenshot shows position 4 marked with «Левый» and «Правый» choices. The 40iX variation is covered by mocked tests; live confirmation was not supplied. Exported traces record search counts, eligible OEMs, and the group/position checks. See [control-arm regression tests](<scripts/test-front-lower-arm.js>).
+
+**Validation:** the last application test run passed **29/29** offline test files. This handoff update changes documentation only. The ABCP operating restrictions above are unchanged.
+
 ## Historical verification — Live ABCP session reuse and replacement (20.11.2026, 16:47 Moscow)
 
 - Production audit confirmed bounded session reuse and controlled replacement. The app’s tunnel authorization occurred at **15:42:31 Moscow**, then again at **16:44:13 Moscow**, approximately one hour later, matching the configured maximum context age. There was no rapid 4–5-second login burst and no repeated authorization during the intervening cycles.
