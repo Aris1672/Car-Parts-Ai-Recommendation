@@ -19,6 +19,7 @@ function harness(responses = {}, groups = true) {
       if (id === './progress') return { step() {}, quote: String };
       if (id === './normalize') return normalize;
       if (id === './laximoApi') return {};
+      if (id === './xDifferential') return require('../lib/xDifferential');
       throw new Error('Unexpected dependency: ' + id);
     },
     async mockDetails(vehicle, query) {

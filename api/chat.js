@@ -82,6 +82,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const laximo = require('../lib/laximo');
 const narrowing = require('../lib/narrowing');
 const knowledge = require('../lib/knowledge');
+const xDifferential = require('../lib/xDifferential');
 const diagramToken = require('../lib/diagramToken');
 const abcpOrders = require('../lib/abcpOrders');
 const abcpPrices = require('../lib/abcpPrices');
@@ -2231,6 +2232,34 @@ async function frontLowerArmView(st, item, lead) {
   return null;
 }
 
+async function xDifferentialView(st, item, lead) {
+  const rule = xDifferential.AXLES[item.differential];
+  const matches = row => xDifferential.normalize(row.name) === rule.query;
+  const parts = await laximo.searchByCatalogNames(st.schema, [rule.query]);
+  const candidates = new Set(parts.filter(matches).map(p => laximo.normalizeOem(p.oem)).filter(Boolean));
+  console.log('[laximo] X differential:', item.differential, rule.query, 'assembly OEMs:', [...candidates].join(',') || 'none');
+  const units = new Map();
+  for (const oem of candidates) {
+    for (const unit of await laximo.partUnits(st.schema, oem)) {
+      if (String(unit.group) === rule.group && unit.ref) units.set(unit.ref, unit);
+    }
+  }
+  const verified = new Map();
+  for (const unit of units.values()) {
+    const page = await laximo.unitPage(unit.ref);
+    if (!page?.image) continue;
+    const rows = (page.rows || []).filter(r => r.position && matches(r) && candidates.has(laximo.normalizeOem(r.oem)));
+    if (!rows.length) continue;
+    const oems = [...new Set(rows.map(r => laximo.normalizeOem(r.oem)))].sort();
+    verified.set(JSON.stringify([unit.unitCode || unit.ref, oems]), { unit, page, oems });
+  }
+  console.log('[laximo] X differential group', rule.group, 'verified diagrams:', verified.size);
+  if (verified.size !== 1) return null;
+  const { unit, page, oems } = verified.values().next().value;
+  return narrowUnitPageView(st, item, { code: rule.group, name: rule.groupName },
+    { code: unit.unitCode, name: unit.unitName, ref: unit.ref, oems }, lead, page);
+}
+
 const NARROW_NEXT = 'Готово, дальше';
 /** The unit diagram from its catalog page (whole unit, multi-select chips, the confirm flow). */
 async function narrowUnitPageView(st, item, g, u, lead, verifiedPage) {
@@ -2298,6 +2327,20 @@ async function narrowContinue(st, lead) {
       const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
       const intro = [lead, before, before ? '<<<AFTER>>>' : '', `В оригинальном каталоге вашего ${st.car} найдены точные варианты «${item.kw}». Какой нужен?`].filter(Boolean).join('\n\n');
       return `${intro}\n<<<BUTTONS>>>\n${JSON.stringify(labels)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+    }
+    if (item.differential) {
+      const before = done.map(d => d.text + '\n<<<PRODUCTS>>>\n' + JSON.stringify(d.cards) + '\n<<<END_PRODUCTS>>>').join('\n\n');
+      const intro = [lead, before, before ? '<<<AFTER>>>' : ''].filter(Boolean).join('\n');
+      if (item.differential === 'ask') {
+        st.cur = i; st.attr = 'differentialAxle'; st.question = 'Вам нужен редуктор переднего или заднего моста?';
+        st.options = Object.values(xDifferential.AXLES).map(rule => rule.label);
+        return (intro ? intro + '\n\n' : '') + st.question + '\n<<<BUTTONS>>>\n' + JSON.stringify(st.options) + '\n<<<END_BUTTONS>>>' + narrowing.stateBlock(st);
+      }
+      const reply = await xDifferentialView(st, item, intro).catch(err => { console.error('[laximo] X differential lookup failed:', err.message); return null; });
+      if (reply) return reply;
+      const next = i + 1 < st.items.length;
+      return (intro ? intro + '\n\n' : '') + 'Не удалось подтвердить схему редуктора выбранного моста в каталоге. Менеджер поможет проверить деталь по VIN.\n<<<MANAGER_BUTTON>>>'
+        + (next ? '\n<<<BUTTONS>>>\n' + JSON.stringify([NARROW_NEXT]) + '\n<<<END_BUTTONS>>>' + confirmBlock({ schema: st.schema, narrowRest: { ...st, cur: i + 1 } }) : '');
     }
     if (item.frontLowerArm) {
       const before = done.map(d => d.text + '\n<<<PRODUCTS>>>\n' + JSON.stringify(d.cards) + '\n<<<END_PRODUCTS>>>').join('\n\n');
@@ -2424,6 +2467,11 @@ async function narrowingStart(extracted, messages, outcome) {
     // Owner-approved everyday terms may designate a whole catalog unit rather
     // than a searchable part name (e.g. «шаровые опоры»). Resolve by the unit
     // title in this car, before broad word-search candidates can misroute it.
+    const differential = xDifferential.routeFor(res.vehicle, kw);
+    if (differential) {
+      items.push({ kw, cands: [], differential, routePending: true });
+      continue;
+    }
     const exactRows = res.parts.filter(p => p && p.oem && p.exactName && String(p.query || '').toLowerCase() === kw);
     if (!exactRows.length && String(res.vehicle.brand || '').toUpperCase() === 'BMW' && laximo.isFrontLowerArmAlias(kw)) {
       items.push({ kw, cands: [], frontLowerArm: true, routePending: true });
@@ -2521,6 +2569,18 @@ async function narrowingFollowUp(messages) {
   if (!st || !Array.isArray(st.items) || !st.attr) return null;
   const u = String(lastUserMessage(messages) || '').trim();
   const step = { question: st.question, options: st.options || [] };
+  if (st.attr === 'differentialAxle') {
+    const axle = xDifferential.axleFor(u, true);
+    if (axle === 'front' || axle === 'rear') {
+      st.items[st.cur].differential = axle;
+      delete st.attr; delete st.question; delete st.options;
+      return narrowContinue(st, '');
+    }
+    if (/^(?:не знаю|редуктор)[.!? ]*$/i.test(u)) {
+      return st.question + '\n<<<BUTTONS>>>\n' + JSON.stringify(step.options) + '\n<<<END_BUTTONS>>>' + narrowing.stateBlock(st);
+    }
+    return null; // unrelated request: let the main router handle it
+  }
   // An explanation is not a selection. Handle before the option mapper (and its timeout).
   const variants = require('../lib/variantQuestions');
   if (!narrowing.matchOption(u, step.options) && /менеджер|оператор|специалист/i.test(u)) {
