@@ -2169,36 +2169,72 @@ async function narrowGroupStep(st, item, i, lead) {
   }
   return narrowUnitPageView(st, item, g, u, lead);
 }
+function frontLowerArmRow(p) {
+  const name = String(p.name || '').trim();
+  return /^поп(?:еречный|ер\.|\.)\s*рычаг(?:\s|$)/i.test(name)
+    && !/(?:^|[^а-яё])(?:верх[а-яё]*|задн[а-яё]*|вх|зд)(?=$|[^а-яё])/i.test(name);
+}
+
 async function frontLowerArmView(st, item, lead) {
   const group = { code: '31', name: 'Передний мост' };
-  const units = new Map();
-  const found = new Set();
+  const applicability = new Map();
+  const pages = new Map();
   for (const query of ['поперечный рычаг передний', 'поперечный рычаг']) {
-    const parts = await laximo.searchByCatalogNames(st.schema, [query]);
-    for (const p of parts) {
-      if (!/^поперечный\s+рычаг(?:\s|$)/i.test(p.name || '') || /(?:^|[\s.])(верх\S*|задн\S*|вх|зд)(?=$|[\s.])/i.test(p.name)) continue;
-      const oem = laximo.normalizeOem(p.oem);
-      for (const u of await laximo.partUnits(st.schema, oem)) {
-        if (u.group !== group.code || !u.ref) continue;
-        if (!units.has(u.ref)) units.set(u.ref, { code: u.unitCode, name: u.unitName, ref: u.ref, oems: new Set() });
-        units.get(u.ref).oems.add(oem);
-        found.add(oem);
+    const parts = await laximo.searchByCatalogNames(st.schema, [query], frontLowerArmRow);
+    const candidates = new Set(parts.filter(frontLowerArmRow).map(p => laximo.normalizeOem(p.oem)).filter(Boolean));
+    console.log('[laximo] front arm search:', query, 'eligible OEMs:', [...candidates].join(',') || 'none');
+    const units = new Map();
+    for (const oem of candidates) {
+      if (!applicability.has(oem)) applicability.set(oem, await laximo.partUnits(st.schema, oem));
+      const matching = applicability.get(oem).filter(u => String(u.group) === group.code && u.ref);
+      console.log('[laximo] front arm group 31:', oem, matching.map(u => u.unitCode).join(',') || 'none');
+      for (const u of matching) units.set(u.ref, u);
+    }
+    const verified = new Map();
+    for (const u of units.values()) {
+      if (!pages.has(u.ref)) pages.set(u.ref, await laximo.unitPage(u.ref).catch(err => {
+        console.warn('[laximo] front arm diagram read failed:', u.unitCode, err.message);
+        return null;
+      }));
+      const page = pages.get(u.ref);
+      if (!page?.image || !page.rows?.length) {
+        console.log('[laximo] front arm diagram unavailable:', u.unitCode);
+        continue;
+      }
+      const positions = new Map();
+      const requestedSide = sideOf({ name: item.kw });
+      for (const row of page.rows) {
+        const oem = laximo.normalizeOem(row.oem);
+        const position = String(row.position || '').trim().replace(/^0+(?=\d)/, '');
+        if (!position || !candidates.has(oem)) continue;
+        if (!positions.has(position)) positions.set(position, new Map());
+        positions.get(position).set(oem, { ...row, oem });
+      }
+      console.log('[laximo] front arm diagram:', u.unitCode, [...positions].map(([pos, rows]) => pos + ':' + [...rows.keys()].join(',')).join(' ') || 'no matching positions');
+      for (const [position, rows] of positions) {
+        const sides = new Set([...rows.values()].map(sideOf).filter(Boolean));
+        if (requestedSide && !sides.has(requestedSide)) continue;
+        const score = sides.size === 2 ? 2 : 1;
+        const key = JSON.stringify([u.unitCode || u.ref, position, [...rows.keys()].sort()]);
+        if (!verified.has(key)) verified.set(key, { u, page, oems: [...rows.keys()], position, score });
       }
     }
-    if (found.size) break;
-  }
-  for (const u of units.values()) {
-    if (u.oems.size !== found.size) continue;
-    const reply = await narrowUnitPageView(st, item, group, { ...u, oems: [...u.oems] }, lead);
-    if (reply) return reply;
+    const ranked = [...verified.values()].sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    if (best && ranked[1]?.score !== best.score && (best.score === 2 || query === 'поперечный рычаг')) {
+      const { u, page, oems, position } = best;
+      const reply = await narrowUnitPageView(st, item, group, { code: u.unitCode, name: u.unitName, ref: u.ref, oems, armPosition: position }, lead, page);
+      if (reply) return reply;
+    }
+    console.log('[laximo] front arm search unresolved:', query, 'verified choices:', ranked.length);
   }
   return null;
 }
 
 const NARROW_NEXT = 'Готово, дальше';
 /** The unit diagram from its catalog page (whole unit, multi-select chips, the confirm flow). */
-async function narrowUnitPageView(st, item, g, u, lead) {
-  const page = await laximo.unitPage(u.ref).catch(err => { console.error('[narrow] unit page failed:', err.message); return null; });
+async function narrowUnitPageView(st, item, g, u, lead, verifiedPage) {
+  const page = verifiedPage || await laximo.unitPage(u.ref).catch(err => { console.error('[narrow] unit page failed:', err.message); return null; });
   if (!page || !page.image || !page.rows.length) return null;
   const seen = new Set();
   const pos = x => { const t = String(x || '').trim(); return /^\d+$/.test(t) ? String(Number(t)) : t; };
@@ -2207,7 +2243,7 @@ async function narrowUnitPageView(st, item, g, u, lead) {
   if (!rows.length) return null;
   const ru = await translateForeignNames(rows.map(r => r.name));
   rows.forEach(r => { if (ru.has(r.name)) r.name = ru.get(r.name); });
-  const armRows = item.frontLowerArm ? rows.filter(r => u.oems.includes(r.oem)) : [];
+  const armRows = item.frontLowerArm ? rows.filter(r => r.position === u.armPosition && u.oems.includes(r.oem)) : [];
   if (item.frontLowerArm && (new Set(armRows.map(r => r.oem)).size !== u.oems.length || new Set(armRows.map(r => r.position)).size !== 1)) return null;
   const requestedArmSide = item.frontLowerArm && sideOf({ name: item.kw });
   const selectableArms = requestedArmSide ? armRows.filter(r => sideOf(r) === requestedArmSide) : armRows;
@@ -2266,7 +2302,7 @@ async function narrowContinue(st, lead) {
     if (item.frontLowerArm) {
       const before = done.map(d => d.text + '\n<<<PRODUCTS>>>\n' + JSON.stringify(d.cards) + '\n<<<END_PRODUCTS>>>').join('\n\n');
       const intro = [lead, before, before ? '<<<AFTER>>>' : ''].filter(Boolean).join('\n');
-      const reply = await frontLowerArmView(st, item, intro).catch(err => { console.error('[narrow] front arm route failed:', err.message); return null; });
+      const reply = await frontLowerArmView(st, item, intro).catch(err => { console.error('[laximo] front arm route failed:', err.message); return null; });
       if (reply) return reply;
       const next = i + 1 < st.items.length;
       return (intro ? intro + '\n\n' : '') + 'Не удалось подтвердить нужный передний рычаг и его схему по каталогу. Менеджер поможет проверить деталь по VIN.\n<<<MANAGER_BUTTON>>>'
@@ -2877,7 +2913,7 @@ async function confirmFollowUp(messages) {
   if (st.armChoices) {
     const label = narrowing.matchOption(u, Object.keys(st.armChoices));
     const armOems = Object.values(st.armChoices);
-    const picks = (st.positions || []).filter(r => armOems.includes(r.oem) && (!label || r.oem === st.armChoices[label]));
+    const picks = (st.positions || []).filter(r => r.position === st.position && armOems.includes(r.oem) && (!label || r.oem === st.armChoices[label]));
     const asksArmPosition = multi?.some(p => Number(p) === Number(st.position))
       || (ans.yes || ans.num) && Number(ans.num || st.position) === Number(st.position);
     if (!label && asksArmPosition) {
