@@ -2169,6 +2169,32 @@ async function narrowGroupStep(st, item, i, lead) {
   }
   return narrowUnitPageView(st, item, g, u, lead);
 }
+async function frontLowerArmView(st, item, lead) {
+  const group = { code: '31', name: 'Передний мост' };
+  const units = new Map();
+  const found = new Set();
+  for (const query of ['поперечный рычаг передний', 'поперечный рычаг']) {
+    const parts = await laximo.searchByCatalogNames(st.schema, [query]);
+    for (const p of parts) {
+      if (!/^поперечный\s+рычаг(?:\s|$)/i.test(p.name || '') || /(?:^|[\s.])(верх\S*|задн\S*|вх|зд)(?=$|[\s.])/i.test(p.name)) continue;
+      const oem = laximo.normalizeOem(p.oem);
+      for (const u of await laximo.partUnits(st.schema, oem)) {
+        if (u.group !== group.code || !u.ref) continue;
+        if (!units.has(u.ref)) units.set(u.ref, { code: u.unitCode, name: u.unitName, ref: u.ref, oems: new Set() });
+        units.get(u.ref).oems.add(oem);
+        found.add(oem);
+      }
+    }
+    if (found.size) break;
+  }
+  for (const u of units.values()) {
+    if (u.oems.size !== found.size) continue;
+    const reply = await narrowUnitPageView(st, item, group, { ...u, oems: [...u.oems] }, lead);
+    if (reply) return reply;
+  }
+  return null;
+}
+
 const NARROW_NEXT = 'Готово, дальше';
 /** The unit diagram from its catalog page (whole unit, multi-select chips, the confirm flow). */
 async function narrowUnitPageView(st, item, g, u, lead) {
@@ -2181,16 +2207,26 @@ async function narrowUnitPageView(st, item, g, u, lead) {
   if (!rows.length) return null;
   const ru = await translateForeignNames(rows.map(r => r.name));
   rows.forEach(r => { if (ru.has(r.name)) r.name = ru.get(r.name); });
-  const marked = u.oems.length === 1 ? rows.find(r => r.oem === laximo.normalizeOem(u.oems[0])) : null;
+  const armRows = item.frontLowerArm ? rows.filter(r => u.oems.includes(r.oem)) : [];
+  if (item.frontLowerArm && (new Set(armRows.map(r => r.oem)).size !== u.oems.length || new Set(armRows.map(r => r.position)).size !== 1)) return null;
+  const requestedArmSide = item.frontLowerArm && sideOf({ name: item.kw });
+  const selectableArms = requestedArmSide ? armRows.filter(r => sideOf(r) === requestedArmSide) : armRows;
+  if (item.frontLowerArm && !selectableArms.length) return null;
+  const marked = armRows.find(r => r.box) || armRows[0] || (u.oems.length === 1 ? rows.find(r => r.oem === laximo.normalizeOem(u.oems[0])) : null);
+  const armChoices = item.frontLowerArm ? Object.fromEntries(selectableArms.map(r => {
+    const side = sideOf(r);
+    return [side === 'L' ? 'Левый' : side === 'R' ? 'Правый' : r.name, r.oem];
+  }).map(([label, oem], _, pairs) => [pairs.filter(([x]) => x === label).length > 1 ? label + ' (' + oem + ')' : label, oem])) : null;
   if (item.exactSelected && !marked) return null; // never substitute another row if the chosen OEM disappeared
   const base = marked || rows[0];
   const selectedVariant = item.exactSelected && marked ? { position: marked.position, oem: marked.oem } : null;
   const unitName = u.name || page.unitName;
   const cst = { oem: base.oem, name: base.name, position: marked ? marked.position : null, unit: unitName,
     schema: { ...st.schema, number: base.oem, unit: unitName }, car: st.car, ask: item.kw, allPositions: true,
-    positions: rows.map(({ box, ...r }) => r), image: page.image, ...(selectedVariant ? { selectedVariant } : {}), ...(marked ? { multi: true } : { noMarker: true }) };
+    positions: rows.map(({ box, ...r }) => r), image: page.image, ...(armChoices ? { armChoices } : {}), ...(selectedVariant ? { selectedVariant } : {}), ...(marked ? { multi: true } : { noMarker: true }) };
   const buttonRows = selectedVariant ? rows.filter(r => r.position !== selectedVariant.position || r.oem === selectedVariant.oem) : rows;
   let buttons = [...new Map(buttonRows.map(r => [r.position, `${r.position} — ${r.name}`.slice(0, 60)])).values()].slice(0, 30);
+  if (armChoices) buttons = [...Object.keys(armChoices), ...buttons];
   // Other parts of the list still waiting: the rest goes with the unit state; «Готово, дальше» moves on.
   const idx = st.items.indexOf(item);
   if (idx >= 0 && idx < st.items.length - 1) {
@@ -2201,7 +2237,7 @@ async function narrowUnitPageView(st, item, g, u, lead) {
   }
   const big = { image: page.image, unit: unitName, ...(marked && marked.box ? { box: marked.box } : {}) };
   console.log(`[narrow] «${item.kw}»: group ${g.code} -> unit «${unitName}» (${u.code}), ${rows.length} position(s)${marked ? `, marked ${marked.oem}` : ''}`);
-  const what = marked ? ` Отмечена деталь «${marked.name}».` : '';
+  const what = armChoices ? ` Отмечена позиция ${marked.position}. Выберите сторону рычага.` : marked ? ` Отмечена деталь «${marked.name}».` : '';
   return `${lead ? lead + ' ' : ''}Вот схема узла «${unitName}» (группа ${g.code} ${g.name}) для вашего ${st.car}.${what} Отметьте нужные позиции (можно несколько) и нажмите «Подобрать выбранное» — или напишите номера числами.`
     + `\n<<<UNIT_DIAGRAM>>>\n${JSON.stringify(big)}\n<<<END_UNIT_DIAGRAM>>>`
     + `\n<<<BUTTONS>>>\n${JSON.stringify(unitButtons(cst, buttons))}\n<<<END_BUTTONS>>>` + confirmBlock(cst);
@@ -2226,6 +2262,15 @@ async function narrowContinue(st, lead) {
       const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
       const intro = [lead, before, before ? '<<<AFTER>>>' : '', `В оригинальном каталоге вашего ${st.car} найдены точные варианты «${item.kw}». Какой нужен?`].filter(Boolean).join('\n\n');
       return `${intro}\n<<<BUTTONS>>>\n${JSON.stringify(labels)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
+    }
+    if (item.frontLowerArm) {
+      const before = done.map(d => d.text + '\n<<<PRODUCTS>>>\n' + JSON.stringify(d.cards) + '\n<<<END_PRODUCTS>>>').join('\n\n');
+      const intro = [lead, before, before ? '<<<AFTER>>>' : ''].filter(Boolean).join('\n');
+      const reply = await frontLowerArmView(st, item, intro).catch(err => { console.error('[narrow] front arm route failed:', err.message); return null; });
+      if (reply) return reply;
+      const next = i + 1 < st.items.length;
+      return (intro ? intro + '\n\n' : '') + 'Не удалось подтвердить нужный передний рычаг и его схему по каталогу. Менеджер поможет проверить деталь по VIN.\n<<<MANAGER_BUTTON>>>'
+        + (next ? '\n<<<BUTTONS>>>\n' + JSON.stringify([NARROW_NEXT]) + '\n<<<END_BUTTONS>>>' + confirmBlock({ schema: st.schema, narrowRest: { ...st, cur: i + 1 } }) : '');
     }
     const route = !item.exactName && knowledge.catalogRoute(item.kw);
     if (route && !item.catalogRouteResolved) {
@@ -2344,6 +2389,10 @@ async function narrowingStart(extracted, messages, outcome) {
     // than a searchable part name (e.g. «шаровые опоры»). Resolve by the unit
     // title in this car, before broad word-search candidates can misroute it.
     const exactRows = res.parts.filter(p => p && p.oem && p.exactName && String(p.query || '').toLowerCase() === kw);
+    if (!exactRows.length && String(res.vehicle.brand || '').toUpperCase() === 'BMW' && laximo.isFrontLowerArmAlias(kw)) {
+      items.push({ kw, cands: [], frontLowerArm: true, routePending: true });
+      continue;
+    }
     const route = !exactRows.length && knowledge.catalogRoute(kw);
     if (route) {
       items.push({ kw, cands: [], asked: [], text: String(text).slice(0, 300), fromKb: true, routePending: true });
@@ -2824,6 +2873,21 @@ async function confirmFollowUp(messages) {
     return narrowContinue(st.narrowRest, 'Следующая деталь.');
   }
   const ans = parseConfirmAnswer(u);
+  const multi = (st.noMarker || st.multi) && /^[\d\s,;.и-]+$/i.test(u) ? [...new Set(u.match(/\d{1,3}/g) || [])] : null;
+  if (st.armChoices) {
+    const label = narrowing.matchOption(u, Object.keys(st.armChoices));
+    const armOems = Object.values(st.armChoices);
+    const picks = (st.positions || []).filter(r => armOems.includes(r.oem) && (!label || r.oem === st.armChoices[label]));
+    const asksArmPosition = multi?.some(p => Number(p) === Number(st.position))
+      || (ans.yes || ans.num) && Number(ans.num || st.position) === Number(st.position);
+    if (!label && asksArmPosition) {
+      return 'Уточните сторону рычага:' + '\n<<<BUTTONS>>>\n' + JSON.stringify(withNext(st, Object.keys(st.armChoices))) + '\n<<<END_BUTTONS>>>' + confirmBlock(st);
+    }
+    if (label && picks.length) {
+      const cards = await confirmCards(picks, st);
+      return picks[0].name + '\n<<<PRODUCTS>>>\n' + JSON.stringify(cards) + '\n<<<END_PRODUCTS>>>' + unitRestBlock(st, st.positions, [st.position]);
+    }
+  }
   console.log(`[confirm] answer «${u.slice(0, 40)}»: ${JSON.stringify(ans)}`);
   // A number wins over «да» («Да 3» = position 3); «да» alone = the marked part.
   if (ans.yes && !ans.num) {
@@ -2870,7 +2934,6 @@ async function confirmFollowUp(messages) {
   }
   // Whole-unit request (#501): several positions at once («2, 10», «2 и 10») and the
   // position buttons stay after each card, so more parts of the unit can be added.
-  const multi = (st.noMarker || st.multi) && /^[\d\s,;.и-]+$/i.test(u) ? [...new Set(u.match(/\d{1,3}/g) || [])] : null;
   if (multi && multi.length > 1) {
     const rs = await loadRows();
     const hit = rs.filter(r => chosenVariant(r) && multi.some(n => r.position === String(Number(n)) || r.position === n));

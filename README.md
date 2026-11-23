@@ -1,8 +1,13 @@
 # Car Parts AI Recommendation Chat Agent
 
-## Start here — ABCP HTTP 429; awaiting support (21.11.2026, 19:06 Moscow)
+## Start here — ABCP prohibits control-panel bots (22.11.2026, 23:52 Moscow)
 
-**First step in a new session: ask whether ABCP support has replied.** The owner sent the ticket on Saturday, 21 November. Support is expected back Monday, 23 November; that date is not permission to retry. No reply has been received as of this handoff.
+**Start the next session with the supported API and manual workflow.** ABCP support replied that third-party bots are prohibited in the control panel (ПУ) and that ABCP does not plan to support them. Do not resume or probe control-panel browser automation, including guest transfers, payment-link sends, and reminders. A cleared rate limit would not change this policy.
+
+### What support confirmed
+
+- No official API operation changes the customer on an existing order. `cp/user/new` creates a client but does not move a guest order. Staff must transfer the order manually in the control panel, where they can also create the client as part of the operation. Do not create a client separately just to try to move a guest order.
+- API coverage does not mirror the panel. The reply did not identify the scope or duration of the HTTP 429, or confirm an API alternative for payment messages or order-level payment verification. Do not treat those capabilities as supported without separate confirmation.
 
 ### Production state — keep unchanged
 
@@ -13,19 +18,17 @@ ORDER_AUTOPILOT_DRY_RUN=1
 PREPAYMENT_REMINDERS_ENABLED=0
 ```
 
-Keep API-only logistics running and handle urgent orders through the normal manual workflow. Do not run another browser probe, restart to clear backoff, change the proxy to get around the limit, reset history, or retry uncertain actions. Preserve the configured cutoffs and audit records.
+Keep API-only logistics running. Handle guest transfers, payment requests, and reminders manually through normal staff procedures until there is a confirmed supported alternative. Preserve cutoffs, audit history, and reminder records. Do not retry uncertain actions or reset history. Before any future supported automation, reconcile orders handled manually to avoid duplicates.
 
-### What we know
+### Incident evidence
 
-- The earlier watcher pass selected 13 candidates, but browser work was already in local backoff. No transfer or send was reported; API logistics completed. The initiating error was not found in the previous Coolify logs.
-- The containment patch is deployed: `node scripts/test-abcp-watcher-containment.js` passed **5/5** inside Coolify. It stops browser work after a shared failure and reports a sanitized reason and backoff deadline. Offline tests do not establish live browser access.
-- A single supervised read-only probe of the ABCP control-panel orders page (`cp.abcp.ru`) from tunnel egress `199.189.249.4` returned `orders_read: STOP http_429`. It did not submit credentials, transfer orders, or send messages. This confirms rate limiting of that request, **not** an account-wide block or the cause of the earlier cooldown. The scope and duration are unknown. API-only logistics was still working; the paused redeploy processed 1,627 active orders without browser actions in the supplied logs.
+- The original failed watcher pass selected 13 candidates but was already in local backoff; no transfer or send was reported, and API logistics completed. The triggering error was not found in the earlier Coolify logs.
+- The deployed watcher containment tests passed **5/5**. A subsequent read-only orders-page probe returned HTTP 429 without submitting credentials or changing orders. This confirms rate limiting of that request, not an account-wide block.
 
-### Resume only after support guidance
+### Next design step
 
-1. Read and record ABCP’s reply: what was limited (IP, account, or endpoint), when it is safe to retry, whether panel automation is supported, and what official API or supported workflow is available. The ticket identifies BMW Club77 (`bmwclub77.ru`, shop ID 2319) and describes guest-to-client transfer, one 2,000 ₽ prepayment request, and at most one reminder after 65 minutes if still unpaid.
-2. If ABCP confirms it is safe and the advised wait has elapsed, run **one supervised read-only orders-page check** with the pause flags unchanged and no credential submission. If it returns 429, another refusal, or `session_not_authenticated`, stop and inspect; do not keep probing or enable live mode.
-3. Before any live rollout, reconcile orders handled manually while paused so customers do not receive duplicate requests. Confirm the effective cutoff and keep reminders paused until their rollout is reviewed separately. A successful read alone is not approval to resume live sends.
+Keep read-only API monitoring and use it to surface orders needing staff action. Review documented payment APIs separately if desired; do not assume link generation, delivery, or payment matching are interchangeable. Historical rollout instructions below are evidence only, not permission to resume browser automation.
+
 
 ## Historical verification — Live ABCP session reuse and replacement (20.11.2026, 16:47 Moscow)
 
