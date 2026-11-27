@@ -6,7 +6,7 @@ const vm = require('vm');
 const source = fs.readFileSync(path.join(__dirname, '../lib/laximo.js'), 'utf8');
 const normalize = require('../lib/normalize');
 
-function harness(responses = {}, groups = true) {
+function harness(responses = {}, groups = true, oilUnits = []) {
   const calls = [];
   const sandbox = {
     module: { exports: {} }, console: { log() {}, error() {} },
@@ -28,9 +28,10 @@ function harness(responses = {}, groups = true) {
       if (response instanceof Error) throw response;
       return response || [];
     },
-    async mockTree() { calls.push('<groups>'); return []; },
+    async mockTree() { calls.push('<groups>'); return oilUnits.length ? [{ gid: '2', name: 'Фильтр масляный' }] : []; },
+    async mockGroupPage() { calls.push('<oil filter group>'); return { units: oilUnits }; },
   };
-  vm.runInNewContext(source + '\nsearchDetails = mockDetails; getGroupTree = mockTree; module.exports._blockGroups = () => { getGroupTree = async () => { throw new LaximoSkip("blocked fixture"); }; };', sandbox);
+  vm.runInNewContext(source + '\nsearchDetails = mockDetails; getGroupTree = mockTree; getGroupPage = mockGroupPage; module.exports._blockGroups = () => { getGroupTree = async () => { throw new LaximoSkip("blocked fixture"); }; };', sandbox);
   return { L: sandbox.module.exports, calls };
 }
 const row = (oem, name) => ({ oem, name, position: '03', qty: '2', notes: { fit: 'original' },
@@ -99,6 +100,17 @@ const list = value => Array.from(value);
   assert.ok(found.every(r => r.exactName));
   assert.strictEqual(found.searchFailed, true);
   console.log('PASS unrelated fallback interruption preserves successful exact evidence');
+
+  const oil = 'масляный фильтр';
+  const bareOilRow = { ...row('11421111111', 'Масляный фильтр'), unit: null };
+  h = harness({ [oil]: [bareOilRow] }, true, [{ name: 'ТО по регл. Oelservice / Inspektion', rows: [bareOilRow], filters: [] }]);
+  found = await h.L.searchPartsForVehicle({ ...vehicle, brand: 'BMW' }, [oil], {}, null, { narrow: true });
+  assert.deepStrictEqual(h.calls.slice(0, 3), [oil, '<groups>', '<oil filter group>']);
+  assert.strictEqual(found.length, 1);
+  assert.strictEqual(found[0].oem, bareOilRow.oem);
+  assert.strictEqual(found[0].viaGroup, true);
+  assert.ok(h.L.isOilFilterElement(found[0]), 'a bare name in the service unit is a verified element');
+  console.log('PASS ambiguous exact oil-filter name keeps searching for vehicle-specific service evidence');
 
   for (const error of [new Error('catalog unavailable'), Object.assign(new Error('timeout'), { name: 'AbortError' })]) {
     h = harness({ [kw]: error });

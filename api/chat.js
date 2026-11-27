@@ -2311,8 +2311,21 @@ async function narrowUnitPageView(st, item, g, u, lead, verifiedPage) {
 /** Walk the items: cards for the resolved ones, the next question for the first open one. */
 async function narrowContinue(st, lead) {
   const done = [];
+  const resultsText = (instruction = '') => {
+    const text = [...done.map(d => d.text), instruction].filter(Boolean).join('\n');
+    const cards = done.flatMap(d => d.cards);
+    return cards.length ? `${text}\n<<<PRODUCTS>>>\n${JSON.stringify(cards)}\n<<<END_PRODUCTS>>>` : text;
+  };
   for (let i = st.cur || 0; i < st.items.length; i++) {
     const item = st.items[i];
+    // Older conversations can carry an empty oil-filter item in their saved unit state.
+    if (LAXIMO_ENABLED && !item.cands.length && laximo.isBmwOilFilterRequest(st.car, item.kw)) {
+      const rows = await laximo.searchByCatalogNames(st.schema, laximo.OIL_FILTER_ELEMENT_NAMES, laximo.isOilFilterElement).catch(err => {
+        console.error('[narrow] oil filter lookup failed:', err.message);
+        return [];
+      });
+      item.cands = rows.map(narrowing.compact);
+    }
     // GROUP-FIRST (owner 10.11, the manager's way): the search rows' catalog groups -> group
     // question by the catalog's group names (or the customer's context) -> unit -> unit diagram.
     // Lists too (owner 10.11: the new logic everywhere): items are handled one by one; cards of
@@ -2324,12 +2337,12 @@ async function narrowContinue(st, lead) {
       st.cur = i; st.attr = 'exactpick'; st.question = 'Какой вариант нужен?';
       st.options = labels;
       st.exactPickMap = Object.fromEntries(labels.map((label, k) => [label, item.cands[k].oem]));
-      const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
+      const before = resultsText();
       const intro = [lead, before, before ? '<<<AFTER>>>' : '', `В оригинальном каталоге вашего ${st.car} найдены точные варианты «${item.kw}». Какой нужен?`].filter(Boolean).join('\n\n');
       return `${intro}\n<<<BUTTONS>>>\n${JSON.stringify(labels)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
     }
     if (item.differential) {
-      const before = done.map(d => d.text + '\n<<<PRODUCTS>>>\n' + JSON.stringify(d.cards) + '\n<<<END_PRODUCTS>>>').join('\n\n');
+      const before = resultsText();
       const intro = [lead, before, before ? '<<<AFTER>>>' : ''].filter(Boolean).join('\n');
       if (item.differential === 'ask') {
         st.cur = i; st.attr = 'differentialAxle'; st.question = 'Вам нужен редуктор переднего или заднего моста?';
@@ -2343,7 +2356,7 @@ async function narrowContinue(st, lead) {
         + (next ? '\n<<<BUTTONS>>>\n' + JSON.stringify([NARROW_NEXT]) + '\n<<<END_BUTTONS>>>' + confirmBlock({ schema: st.schema, narrowRest: { ...st, cur: i + 1 } }) : '');
     }
     if (item.frontLowerArm) {
-      const before = done.map(d => d.text + '\n<<<PRODUCTS>>>\n' + JSON.stringify(d.cards) + '\n<<<END_PRODUCTS>>>').join('\n\n');
+      const before = resultsText();
       const intro = [lead, before, before ? '<<<AFTER>>>' : ''].filter(Boolean).join('\n');
       const reply = await frontLowerArmView(st, item, intro).catch(err => { console.error('[laximo] front arm route failed:', err.message); return null; });
       if (reply) return reply;
@@ -2377,7 +2390,7 @@ async function narrowContinue(st, lead) {
       }
       if (!item.groups) item.groups = await narrowGroups(st, item).catch(err => { console.error('[narrow] groups failed:', err.message); return []; });
       if (item.groups && item.groups.length) {
-        const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
+        const before = resultsText();
         const multi = st.items.length > 1 ? `(деталь ${i + 1} из ${st.items.length}) ` : '';
         // The cards of the resolved items first, the next question after them (<<<AFTER>>>, #574).
         const lead2 = [[lead, before].filter(Boolean).join('\n\n'), before ? '<<<AFTER>>>' : '', multi.trim()].filter(Boolean).join('\n');
@@ -2388,6 +2401,10 @@ async function narrowContinue(st, lead) {
     }
     const step = item.gaveUp ? { done: true, pick: item.cands.slice(0, narrowing.MAX_CARDS), gaveUp: true } : narrowing.nextStep(item);
     if (step.done) {
+      if (!step.pick.length) {
+        done.push({ text: `Не удалось подтвердить деталь «${item.kw}» по оригинальному каталогу. Менеджер поможет с подбором.\n<<<MANAGER_BUTTON>>>`, cards: [] });
+        continue;
+      }
       const cards = await narrowCards(st, step.pick);
       const kw = item.kw;
       const text = step.gaveUp ? `«${kw}» — все подходящие варианты со схемами${item.cands.length > step.pick.length ? ` (первые ${step.pick.length} из ${item.cands.length})` : ''}. Выберите по картинке.`
@@ -2400,18 +2417,15 @@ async function narrowContinue(st, lead) {
     }
     st.cur = i; st.attr = step.attr; st.question = step.question; st.options = step.options;
     console.log(`[narrow] «${item.kw}»: ${item.cands.length} candidate(s) -> ask ${step.attr}: ${step.options.join(' | ')}`);
-    const before = done.map(d => `${d.text}\n<<<PRODUCTS>>>\n${JSON.stringify(d.cards)}\n<<<END_PRODUCTS>>>`).join('\n\n');
+    const before = resultsText();
     const multi = st.items.length > 1 ? ` (деталь ${i + 1} из ${st.items.length})` : '';
     const nForms = k => (k % 10 === 1 && k % 100 !== 11 ? 'вариант' : k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 12 || k % 100 > 14) ? 'варианта' : 'вариантов');
     const intro = !before && !(item.asked || []).length ? `В оригинальном каталоге для вашего ${st.car} по запросу «${item.kw}» — ${item.cands.length} ${nForms(item.cands.length)}. Уточню, какой нужен.\n` : '';
     return `${lead ? lead + '\n\n' : ''}${before ? before + '\n<<<AFTER>>>\n' : ''}${intro}${step.question}${multi}`
       + `\n<<<BUTTONS>>>\n${JSON.stringify(step.options)}\n<<<END_BUTTONS>>>` + narrowing.stateBlock(st);
   }
-  // Everything resolved. Several products blocks: the widget shows one -> merge into one.
-  const allCards = done.flatMap(d => d.cards);
-  const text = done.map(d => d.text).join('\n');
-  return `${lead ? lead + '\n\n' : ''}${text}\nОткройте карточку, выберите предложение по цене и сроку и добавьте в корзину.`
-    + `\n<<<PRODUCTS>>>\n${JSON.stringify(allCards)}\n<<<END_PRODUCTS>>>`;
+  const instruction = done.some(d => d.cards.length) ? 'Откройте карточку, выберите предложение по цене и сроку и добавьте в корзину.' : '';
+  return [lead, resultsText(instruction)].filter(Boolean).join('\n\n');
 }
 /**
  * Knowledge base step (owner 10.11, knowledge/bmw-parts.md): the customer DESCRIBES the part or
@@ -2495,10 +2509,12 @@ async function narrowingStart(extracted, messages, outcome) {
     let rows = res.parts.filter(p => p && p.oem && !p.crossSell && String(p.query || '').toLowerCase().split(/\s*,\s*/).some(q => q === kw || (padsAsked && /колодк/.test(kw) && /накладк/.test(q))));
     // Brake pads are BMW main group 34 (not «Накладка порога», «дизайн. накладки», #531-535).
     if (/колодк/.test(kw)) rows = rows.filter(p => narrowing.groupOf(p.oem) === '34');
-    if (!rows.length) continue;
+    const oilFilter = laximo.isBmwOilFilterRequest(res.vehicle.brand, kw);
+    if (!rows.length && !oilFilter) continue;
     const vocab = (extracted.partSearchNames || {})[kw] || [];
     const fixed = rows.filter(p => p.fixedName); // names-table rows (owner's pairs) = the asked part
-    if (exactRows.length) rows = exactRows;
+    if (oilFilter) rows = (exactRows.length ? exactRows : rows).filter(laximo.isOilFilterElement);
+    else if (exactRows.length) rows = exactRows;
     else if (fixed.length) rows = fixed;
     else {
       // The customer's own word first; the AI's search words only when no row has it (10.11 #556:
@@ -2510,13 +2526,15 @@ async function narrowingStart(extracted, messages, outcome) {
     // The keyword carries the customer's words from an earlier message («Задние тормозные колодки»,
     // then only the VIN -- 10.11 #552), the last message may add more.
     const cands = narrowing.applyRequestWords(rows, `${kw} ${text}`, kw).filter(p => { const k = laximo.normalizeOem(p.oem); if (seen.has(k)) return false; seen.add(k); return true; }).map(narrowing.compact);
-    items.push({ kw, cands, asked: [], ...(exactRows.length ? { exactName: true } : {}), text: String(text).slice(0, 300) });
+    if (!cands.length && kws.length === 1 && !oilFilter) continue;
+    items.push({ kw, cands, asked: [], ...(exactRows.length && cands.length ? { exactName: true } : {}), text: String(text).slice(0, 300) });
     console.log(`[narrow] «${kw}»: ${rows.length} row(s) of the asked part, ${cands.length} after the request words`);
   }
   // Synonym keywords («тормозные колодки» + «накладки») found the same rows: keep the first.
   // The request itself matches an approved knowledge entry («воздуховод до фильтра»): its catalog
   // name decides (the word search for «воздуховод» never finds «Впускной канал»).
-  if (kws.length === 1 && !items.some(it => it.schemaRule || it.exactName || it.routePending) && narrowing.stateOf(messages) == null) {
+  if (kws.length === 1 && !laximo.isBmwOilFilterRequest(res.vehicle.brand, kws[0])
+    && !items.some(it => it.schemaRule || it.exactName || it.routePending) && narrowing.stateOf(messages) == null) {
     const kb = knowledge.select(`${kws[0]} ${text}`).filter(e => e.phrases.some(p => `${kws[0]} ${String(text).toLowerCase().replace(/ё/g, 'е')}`.includes(p)));
     if (kb.length) {
       const rs0 = (res.parts.find(p => p && p.schema && p.schema.vid) || {}).schema || {};
@@ -2530,7 +2548,8 @@ async function narrowingStart(extracted, messages, outcome) {
   }
   const out = [];
   for (const it of items) {
-    const identity = x => x.routePending ? `route:${x.kw}` : x.schemaRule ? `schema:${x.schemaRule}` : x.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',');
+    const identity = x => x.routePending ? `route:${x.kw}` : x.schemaRule ? `schema:${x.schemaRule}`
+      : x.cands.length ? x.cands.map(c => laximo.normalizeOem(c.oem)).sort().join(',') : `empty:${x.kw}`;
     const keys = identity(it);
     if (!out.some(o => identity(o) === keys)) out.push(it);
   }
