@@ -30,7 +30,13 @@ Keep API-only logistics running. Handle guest transfers, payment requests, and r
 Keep read-only API monitoring and use it to surface orders needing staff action. Review documented payment APIs separately if desired; do not assume link generation, delivery, or payment matching are interchangeable. Historical rollout instructions below are evidence only, not permission to resume browser automation.
 
 
-## Current chat catalog routing — 23.11.2026
+## Current chat catalog routing — 27.11.2026
+
+### BMW oil filter after front brake pads — owner-confirmed live
+
+- Dialogs #1315, #1377 and #1378 returned HTTP 500 when the customer clicked «Готово, дальше» after selecting front brake pads. The chat's generic name filter could discard BMW's «К-т сменного элемента масляного фильтра» and then try to display a candidate from the empty list.
+- The chat now keeps verified engine oil-filter elements and advances to them after the brake-pad selection. An existing chat with an empty filter selection looks up the element using its saved vehicle. If the catalog cannot verify a part, the chat offers manager assistance and continues with the remaining requested items. See [chat routing](api/chat.js) and [Laximo catalog matching](lib/laximo.js).
+- Offline replay covered BMW X6 M50iX by VIN and BMW X5 40iX by model, plus saved chat recovery and a catalog timeout. All **30/30** offline test files passed. The owner confirmed the flow works after redeploying [`975412f`](https://github.com/Aris1672/Car-Parts-Ai-Recommendation/commit/975412f7b0765014ff40790419778c4877dac6c3) on 27.11.2026. See the [regression test](scripts/test-oil-filter-continuation.js).
 
 ### BMW X-series differential assemblies — owner-confirmed live
 
@@ -47,7 +53,7 @@ This rule applies to complete assemblies on BMW X-series vehicles, not covers, s
 
 Dialog turns #1238/#1257 offered unrelated groups, and #1263/#1266 reached the manager without a diagram. After an exact-name miss for «продольный нижний рычаг передний», search «поперечный рычаг передний», then «поперечный рычаг». Exclude dampers and upper/rear arms; verify the candidates in the selected vehicle’s group 31 diagram rather than requiring every search result to share the same unit reference and position. The owner’s live 40dX screenshot shows position 4 marked with «Левый» and «Правый» choices. The 40iX variation is covered by mocked tests; live confirmation was not supplied. Exported traces record search counts, eligible OEMs, and the group/position checks. See [control-arm regression tests](<scripts/test-front-lower-arm.js>).
 
-**Validation:** the last application test run passed **29/29** offline test files. This handoff update changes documentation only. The ABCP operating restrictions above are unchanged.
+**Validation on 23.11.2026:** the differential and front lower control-arm changes passed **29/29** offline test files.
 
 ## Historical verification — Live ABCP session reuse and replacement (20.11.2026, 16:47 Moscow)
 
